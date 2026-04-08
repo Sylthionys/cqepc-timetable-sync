@@ -1,0 +1,610 @@
+﻿<UserControl x:Class="CQEPC.TimetableSync.Presentation.Wpf.Views.ImportDiffPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Views">
+    <UserControl.Resources>
+        <Style x:Key="DiffSectionStyle" TargetType="Border" BasedOn="{StaticResource CardBorderStyle}">
+            <Setter Property="CornerRadius" Value="22" />
+            <Setter Property="Padding" Value="20" />
+        </Style>
+
+        <Style x:Key="DiffBodyTextStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="LineHeight" Value="20" />
+        </Style>
+
+        <Style x:Key="DiffBadgeStyle" TargetType="Border">
+            <Setter Property="Padding" Value="9,4" />
+            <Setter Property="CornerRadius" Value="999" />
+        </Style>
+
+        <Style x:Key="DiffItemShellStyle" TargetType="Border">
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="Padding" Value="16" />
+            <Setter Property="CornerRadius" Value="16" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+
+        <Style x:Key="DiffItemTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="DiffCheckShellStyle" TargetType="Border">
+            <Setter Property="Width" Value="38" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="19" />
+        </Style>
+
+        <Style x:Key="DiffTimePanelStyle" TargetType="Border">
+            <Setter Property="Padding" Value="12" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="14" />
+        </Style>
+
+        <Style x:Key="DiffStretchItemContainerStyle" TargetType="ContentPresenter">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+        </Style>
+
+        <Style x:Key="ImportModeChipStyle" TargetType="ToggleButton">
+            <Setter Property="MinWidth" Value="112" />
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="Margin" Value="0,0,8,8" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Chrome"
+                                Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="12">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HighlightSurfaceBrush}" />
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.96" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <ScrollViewer AutomationProperties.AutomationId="Import.PageRoot"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <Grid Margin="18"
+                  Style="{StaticResource PageRootStyle}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <ContentControl AutomationProperties.AutomationId="Import.HeaderSection">
+                    <Border Padding="14"
+                            Background="{DynamicResource SurfaceBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="18">
+                        <Grid AutomationProperties.AutomationId="Import.ActionBar">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <WrapPanel VerticalAlignment="Center">
+                                <Border Margin="0,0,10,0"
+                                        Style="{StaticResource CompactChipBorderStyle}">
+                                    <TextBlock Foreground="{DynamicResource AccentStrongBrush}"
+                                               FontWeight="SemiBold"
+                                               Text="{Binding SelectedProviderSummary}" />
+                                </Border>
+                                <TextBlock VerticalAlignment="Center"
+                                           Style="{StaticResource MetaTextStyle}"
+                                           FontWeight="SemiBold"
+                                           Text="{Binding SelectionSummary}" />
+                            </WrapPanel>
+
+                            <WrapPanel Grid.Column="1"
+                                       Margin="16,0,0,0"
+                                       VerticalAlignment="Center">
+                                <Button Padding="20,12"
+                                        AutomationProperties.AutomationId="Import.ApplySelected"
+                                        Style="{StaticResource PrimaryButtonStyle}"
+                                        Command="{Binding ApplySelectedCommand}"
+                                        Content="{Binding ApplySelectedLabel}" />
+                                <Button Margin="8,0,0,0"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Command="{Binding SelectAllCommand}"
+                                        Content="{DynamicResource ImportSelectAllButton}" />
+                                <Button Margin="8,0,0,0"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Command="{Binding ClearAllCommand}"
+                                        Content="{DynamicResource ImportClearAllButton}" />
+                            </WrapPanel>
+                        </Grid>
+                    </Border>
+                </ContentControl>
+
+                <StackPanel Grid.Row="1"
+                            Margin="0,14,0,18">
+                    <ContentControl AutomationProperties.AutomationId="Import.UnresolvedSection"
+                                    Visibility="{Binding HasUnresolvedItems, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Border Margin="0,0,0,14"
+                                Style="{StaticResource DiffSectionStyle}">
+                            <StackPanel>
+                            <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                                       Text="{DynamicResource ImportUnresolvedTitle}" />
+                            <TextBlock Margin="0,8,0,0"
+                                       FontSize="22"
+                                       FontWeight="SemiBold"
+                                       Text="{DynamicResource ImportUnresolvedTitle}" />
+
+                            <ItemsControl Margin="0,18,0,0"
+                                          AutomationProperties.AutomationId="Import.UnresolvedCourseGroups"
+                                          ItemsSource="{Binding UnresolvedCourseGroups}">
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style BasedOn="{StaticResource DiffStretchItemContainerStyle}"
+                                           TargetType="ContentPresenter" />
+                                </ItemsControl.ItemContainerStyle>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Style="{StaticResource DiffItemShellStyle}"
+                                                Background="{DynamicResource WarningSurfaceBrush}"
+                                                BorderBrush="{DynamicResource WarningBrush}">
+                                            <StackPanel>
+                                                <TextBlock Style="{StaticResource DiffItemTitleStyle}"
+                                                           Text="{Binding Title}" />
+                                                <TextBlock Margin="0,8,0,0"
+                                                           Style="{StaticResource DiffBodyTextStyle}"
+                                                           Text="{Binding Summary}" />
+                                                <ItemsControl Margin="0,14,0,0"
+                                                              ItemsSource="{Binding TimeItems}">
+                                                    <ItemsControl.ItemContainerStyle>
+                                                        <Style BasedOn="{StaticResource DiffStretchItemContainerStyle}"
+                                                               TargetType="ContentPresenter" />
+                                                    </ItemsControl.ItemContainerStyle>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Button Margin="0,0,0,10"
+                                                                    Padding="0"
+                                                                    Background="Transparent"
+                                                                    BorderThickness="0"
+                                                                    HorizontalAlignment="Stretch"
+                                                                    HorizontalContentAlignment="Stretch"
+                                                                    Command="{Binding OpenEditorCommand}">
+                                                                <Border Style="{StaticResource DiffTimePanelStyle}">
+                                                                    <StackPanel>
+                                                                        <TextBlock FontWeight="SemiBold"
+                                                                                   Text="{Binding Summary}" />
+                                                                        <TextBlock Margin="0,6,0,0"
+                                                                                   Style="{StaticResource DiffBodyTextStyle}"
+                                                                                   Text="{Binding Details}" />
+                                                                    </StackPanel>
+                                                                </Border>
+                                                            </Button>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </ContentControl>
+
+                    <ContentControl AutomationProperties.AutomationId="Import.DeletedSection"
+                                    Visibility="{Binding HasDeletedChanges, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Border Margin="0,0,0,14"
+                                Style="{StaticResource DiffSectionStyle}">
+                            <StackPanel>
+                            <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                                       Text="{DynamicResource ImportDeletedTitle}" />
+                            <TextBlock Margin="0,8,0,0"
+                                       FontSize="22"
+                                       FontWeight="SemiBold"
+                                       Text="{DynamicResource ImportDeletedTitle}" />
+
+                            <ItemsControl Margin="0,18,0,0"
+                                          AutomationProperties.AutomationId="Import.DeletedChanges"
+                                          ItemsSource="{Binding DeletedChangeGroups}">
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style BasedOn="{StaticResource DiffStretchItemContainerStyle}"
+                                           TargetType="ContentPresenter" />
+                                </ItemsControl.ItemContainerStyle>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Style="{StaticResource DiffItemShellStyle}"
+                                                Background="{DynamicResource DangerSurfaceBrush}"
+                                                BorderBrush="{DynamicResource DangerBrush}">
+                                            <StackPanel>
+                                                <TextBlock Style="{StaticResource DiffItemTitleStyle}"
+                                                           Text="{Binding Title}"
+                                                           TextDecorations="Strikethrough" />
+                                                <TextBlock Margin="0,8,0,0"
+                                                           Style="{StaticResource DiffBodyTextStyle}"
+                                                           Text="{Binding Summary}" />
+                                                <ItemsControl Margin="0,14,0,0"
+                                                              ItemsSource="{Binding TimeItems}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Margin="0,0,0,10"
+                                                                    Style="{StaticResource DiffTimePanelStyle}">
+                                                                <StackPanel>
+                                                                    <TextBlock FontWeight="SemiBold"
+                                                                               Text="{Binding Summary}"
+                                                                               TextDecorations="Strikethrough" />
+                                                                    <TextBlock Margin="0,6,0,0"
+                                                                               Style="{StaticResource DiffBodyTextStyle}"
+                                                                               Text="{Binding Details}" />
+                                                                </StackPanel>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </ContentControl>
+
+                    <ContentControl AutomationProperties.AutomationId="Import.ParsedCoursesSection"
+                                    Visibility="{Binding HasParsedCourses, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Border Margin="0,0,0,14"
+                                Style="{StaticResource DiffSectionStyle}">
+                            <StackPanel>
+                            <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                                       Text="{DynamicResource ImportParsedCoursesTitle}" />
+                            <TextBlock Margin="0,8,0,0"
+                                       FontSize="22"
+                                       FontWeight="SemiBold"
+                                       Text="{DynamicResource ImportParsedCoursesTitle}" />
+                            <WrapPanel Margin="0,12,0,0">
+                                <ToggleButton AutomationProperties.AutomationId="Import.ParsedCourses.Mode.RepeatRules"
+                                              Command="{Binding ShowParsedCourseRepeatRulesCommand}"
+                                              IsChecked="{Binding IsParsedCourseDisplayModeRepeatRules, Mode=OneWay}"
+                                              Style="{StaticResource ImportModeChipStyle}"
+                                              Content="{DynamicResource ImportParsedCoursesModeRepeatRules}" />
+                                <ToggleButton AutomationProperties.AutomationId="Import.ParsedCourses.Mode.AllTimes"
+                                              Command="{Binding ShowParsedCourseAllTimesCommand}"
+                                              IsChecked="{Binding IsParsedCourseDisplayModeAllTimes, Mode=OneWay}"
+                                              Style="{StaticResource ImportModeChipStyle}"
+                                              Content="{DynamicResource ImportParsedCoursesModeAllTimes}" />
+                            </WrapPanel>
+                            <TextBlock Margin="0,10,0,0"
+                                       AutomationProperties.AutomationId="Import.ParsedCoursesHint"
+                                       Style="{StaticResource DiffBodyTextStyle}"
+                                       Text="{Binding ParsedCoursesHint}" />
+
+                            <ItemsControl Margin="0,18,0,0"
+                                          AutomationProperties.AutomationId="Import.ParsedCourseGroups"
+                                          ItemsSource="{Binding ParsedCourseGroups}">
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style BasedOn="{StaticResource DiffStretchItemContainerStyle}"
+                                           TargetType="ContentPresenter" />
+                                </ItemsControl.ItemContainerStyle>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Style="{StaticResource DiffItemShellStyle}"
+                                                Background="{DynamicResource PanelBrush}"
+                                                BorderBrush="{DynamicResource BorderBrush}">
+                                            <StackPanel>
+                                                <TextBlock Style="{StaticResource DiffItemTitleStyle}"
+                                                           Text="{Binding Title}" />
+                                                <TextBlock Margin="0,8,0,0"
+                                                           Style="{StaticResource DiffBodyTextStyle}"
+                                                           Text="{Binding Summary}" />
+                                                <ItemsControl Margin="0,14,0,0"
+                                                              ItemsSource="{Binding TimeItems}">
+                                                    <ItemsControl.ItemContainerStyle>
+                                                        <Style BasedOn="{StaticResource DiffStretchItemContainerStyle}"
+                                                               TargetType="ContentPresenter" />
+                                                    </ItemsControl.ItemContainerStyle>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Button Margin="0,0,0,10"
+                                                                    Padding="0"
+                                                                    Background="Transparent"
+                                                                    BorderThickness="0"
+                                                                    HorizontalAlignment="Stretch"
+                                                                    HorizontalContentAlignment="Stretch"
+                                                                    Command="{Binding OpenEditorCommand}">
+                                                                <Border Style="{StaticResource DiffTimePanelStyle}">
+                                                                    <StackPanel>
+                                                                        <TextBlock FontWeight="SemiBold"
+                                                                                   Text="{Binding Summary}" />
+                                                                        <TextBlock Margin="0,6,0,0"
+                                                                                   Style="{StaticResource DiffBodyTextStyle}"
+                                                                                   Text="{Binding Details}" />
+                                                                    </StackPanel>
+                                                                </Border>
+                                                            </Button>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </ContentControl>
+
+                    <ContentControl AutomationProperties.AutomationId="Import.AddedSection"
+                                    Visibility="{Binding HasAddedChanges, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Border Margin="0,0,0,14"
+                                Style="{StaticResource DiffSectionStyle}">
+                            <StackPanel>
+                            <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                                       Text="{DynamicResource ImportAddedTitle}" />
+                            <TextBlock Margin="0,8,0,0"
+                                       FontSize="22"
+                                       FontWeight="SemiBold"
+                                       Text="{DynamicResource ImportAddedTitle}" />
+
+                            <ItemsControl Margin="0,18,0,0"
+                                          AutomationProperties.AutomationId="Import.AddedChanges"
+                                          ItemsSource="{Binding AddedChangeGroups}">
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style BasedOn="{StaticResource DiffStretchItemContainerStyle}"
+                                           TargetType="ContentPresenter" />
+                                </ItemsControl.ItemContainerStyle>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Style="{StaticResource DiffItemShellStyle}"
+                                                Background="{DynamicResource SuccessSurfaceBrush}"
+                                                BorderBrush="{DynamicResource SuccessBrush}">
+                                            <StackPanel>
+                                                <TextBlock Style="{StaticResource DiffItemTitleStyle}"
+                                                           Text="{Binding Title}" />
+                                                <TextBlock Margin="0,8,0,0"
+                                                           Style="{StaticResource DiffBodyTextStyle}"
+                                                           Text="{Binding Summary}" />
+                                                <ItemsControl Margin="0,14,0,0"
+                                                              ItemsSource="{Binding TimeItems}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Margin="0,0,0,10"
+                                                                    Style="{StaticResource DiffTimePanelStyle}">
+                                                                <StackPanel>
+                                                                    <TextBlock FontWeight="SemiBold"
+                                                                               Text="{Binding Summary}" />
+                                                                    <TextBlock Margin="0,6,0,0"
+                                                                               Style="{StaticResource DiffBodyTextStyle}"
+                                                                               Text="{Binding Details}" />
+                                                                </StackPanel>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </ContentControl>
+
+                    <ContentControl AutomationProperties.AutomationId="Import.TimeProfileFallbackSection"
+                                    Visibility="{Binding HasTimeProfileFallbackConfirmations, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Border Margin="0,0,0,14"
+                                Style="{StaticResource DiffSectionStyle}">
+                            <StackPanel>
+                                <DockPanel LastChildFill="False">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                                                   Text="{DynamicResource ImportTimeProfileFallbackTitle}" />
+                                        <TextBlock Margin="0,8,0,0"
+                                                   FontSize="22"
+                                                   FontWeight="SemiBold"
+                                                   Text="{DynamicResource ImportTimeProfileFallbackTitle}" />
+                                        <TextBlock Margin="0,10,0,0"
+                                                   Style="{StaticResource DiffBodyTextStyle}"
+                                                   Text="{DynamicResource ImportTimeProfileFallbackHint}" />
+                                    </StackPanel>
+                                    <Border DockPanel.Dock="Right"
+                                            Style="{StaticResource DiffBadgeStyle}"
+                                            Background="{DynamicResource WarningSurfaceBrush}">
+                                        <TextBlock FontSize="11"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource WarningBrush}"
+                                                   Text="{DynamicResource ImportTimeProfileFallbackTitle}" />
+                                    </Border>
+                                </DockPanel>
+
+                                <ItemsControl Margin="0,18,0,0"
+                                              ItemsSource="{Binding TimeProfileFallbackConfirmations}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource DiffItemShellStyle}"
+                                                    Background="{DynamicResource WarningSurfaceBrush}"
+                                                    BorderBrush="{DynamicResource WarningBrush}">
+                                                <StackPanel>
+                                                    <TextBlock Style="{StaticResource DiffItemTitleStyle}"
+                                                               Text="{Binding Title}" />
+                                                    <TextBlock Margin="0,8,0,0"
+                                                               Style="{StaticResource DiffBodyTextStyle}"
+                                                               Text="{Binding ClassName}" />
+                                                    <TextBlock Margin="0,4,0,0"
+                                                               Style="{StaticResource DiffBodyTextStyle}"
+                                                               Text="{Binding Summary}" />
+                                                    <TextBlock Margin="0,10,0,0"
+                                                               Style="{StaticResource DiffBodyTextStyle}"
+                                                               Text="{Binding Reason}" />
+                                                    <Border Margin="0,14,0,0"
+                                                            Style="{StaticResource DiffTimePanelStyle}">
+                                                        <StackPanel>
+                                                            <TextBlock FontWeight="SemiBold"
+                                                                       Text="{Binding AppliedProfile}" />
+                                                            <TextBlock Margin="0,6,0,0"
+                                                                       Style="{StaticResource DiffBodyTextStyle}"
+                                                                       Text="{Binding PreferredProfile}"
+                                                                       Visibility="{Binding HasPreferredProfile, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                            <TextBlock Margin="0,10,0,0"
+                                                                       Style="{StaticResource DiffBodyTextStyle}"
+                                                                       Text="{Binding RawSourceText}" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </ContentControl>
+
+                    <ContentControl AutomationProperties.AutomationId="Import.UpdatedSection"
+                                    Visibility="{Binding HasUpdatedChanges, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Border Margin="0,0,0,14"
+                                Style="{StaticResource DiffSectionStyle}">
+                            <StackPanel>
+                            <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                                       Text="{DynamicResource ImportUpdatedTitle}" />
+                            <TextBlock Margin="0,8,0,0"
+                                       FontSize="22"
+                                       FontWeight="SemiBold"
+                                       Text="{DynamicResource ImportUpdatedTitle}" />
+
+                            <ItemsControl Margin="0,18,0,0"
+                                          AutomationProperties.AutomationId="Import.UpdatedChanges"
+                                          ItemsSource="{Binding UpdatedChanges}">
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style BasedOn="{StaticResource DiffStretchItemContainerStyle}"
+                                           TargetType="ContentPresenter" />
+                                </ItemsControl.ItemContainerStyle>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Padding="0"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Stretch"
+                                                Command="{Binding ToggleSelectionCommand}">
+                                            <Border Style="{StaticResource DiffItemShellStyle}"
+                                                    Background="{DynamicResource PanelBrush}"
+                                                    BorderBrush="{DynamicResource AccentBrush}">
+                                                <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="14" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <Border Style="{StaticResource DiffCheckShellStyle}"
+                                                        VerticalAlignment="Top">
+                                                    <CheckBox HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center"
+                                                              IsHitTestVisible="False"
+                                                              IsChecked="{Binding IsSelected, Mode=TwoWay}" />
+                                                </Border>
+                                                <StackPanel Grid.Column="2">
+                                                    <DockPanel LastChildFill="True">
+                                                        <Border DockPanel.Dock="Right"
+                                                                Style="{StaticResource DiffBadgeStyle}"
+                                                                Background="{Binding TargetBackgroundHex}">
+                                                            <TextBlock FontSize="11"
+                                                                       FontWeight="SemiBold"
+                                                                       Foreground="{Binding TargetForegroundHex}"
+                                                                       Text="{Binding TargetLabel}" />
+                                                        </Border>
+                                                        <TextBlock Style="{StaticResource DiffItemTitleStyle}"
+                                                                   Text="{Binding Title}" />
+                                                    </DockPanel>
+                                                    <TextBlock Margin="0,8,0,0"
+                                                               Style="{StaticResource DiffBodyTextStyle}"
+                                                               Text="{Binding Summary}" />
+                                                    <TextBlock Margin="0,4,0,0"
+                                                               Style="{StaticResource DiffBodyTextStyle}"
+                                                               Text="{Binding TargetSummary}" />
+                                                    <Grid Margin="0,14,0,0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="12" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Style="{StaticResource DiffTimePanelStyle}">
+                                                            <StackPanel>
+                                                                <TextBlock FontWeight="SemiBold"
+                                                                           Text="{DynamicResource ImportBeforeTitle}" />
+                                                                <TextBlock Margin="0,8,0,0"
+                                                                           Text="{Binding BeforeTime}" />
+                                                                <TextBlock Margin="0,4,0,0"
+                                                                           Style="{StaticResource DiffBodyTextStyle}"
+                                                                           Text="{Binding BeforeLocation}" />
+                                                                <TextBlock Margin="0,4,0,0"
+                                                                           Style="{StaticResource DiffBodyTextStyle}"
+                                                                           Text="{Binding BeforeNotes}" />
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <Border Grid.Column="2"
+                                                                Style="{StaticResource DiffTimePanelStyle}"
+                                                                Background="{DynamicResource HighlightSurfaceBrush}"
+                                                                BorderBrush="{DynamicResource StrongBorderBrush}">
+                                                            <StackPanel>
+                                                                <TextBlock FontWeight="SemiBold"
+                                                                           Text="{DynamicResource ImportAfterTitle}" />
+                                                                <TextBlock Margin="0,8,0,0"
+                                                                           Text="{Binding AfterTime}" />
+                                                                <TextBlock Margin="0,4,0,0"
+                                                                           Style="{StaticResource DiffBodyTextStyle}"
+                                                                           Text="{Binding AfterLocation}" />
+                                                                <TextBlock Margin="0,4,0,0"
+                                                                           Style="{StaticResource DiffBodyTextStyle}"
+                                                                           Text="{Binding AfterNotes}" />
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </Grid>
+                                                </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </ContentControl>
+
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <Grid Visibility="{Binding CourseEditor.IsOpen, Converter={StaticResource BooleanToVisibilityConverter}}"
+              Background="{DynamicResource OverlayBackdropBrush}">
+            <views:CourseEditorOverlay Margin="32"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       DataContext="{Binding CourseEditor}" />
+        </Grid>
+    </Grid>
+</UserControl>
+

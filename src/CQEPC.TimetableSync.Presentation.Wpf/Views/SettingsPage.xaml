@@ -1,0 +1,852 @@
+﻿<UserControl x:Class="CQEPC.TimetableSync.Presentation.Wpf.Views.SettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:behaviors="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Behaviors"
+             xmlns:resources="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Resources">
+    <UserControl.Resources>
+        <DataTemplate x:Key="StringComboTemplate">
+            <TextBlock VerticalAlignment="Center"
+                       Text="{Binding}" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="TimeProfileOptionTemplate">
+            <TextBlock VerticalAlignment="Center"
+                       Text="{Binding DisplayName}" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="TimeProfileModeOptionTemplate">
+            <TextBlock VerticalAlignment="Center"
+                       Text="{Binding DisplayName}" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="ProviderOptionTemplate">
+            <TextBlock VerticalAlignment="Center"
+                       Text="{Binding DisplayName}" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="WeekStartOptionTemplate">
+            <TextBlock VerticalAlignment="Center"
+                       Text="{Binding DisplayName}" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="LocalizationOptionTemplate">
+            <TextBlock VerticalAlignment="Center"
+                       Text="{Binding DisplayName}" />
+        </DataTemplate>
+
+        <Style x:Key="SettingsStatusCardStyle" TargetType="Border">
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="Padding" Value="16" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="18" />
+        </Style>
+
+        <Style x:Key="SettingsComboLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        </Style>
+
+        <Style x:Key="SettingsMetaTextStyle" TargetType="TextBlock" BasedOn="{StaticResource MetaTextStyle}">
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+
+        <Style x:Key="SettingsSurfacePanelStyle" TargetType="Border">
+            <Setter Property="Padding" Value="16" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="18" />
+        </Style>
+
+        <Style x:Key="VisibleWhenTrueStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="VisibleWhenFalseStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Visible" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="StaticSelectionFieldStyle" TargetType="Border">
+            <Setter Property="MinHeight" Value="48" />
+            <Setter Property="Padding" Value="16,11" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="16" />
+        </Style>
+
+        <Style x:Key="ThemeToggleButtonStyle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="64" />
+            <Setter Property="Height" Value="64" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Root"
+                                Background="{DynamicResource SurfaceBrush}"
+                                BorderBrush="{DynamicResource StrongBorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="32">
+                            <Grid>
+                                <TextBlock x:Name="SunIcon"
+                                           FontFamily="Segoe Fluent Icons"
+                                           FontSize="18"
+                                           Foreground="{DynamicResource AccentStrongBrush}"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Text="&#xE706;">
+                                    <TextBlock.RenderTransform>
+                                        <ScaleTransform x:Name="SunScale"
+                                                        ScaleX="1"
+                                                        ScaleY="1" />
+                                    </TextBlock.RenderTransform>
+                                </TextBlock>
+                                <TextBlock x:Name="MoonIcon"
+                                           FontFamily="Segoe Fluent Icons"
+                                           FontSize="18"
+                                           Foreground="{DynamicResource AccentStrongBrush}"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Text="&#xE708;"
+                                           Opacity="0">
+                                    <TextBlock.RenderTransform>
+                                        <TransformGroup>
+                                            <ScaleTransform x:Name="MoonScale"
+                                                            ScaleX="0.76"
+                                                            ScaleY="0.76" />
+                                            <RotateTransform x:Name="MoonRotate"
+                                                             Angle="-32" />
+                                        </TransformGroup>
+                                    </TextBlock.RenderTransform>
+                                </TextBlock>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource HighlightSurfaceBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource HighlightSurfaceBrush}" />
+                            </Trigger>
+                            <EventTrigger RoutedEvent="ToggleButton.Checked">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="SunIcon"
+                                                         Storyboard.TargetProperty="Opacity"
+                                                         To="0"
+                                                         Duration="0:0:0.2" />
+                                        <DoubleAnimation Storyboard.TargetName="MoonIcon"
+                                                         Storyboard.TargetProperty="Opacity"
+                                                         To="1"
+                                                         Duration="0:0:0.24"
+                                                         EasingFunction="{StaticResource StrongEase}" />
+                                        <DoubleAnimation Storyboard.TargetName="SunScale"
+                                                         Storyboard.TargetProperty="ScaleX"
+                                                         To="0.78"
+                                                         Duration="0:0:0.24" />
+                                        <DoubleAnimation Storyboard.TargetName="SunScale"
+                                                         Storyboard.TargetProperty="ScaleY"
+                                                         To="0.78"
+                                                         Duration="0:0:0.24" />
+                                        <DoubleAnimation Storyboard.TargetName="MoonScale"
+                                                         Storyboard.TargetProperty="ScaleX"
+                                                         To="1"
+                                                         Duration="0:0:0.24" />
+                                        <DoubleAnimation Storyboard.TargetName="MoonScale"
+                                                         Storyboard.TargetProperty="ScaleY"
+                                                         To="1"
+                                                         Duration="0:0:0.24" />
+                                        <DoubleAnimation Storyboard.TargetName="MoonRotate"
+                                                         Storyboard.TargetProperty="Angle"
+                                                         To="0"
+                                                         Duration="0:0:0.24"
+                                                         EasingFunction="{StaticResource StrongEase}" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                            <EventTrigger RoutedEvent="ToggleButton.Unchecked">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="SunIcon"
+                                                         Storyboard.TargetProperty="Opacity"
+                                                         To="1"
+                                                         Duration="0:0:0.2" />
+                                        <DoubleAnimation Storyboard.TargetName="MoonIcon"
+                                                         Storyboard.TargetProperty="Opacity"
+                                                         To="0"
+                                                         Duration="0:0:0.24"
+                                                         EasingFunction="{StaticResource StrongEase}" />
+                                        <DoubleAnimation Storyboard.TargetName="SunScale"
+                                                         Storyboard.TargetProperty="ScaleX"
+                                                         To="1"
+                                                         Duration="0:0:0.24" />
+                                        <DoubleAnimation Storyboard.TargetName="SunScale"
+                                                         Storyboard.TargetProperty="ScaleY"
+                                                         To="1"
+                                                         Duration="0:0:0.24" />
+                                        <DoubleAnimation Storyboard.TargetName="MoonScale"
+                                                         Storyboard.TargetProperty="ScaleX"
+                                                         To="0.76"
+                                                         Duration="0:0:0.24" />
+                                        <DoubleAnimation Storyboard.TargetName="MoonScale"
+                                                         Storyboard.TargetProperty="ScaleY"
+                                                         To="0.76"
+                                                         Duration="0:0:0.24" />
+                                        <DoubleAnimation Storyboard.TargetName="MoonRotate"
+                                                         Storyboard.TargetProperty="Angle"
+                                                         To="-32"
+                                                         Duration="0:0:0.24"
+                                                         EasingFunction="{StaticResource StrongEase}" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SettingsMiniActionButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="Width" Value="64" />
+            <Setter Property="Height" Value="64" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="Normal" />
+        </Style>
+
+    </UserControl.Resources>
+
+    <Grid x:Name="RootGrid">
+    <ScrollViewer AutomationProperties.AutomationId="Settings.PageRoot"
+                  VerticalScrollBarVisibility="Auto">
+        <Grid Margin="18"
+              Style="{StaticResource PageRootStyle}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel>
+                <Grid>
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                                   Text="{DynamicResource ShellSettingsTitle}" />
+                        <TextBlock Margin="0,6,0,0"
+                                   Style="{StaticResource PageTitleTextStyle}"
+                                   Text="{DynamicResource SettingsTitle}" />
+                        <TextBlock Margin="0,8,0,0"
+                                   Style="{StaticResource BodyTextStyle}"
+                                   Text="{DynamicResource SettingsSummary}" />
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+
+            <ContentControl Grid.Row="1"
+                            AutomationProperties.AutomationId="Settings.ImportSourcesSection">
+                <Border Margin="0,14,0,0"
+                        Style="{StaticResource SectionCardBorderStyle}"
+                        behaviors:FileDropBehavior.Command="{Binding Workspace.HandleDroppedFilesCommand}">
+                    <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                                       Text="{DynamicResource SettingsDropZoneTitle}" />
+                            <TextBlock Margin="0,8,0,0"
+                                       Style="{StaticResource SectionTitleTextStyle}"
+                                       Text="{DynamicResource SettingsDropZoneTitle}" />
+                            <TextBlock Margin="0,10,0,0"
+                                       Style="{StaticResource BodyTextStyle}"
+                                       Text="{DynamicResource SettingsDropZoneSummary}" />
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                Padding="14,8"
+                                AutomationProperties.AutomationId="Settings.BrowseLocalFiles"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Command="{Binding Workspace.BrowseFilesCommand}"
+                                Content="{DynamicResource SettingsBrowseLocalFilesButton}" />
+                    </Grid>
+
+                    <ItemsControl Margin="0,14,0,0"
+                                  AutomationProperties.AutomationId="Settings.SourceFileCards"
+                                  ItemsSource="{Binding Workspace.SourceFiles}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <ContentControl AutomationProperties.AutomationId="{Binding AutomationId}">
+                                    <Border Style="{StaticResource SettingsStatusCardStyle}">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <StackPanel>
+                                                <TextBlock Style="{StaticResource CardTitleTextStyle}"
+                                                           Text="{Binding Title}" />
+                                                <TextBlock Margin="0,4,0,0"
+                                                           Style="{StaticResource BodyTextStyle}"
+                                                           Text="{Binding Description}" />
+                                            </StackPanel>
+
+                                            <WrapPanel Grid.Column="1"
+                                                       Margin="12,0,0,0"
+                                                       VerticalAlignment="Top">
+                                                <Border Style="{StaticResource CompactChipBorderStyle}">
+                                                    <TextBlock Foreground="{DynamicResource AccentStrongBrush}"
+                                                               FontWeight="SemiBold"
+                                                               Text="{Binding ImportStatusText}" />
+                                                </Border>
+                                                <Border Margin="8,0,0,0"
+                                                        Style="{StaticResource CompactChipBorderStyle}">
+                                                    <TextBlock Foreground="{DynamicResource SubtleTextBrush}"
+                                                               FontWeight="SemiBold"
+                                                               Text="{Binding ParseStatusText}" />
+                                                </Border>
+                                            </WrapPanel>
+
+                                            <Border Grid.Row="1"
+                                                    Grid.ColumnSpan="2"
+                                                    Margin="0,12,0,0"
+                                                    Padding="12"
+                                                    Background="{DynamicResource SurfaceBrush}"
+                                                    BorderBrush="{DynamicResource BorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="14">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock FontWeight="SemiBold"
+                                                                   Text="{Binding SelectedFileName}" />
+                                                        <TextBlock Margin="0,4,0,0"
+                                                                   Style="{StaticResource SettingsMetaTextStyle}"
+                                                                   Text="{Binding LastSelectedSummary}" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1"
+                                                                Margin="12,0,0,0"
+                                                                HorizontalAlignment="Right">
+                                                        <TextBlock Style="{StaticResource SettingsMetaTextStyle}"
+                                                                   HorizontalAlignment="Right"
+                                                                   Text="{Binding ImportDetail}" />
+                                                        <TextBlock Margin="0,4,0,0"
+                                                                   Style="{StaticResource SettingsMetaTextStyle}"
+                                                                   HorizontalAlignment="Right"
+                                                                   Text="{Binding ParseDetail}" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+
+                                            <WrapPanel Grid.Row="2"
+                                                       Grid.ColumnSpan="2"
+                                                       Margin="0,12,0,0">
+                                                <Button MinWidth="96"
+                                                        Padding="14,8"
+                                                        AutomationProperties.AutomationId="{Binding BrowseAutomationId}"
+                                                        Style="{StaticResource SecondaryButtonStyle}"
+                                                        Command="{Binding BrowseCommand}"
+                                                        Content="{DynamicResource SettingsBrowseButton}" />
+                                                <Button MinWidth="96"
+                                                        Margin="8,0,0,0"
+                                                        Padding="14,8"
+                                                        AutomationProperties.AutomationId="{Binding ReplaceAutomationId}"
+                                                        Style="{StaticResource SecondaryButtonStyle}"
+                                                        Command="{Binding ReplaceCommand}"
+                                                        Content="{DynamicResource SettingsReplaceButton}" />
+                                                <Button MinWidth="96"
+                                                        Margin="8,0,0,0"
+                                                        Padding="14,8"
+                                                        AutomationProperties.AutomationId="{Binding RemoveAutomationId}"
+                                                        Style="{StaticResource SecondaryButtonStyle}"
+                                                        Command="{Binding RemoveCommand}"
+                                                        Content="{DynamicResource SettingsRemoveButton}" />
+                                            </WrapPanel>
+                                        </Grid>
+                                    </Border>
+                                </ContentControl>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </ContentControl>
+
+            <ContentControl Grid.Row="2"
+                            AutomationProperties.AutomationId="Settings.TimetableResolutionSection">
+                <Border Margin="0,18,0,0"
+                        Style="{StaticResource SectionCardBorderStyle}">
+                    <StackPanel>
+                    <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                               Text="{DynamicResource SettingsTimetableResolutionTitle}" />
+                    <TextBlock Margin="0,8,0,0"
+                               Style="{StaticResource SectionTitleTextStyle}"
+                               Text="{DynamicResource SettingsTimetableResolutionTitle}" />
+
+                    <Grid Margin="0,18,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.2*" />
+                            <ColumnDefinition Width="18" />
+                            <ColumnDefinition Width="0.8*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="{DynamicResource SettingsFirstWeekStartOverrideTitle}" />
+                            <DatePicker Margin="0,8,0,0"
+                                        AutomationProperties.AutomationId="Settings.FirstWeekStartDatePicker"
+                                        SelectedDate="{Binding Workspace.FirstWeekStartOverrideDate, Mode=TwoWay}" />
+                            <TextBlock Margin="0,8,0,0"
+                                       Foreground="{DynamicResource SubtleTextBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="{Binding Workspace.FirstWeekStartResolutionSummary}" />
+                            <Button Margin="0,10,0,0"
+                                    HorizontalAlignment="Left"
+                                    AutomationProperties.AutomationId="Settings.UseXlsDateButton"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Command="{Binding Workspace.UseAutoDerivedFirstWeekStartCommand}"
+                                    Content="{DynamicResource SettingsUseXlsDateButton}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="{DynamicResource SettingsParsedClassTitle}" />
+                            <ComboBox Margin="0,8,0,0"
+                                      AutomationProperties.AutomationId="Settings.ParsedClassCombo"
+                                      ItemsSource="{Binding Workspace.AvailableClasses}"
+                                      ItemTemplate="{StaticResource StringComboTemplate}"
+                                      SelectedItem="{Binding Workspace.SelectedParsedClassName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+                                <ComboBox.Style>
+                                    <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Workspace.ShowClassDropdown}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ComboBox.Style>
+                            </ComboBox>
+                            <Border Margin="0,8,0,0"
+                                    AutomationProperties.AutomationId="Settings.ParsedClassDisplay">
+                                <Border.Style>
+                                    <Style TargetType="Border" BasedOn="{StaticResource StaticSelectionFieldStyle}">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Workspace.ShowClassDropdown}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock VerticalAlignment="Center"
+                                           AutomationProperties.AutomationId="Settings.ParsedClassDisplayText"
+                                           Foreground="{DynamicResource TextBrush}"
+                                           Text="{Binding Workspace.SingleParsedClassName}" />
+                            </Border>
+                            <TextBlock Margin="0,8,0,0"
+                                       Foreground="{DynamicResource SubtleTextBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="{Binding Workspace.ClassSelectionMessage}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Margin="0,18,0,0"
+                               Style="{StaticResource SettingsComboLabelStyle}"
+                               Text="{DynamicResource SettingsDefaultTimeProfileModeTitle}" />
+                    <ComboBox Margin="0,8,0,0"
+                              AutomationProperties.AutomationId="Settings.TimeProfileModeCombo"
+                              ItemsSource="{Binding Workspace.TimeProfileDefaultModes}"
+                              ItemTemplate="{StaticResource TimeProfileModeOptionTemplate}"
+                              SelectedItem="{Binding Workspace.SelectedTimeProfileDefaultModeOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBlock Margin="0,16,0,0"
+                               Style="{StaticResource SettingsComboLabelStyle}"
+                               Text="{DynamicResource SettingsDefaultSpecificTimeProfileTitle}" />
+                    <ComboBox Margin="0,8,0,0"
+                              AutomationProperties.AutomationId="Settings.ExplicitTimeProfileCombo"
+                              ItemsSource="{Binding Workspace.TimeProfiles}"
+                              ItemTemplate="{StaticResource TimeProfileOptionTemplate}"
+                              IsEnabled="{Binding Workspace.IsExplicitDefaultTimeProfileMode}"
+                              SelectedItem="{Binding Workspace.SelectedExplicitTimeProfileOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Margin="0,18,0,0"
+                               Style="{StaticResource SettingsComboLabelStyle}"
+                               Text="{DynamicResource SettingsCourseTimeProfileOverridesTitle}" />
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="14" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox AutomationProperties.AutomationId="Settings.CourseOverrideCourseCombo"
+                                  ItemsSource="{Binding Workspace.CourseOverrideCourseTitles}"
+                                  ItemTemplate="{StaticResource StringComboTemplate}"
+                                  SelectedItem="{Binding Workspace.SelectedCourseOverrideCourseTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <ComboBox Grid.Column="2"
+                                  AutomationProperties.AutomationId="Settings.CourseOverrideProfileCombo"
+                                  ItemsSource="{Binding Workspace.TimeProfiles}"
+                                  ItemTemplate="{StaticResource TimeProfileOptionTemplate}"
+                                  SelectedValuePath="ProfileId"
+                                  SelectedValue="{Binding Workspace.SelectedCourseOverrideProfileId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button Grid.Column="3"
+                                Margin="12,0,0,0"
+                                AutomationProperties.AutomationId="Settings.AddCourseOverrideButton"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Command="{Binding Workspace.AddCourseTimeProfileOverrideCommand}"
+                                Content="{DynamicResource SettingsAddOverrideButton}" />
+                    </Grid>
+
+                    <ItemsControl Margin="0,14,0,0"
+                                  AutomationProperties.AutomationId="Settings.CourseTimeProfileOverrides"
+                                  ItemsSource="{Binding Workspace.CourseTimeProfileOverrides}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,0,10"
+                                        Padding="14"
+                                        Background="{DynamicResource SurfaceAltBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="16">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock FontWeight="SemiBold"
+                                                       Text="{Binding CourseTitle}" />
+                                            <TextBlock Margin="0,4,0,0"
+                                                       Foreground="{DynamicResource SubtleTextBrush}"
+                                                       Text="{Binding ProfileDisplayName}" />
+                                            <TextBlock Margin="0,4,0,0"
+                                                       Foreground="{DynamicResource SubtleTextBrush}"
+                                                       Text="{Binding StatusText}" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1"
+                                                Margin="12,0,0,0"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Command="{Binding RemoveCommand}"
+                                                Content="{DynamicResource SettingsRemoveButton}" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </ContentControl>
+
+            <ContentControl Grid.Row="3"
+                            AutomationProperties.AutomationId="Settings.ProviderDefaultsSection">
+                <Border Margin="0,18,0,0"
+                        Style="{StaticResource SectionCardBorderStyle}">
+                    <StackPanel>
+                    <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                               Text="{DynamicResource SettingsProviderDefaultsTitle}" />
+                    <TextBlock Margin="0,8,0,0"
+                               Style="{StaticResource SectionTitleTextStyle}"
+                               Text="{DynamicResource SettingsProviderDefaultsTitle}" />
+
+                    <TextBlock Margin="0,18,0,0"
+                               Style="{StaticResource SettingsComboLabelStyle}"
+                               Text="{DynamicResource SettingsDefaultProviderTitle}" />
+                    <ComboBox Margin="0,8,0,0"
+                              AutomationProperties.AutomationId="Settings.ProviderCombo"
+                              ItemsSource="{Binding Workspace.ProviderOptions}"
+                              ItemTemplate="{StaticResource ProviderOptionTemplate}"
+                              SelectedItem="{Binding Workspace.SelectedProviderOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Margin="0,18,0,0"
+                               Style="{StaticResource SettingsComboLabelStyle}"
+                               Text="{x:Static resources:UiText.SettingsDestinationCalendarTitle}" />
+                    <ComboBox Margin="0,8,0,0"
+                              AutomationProperties.AutomationId="Settings.DefaultCalendarCombo"
+                              ItemsSource="{Binding Workspace.CalendarDestinations}"
+                              ItemTemplate="{StaticResource StringComboTemplate}"
+                              SelectedItem="{Binding Workspace.SelectedCalendarDestination, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Margin="0,18,0,0"
+                               Style="{StaticResource SettingsComboLabelStyle}"
+                               Text="{x:Static resources:UiText.SettingsDestinationTaskListTitle}" />
+                    <ComboBox Margin="0,8,0,0"
+                              AutomationProperties.AutomationId="Settings.DefaultTaskListCombo"
+                              ItemsSource="{Binding Workspace.TaskListDestinations}"
+                              ItemTemplate="{StaticResource StringComboTemplate}"
+                              SelectedItem="{Binding Workspace.SelectedTaskListDestination, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                </Border>
+            </ContentControl>
+
+            <ContentControl Grid.Row="4"
+                            AutomationProperties.AutomationId="Settings.CalendarDisplaySection">
+                <Border Margin="0,18,0,0"
+                        Style="{StaticResource SectionCardBorderStyle}">
+                    <StackPanel>
+                    <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                               Text="{DynamicResource SettingsCalendarDisplayTitle}" />
+                    <TextBlock Margin="0,8,0,0"
+                               Style="{StaticResource SectionTitleTextStyle}"
+                               Text="{DynamicResource SettingsCalendarDisplayTitle}" />
+
+                    <Grid Margin="0,18,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="14" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Style="{StaticResource SettingsSurfacePanelStyle}">
+                            <StackPanel>
+                                <TextBlock FontWeight="SemiBold"
+                                           Text="{DynamicResource SettingsWeekStartsOnTitle}" />
+                                <ComboBox Margin="0,8,0,0"
+                                          AutomationProperties.AutomationId="Settings.WeekStartCombo"
+                                          ItemsSource="{Binding Workspace.WeekStartOptions}"
+                                          ItemTemplate="{StaticResource WeekStartOptionTemplate}"
+                                          SelectedItem="{Binding Workspace.SelectedWeekStartOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="2"
+                                Style="{StaticResource SettingsSurfacePanelStyle}">
+                            <StackPanel>
+                                <TextBlock FontWeight="SemiBold"
+                                           Text="{Binding Workspace.LanguageSelectionTitle}" />
+                                <ComboBox Margin="0,8,0,0"
+                                          AutomationProperties.AutomationId="Settings.LocalizationCombo"
+                                          ItemsSource="{Binding Workspace.LocalizationOptions}"
+                                          ItemTemplate="{StaticResource LocalizationOptionTemplate}"
+                                          SelectedValuePath="PreferredCultureName"
+                                          SelectedValue="{Binding Workspace.SelectedPreferredCultureName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Grid.Row="1"
+                                    Grid.ColumnSpan="3"
+                                    Margin="0,18,0,0"
+                                    HorizontalAlignment="Center">
+                            <TextBlock HorizontalAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       Text="{Binding Workspace.ThemeSelectionTitle}" />
+                            <TextBlock Margin="0,4,0,0"
+                                       HorizontalAlignment="Center"
+                                       Style="{StaticResource SettingsMetaTextStyle}"
+                                       Text="{Binding Workspace.ThemeSelectionSummary}" />
+                            <ToggleButton x:Name="ThemeToggleButton"
+                                          Margin="0,12,0,0"
+                                          AutomationProperties.AutomationId="Settings.ThemeToggle"
+                                          IsChecked="{Binding Workspace.IsDarkTheme, Mode=TwoWay}"
+                                          Style="{StaticResource ThemeToggleButtonStyle}"
+                                          ToolTip="{Binding Workspace.ThemeSelectionSummary}" />
+                        </StackPanel>
+
+                        <Button Grid.Row="2"
+                                Grid.ColumnSpan="3"
+                                Margin="0,20,0,0"
+                                HorizontalAlignment="Center"
+                                AutomationProperties.AutomationId="Settings.AboutButton"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Command="{Binding About.OpenCommand}"
+                                Content="{DynamicResource SettingsAboutButton}" />
+                    </Grid>
+                    </StackPanel>
+                </Border>
+            </ContentControl>
+
+            <ContentControl Grid.Row="5"
+                            AutomationProperties.AutomationId="Settings.ProviderSection">
+                <Border Margin="0,18,0,0"
+                        Style="{StaticResource SectionCardBorderStyle}">
+                    <StackPanel>
+                    <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                               Text="{DynamicResource SettingsProviderSectionEyebrow}" />
+                    <TextBlock Margin="0,8,0,0"
+                               Style="{StaticResource SectionTitleTextStyle}"
+                               Text="{DynamicResource SettingsProviderSectionTitle}" />
+
+                    <TextBlock Margin="0,18,0,0"
+                               Style="{StaticResource SettingsComboLabelStyle}"
+                               Text="{DynamicResource SettingsDefaultProviderTitle}" />
+                    <ComboBox Margin="0,8,0,0"
+                              AutomationProperties.AutomationId="Settings.ProviderCombo"
+                              ItemsSource="{Binding Workspace.ProviderOptions}"
+                              ItemTemplate="{StaticResource ProviderOptionTemplate}"
+                              SelectedItem="{Binding Workspace.SelectedProviderOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <StackPanel Margin="0,18,0,0"
+                                Visibility="{Binding Workspace.ShowGoogleProviderConfiguration, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock FontWeight="SemiBold"
+                                   Text="{DynamicResource SettingsGoogleConnectionTitle}" />
+                        <TextBlock Margin="0,6,0,0"
+                                   Foreground="{DynamicResource SubtleTextBrush}"
+                                   TextWrapping="Wrap"
+                                   Text="{Binding Workspace.GoogleConnectionSummary}" />
+                        <TextBlock Margin="0,14,0,0"
+                                   FontWeight="SemiBold"
+                                   Text="{DynamicResource SettingsGoogleOAuthJsonTitle}" />
+                        <TextBox Margin="0,8,0,0"
+                                 IsReadOnly="True"
+                                 Text="{Binding Workspace.GoogleOAuthClientConfigurationPath}" />
+                        <WrapPanel Margin="0,12,0,0">
+                            <Button Style="{StaticResource SecondaryButtonStyle}"
+                                    Command="{Binding Workspace.BrowseGoogleOAuthClientCommand}"
+                                    Content="{DynamicResource SettingsBrowseJsonButton}" />
+                            <Button Margin="10,0,0,0"
+                                    Style="{StaticResource PrimaryButtonStyle}"
+                                    Command="{Binding Workspace.ConnectGoogleCommand}"
+                                    IsEnabled="{Binding Workspace.HasGoogleOAuthClientConfigurationPath}"
+                                    Content="{DynamicResource SettingsConnectButton}" />
+                            <Button Margin="10,0,0,0"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Command="{Binding Workspace.RefreshGoogleCalendarsCommand}"
+                                    Content="{DynamicResource SettingsRefreshGoogleCalendarsButton}" />
+                        </WrapPanel>
+                        <TextBlock Margin="0,14,0,0"
+                                   FontWeight="SemiBold"
+                                   Text="{DynamicResource SettingsGoogleCalendarTitle}" />
+                        <ComboBox Margin="0,12,0,0"
+                                  ItemsSource="{Binding Workspace.GoogleWritableCalendars}"
+                                  ItemTemplate="{StaticResource StringComboTemplate}"
+                                  SelectedItem="{Binding Workspace.SelectedGoogleCalendarOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <CheckBox Margin="0,12,0,0"
+                                  IsChecked="{Binding Workspace.IsGoogleMorningTaskRuleEnabled, Mode=TwoWay}"
+                                  Content="{DynamicResource SettingsMorningTaskRuleTitle}" />
+                        <CheckBox Margin="0,6,0,0"
+                                  IsChecked="{Binding Workspace.IsGoogleAfternoonTaskRuleEnabled, Mode=TwoWay}"
+                                  Content="{DynamicResource SettingsAfternoonTaskRuleTitle}" />
+                    </StackPanel>
+
+                    <StackPanel Margin="0,18,0,0"
+                                Visibility="{Binding Workspace.ShowMicrosoftProviderConfiguration, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock FontWeight="SemiBold"
+                                   Text="{DynamicResource SettingsMicrosoftConnectionTitle}" />
+                        <TextBlock Margin="0,6,0,0"
+                                   Foreground="{DynamicResource SubtleTextBrush}"
+                                   TextWrapping="Wrap"
+                                   Text="{Binding Workspace.MicrosoftConnectionSummary}" />
+                        <TextBlock Margin="0,14,0,0"
+                                   FontWeight="SemiBold"
+                                   Text="{DynamicResource SettingsMicrosoftClientIdTitle}" />
+                        <TextBox Margin="0,8,0,0"
+                                 Text="{Binding Workspace.MicrosoftClientId, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+                        <TextBlock Margin="0,14,0,0"
+                                   FontWeight="SemiBold"
+                                   Text="{DynamicResource SettingsMicrosoftTenantIdTitle}" />
+                        <TextBox Margin="0,8,0,0"
+                                 Text="{Binding Workspace.MicrosoftTenantId, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+                        <CheckBox Margin="0,12,0,0"
+                                  IsChecked="{Binding Workspace.MicrosoftUseBroker, Mode=TwoWay}"
+                                  Content="{DynamicResource SettingsMicrosoftUseBrokerTitle}" />
+                        <WrapPanel Margin="0,12,0,0">
+                            <Button Style="{StaticResource PrimaryButtonStyle}"
+                                    Command="{Binding Workspace.ConnectMicrosoftCommand}"
+                                    IsEnabled="{Binding Workspace.HasMicrosoftClientId}"
+                                    Content="{DynamicResource SettingsConnectButton}" />
+                            <Button Margin="10,0,0,0"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Command="{Binding Workspace.RefreshMicrosoftDestinationsCommand}"
+                                    Content="{DynamicResource SettingsRefreshMicrosoftDestinationsButton}" />
+                        </WrapPanel>
+                        <TextBlock Margin="0,14,0,0"
+                                   FontWeight="SemiBold"
+                                   Text="{DynamicResource SettingsMicrosoftCalendarTitle}" />
+                        <ComboBox Margin="0,12,0,0"
+                                  ItemsSource="{Binding Workspace.MicrosoftWritableCalendars}"
+                                  ItemTemplate="{StaticResource StringComboTemplate}"
+                                  SelectedItem="{Binding Workspace.SelectedMicrosoftCalendarOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Margin="0,14,0,0"
+                                   FontWeight="SemiBold"
+                                   Text="{DynamicResource SettingsMicrosoftTaskListsTitle}" />
+                        <ComboBox Margin="0,12,0,0"
+                                  ItemsSource="{Binding Workspace.MicrosoftTaskLists}"
+                                  ItemTemplate="{StaticResource StringComboTemplate}"
+                                  SelectedItem="{Binding Workspace.SelectedMicrosoftTaskListOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    </StackPanel>
+                </Border>
+            </ContentControl>
+
+            <ContentControl Grid.Row="6"
+                            AutomationProperties.AutomationId="Settings.CategoryColorSection">
+                <Border Margin="0,18,0,18"
+                        Style="{StaticResource SectionCardBorderStyle}">
+                    <StackPanel>
+                    <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                               Text="{DynamicResource SettingsCategoryColorTitle}" />
+                    <TextBlock Margin="0,8,0,0"
+                               Style="{StaticResource SectionTitleTextStyle}"
+                               Text="{DynamicResource SettingsCategoryColorTitle}" />
+                    <ItemsControl Margin="0,18,0,0"
+                                  ItemsSource="{Binding Workspace.CourseTypeAppearances}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,0,10"
+                                        Padding="14"
+                                        Background="{DynamicResource SurfaceAltBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="16">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="1.05*" />
+                                            <ColumnDefinition Width="1.25*" />
+                                            <ColumnDefinition Width="96" />
+                                            <ColumnDefinition Width="40" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock VerticalAlignment="Center"
+                                                   FontWeight="SemiBold"
+                                                   Text="{Binding DisplayName}" />
+                                        <TextBox Grid.Column="1"
+                                                 Margin="10,0,0,0"
+                                                 Text="{Binding CategoryName, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+                                        <TextBox Grid.Column="2"
+                                                 Margin="10,0,0,0"
+                                                 Text="{Binding ColorHex, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+                                        <Border Grid.Column="3"
+                                                Margin="10,0,0,0"
+                                                Background="{Binding ColorHex}"
+                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="8" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    </StackPanel>
+                </Border>
+            </ContentControl>
+        </Grid>
+    </ScrollViewer>
+    </Grid>
+</UserControl>
+

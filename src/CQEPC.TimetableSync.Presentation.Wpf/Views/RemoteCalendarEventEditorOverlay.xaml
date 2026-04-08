@@ -1,0 +1,190 @@
+<UserControl x:Class="CQEPC.TimetableSync.Presentation.Wpf.Views.RemoteCalendarEventEditorOverlay"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <Style x:Key="RemoteEditorShellStyle" TargetType="Border" BasedOn="{StaticResource CardBorderStyle}">
+            <Setter Property="MaxWidth" Value="920" />
+            <Setter Property="MaxHeight" Value="720" />
+            <Setter Property="Padding" Value="26" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="CornerRadius" Value="30" />
+            <Setter Property="Effect" Value="{StaticResource PopupShadowEffect}" />
+        </Style>
+        <Style x:Key="RemoteEditorSectionStyle" TargetType="Border" BasedOn="{StaticResource PanelBorderStyle}">
+            <Setter Property="Padding" Value="18" />
+            <Setter Property="CornerRadius" Value="22" />
+        </Style>
+        <Style x:Key="RemoteEditorTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Padding" Value="14,11" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        </Style>
+    </UserControl.Resources>
+
+    <Border Style="{StaticResource RemoteEditorShellStyle}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="280" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel>
+                    <TextBlock Style="{StaticResource EyebrowTextStyle}" Text="{Binding Title}" />
+                    <TextBlock Margin="0,10,0,0"
+                               FontSize="30"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextBrush}"
+                               Text="{Binding PreviewTitle}" />
+                    <TextBlock Margin="0,12,0,0"
+                               Foreground="{DynamicResource SubtleTextBrush}"
+                               TextWrapping="Wrap"
+                               Text="{Binding Summary}" />
+                </StackPanel>
+
+                <Border Grid.Column="1"
+                        Margin="20,0,0,0"
+                        Style="{StaticResource RemoteEditorSectionStyle}"
+                        Background="{DynamicResource SurfaceAltBrush}"
+                        BorderBrush="{DynamicResource DividerBrush}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource EyebrowTextStyle}" Text="{DynamicResource HomeTimeLabel}" />
+                        <TextBlock Margin="0,8,0,0" FontSize="20" FontWeight="SemiBold" Text="{Binding TimeRangeSummary}" />
+                        <TextBlock Margin="0,8,0,0" Foreground="{DynamicResource SubtleTextBrush}" Text="{Binding DateRangeSummary}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Border Grid.Row="1"
+                    Margin="0,16,0,0"
+                    Padding="12"
+                    Background="{DynamicResource DangerSurfaceBrush}"
+                    BorderBrush="{DynamicResource DangerBrush}"
+                    BorderThickness="1"
+                    CornerRadius="16"
+                    Visibility="{Binding HasValidationMessage, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" Text="{Binding ValidationMessage}" />
+            </Border>
+
+            <Grid Grid.Row="2" Margin="0,18,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="24" />
+                    <ColumnDefinition Width="260" />
+                </Grid.ColumnDefinitions>
+
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <Border Style="{StaticResource RemoteEditorSectionStyle}">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource EyebrowTextStyle}" Text="{DynamicResource CourseEditorNameLabel}" />
+                                <TextBox Margin="0,10,0,0"
+                                         Style="{StaticResource RemoteEditorTextBoxStyle}"
+                                         FontSize="24"
+                                         FontWeight="SemiBold"
+                                         Text="{Binding EventTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <Grid Margin="0,18,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="16" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel>
+                                        <TextBlock Margin="0,0,0,8" Style="{StaticResource EyebrowTextStyle}" Text="{DynamicResource CourseEditorLocationLabel}" />
+                                        <TextBox Style="{StaticResource RemoteEditorTextBoxStyle}"
+                                                 Text="{Binding Location, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Margin="0,0,0,8" Style="{StaticResource EyebrowTextStyle}" Text="{DynamicResource RemoteCalendarEditorDescriptionLabel}" />
+                                        <TextBox MinHeight="96"
+                                                 Style="{StaticResource RemoteEditorTextBoxStyle}"
+                                                 AcceptsReturn="True"
+                                                 TextWrapping="Wrap"
+                                                 VerticalScrollBarVisibility="Auto"
+                                                 Text="{Binding Description, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Margin="0,18,0,0" Style="{StaticResource RemoteEditorSectionStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="16" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel>
+                                    <TextBlock Margin="0,0,0,8" Style="{StaticResource EyebrowTextStyle}" Text="{DynamicResource CourseEditorStartDateLabel}" />
+                                    <DatePicker SelectedDate="{Binding StartDate, Mode=TwoWay}" />
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Margin="0,0,0,8" Style="{StaticResource EyebrowTextStyle}" Text="{DynamicResource CourseEditorEndDateLabel}" />
+                                    <DatePicker SelectedDate="{Binding EndDate, Mode=TwoWay}" />
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="1" Margin="0,16,0,0">
+                                    <TextBlock Margin="0,0,0,8" Style="{StaticResource EyebrowTextStyle}" Text="{DynamicResource CourseEditorStartTimeLabel}" />
+                                    <TextBox Style="{StaticResource RemoteEditorTextBoxStyle}"
+                                             Text="{Binding StartTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,16,0,0">
+                                    <TextBlock Margin="0,0,0,8" Style="{StaticResource EyebrowTextStyle}" Text="{DynamicResource CourseEditorEndTimeLabel}" />
+                                    <TextBox Style="{StaticResource RemoteEditorTextBoxStyle}"
+                                             Text="{Binding EndTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <StackPanel Grid.Column="2">
+                    <Border Style="{StaticResource RemoteEditorSectionStyle}" Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource DividerBrush}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource EyebrowTextStyle}" Text="{DynamicResource CourseEditorStartDateLabel}" />
+                            <TextBlock Margin="0,8,0,0" FontSize="18" FontWeight="SemiBold" Text="{Binding DateRangeSummary}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Margin="0,14,0,0" Style="{StaticResource RemoteEditorSectionStyle}" Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource DividerBrush}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource EyebrowTextStyle}" Text="{DynamicResource HomeTimeLabel}" />
+                            <TextBlock Margin="0,8,0,0" FontSize="18" FontWeight="SemiBold" Text="{Binding TimeRangeSummary}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Margin="0,14,0,0" Style="{StaticResource RemoteEditorSectionStyle}" Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource DividerBrush}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource EyebrowTextStyle}" Text="{DynamicResource CourseEditorLocationLabel}" />
+                            <TextBlock Margin="0,8,0,0" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding LocationSummary}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+
+            <StackPanel Grid.Row="3" Margin="0,20,0,0" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Style="{StaticResource SecondaryButtonStyle}" Command="{Binding CancelCommand}" Content="{DynamicResource AboutCloseButton}" />
+                <Button Margin="10,0,0,0" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding SaveCommand}" Content="{DynamicResource CourseEditorSaveButton}" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

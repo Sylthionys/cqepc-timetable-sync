@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>CQEPC.TimetableSync.Presentation.Wpf</RootNamespace>
+    <ApplicationIcon>Assets\cqepc-logo.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="PdfPig" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CQEPC.TimetableSync.Application\CQEPC.TimetableSync.Application.csproj" />
+    <ProjectReference Include="..\CQEPC.TimetableSync.Infrastructure\CQEPC.TimetableSync.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\cqepc-logo.ico" />
+    <Resource Include="Assets\cqepc-logo.png" />
+    <Content Include="Assets\cqepc-logo.svg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Page Remove="Resources\Localization\Strings.en-US.xaml" />
+    <Page Remove="Resources\Localization\Strings.zh-CN.xaml" />
+    <Content Include="Resources\Localization\Strings.en-US.xaml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\Localization\Strings.zh-CN.xaml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

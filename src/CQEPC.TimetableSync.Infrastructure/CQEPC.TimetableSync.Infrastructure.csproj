@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ExcelDataReader" />
+    <PackageReference Include="Google.Apis.Auth" />
+    <PackageReference Include="Google.Apis.Calendar.v3" />
+    <PackageReference Include="Google.Apis.Tasks.v1" />
+    <PackageReference Include="Microsoft.Identity.Client" />
+    <PackageReference Include="Microsoft.Identity.Client.Broker" />
+    <PackageReference Include="PdfPig" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    <PackageReference Include="System.Text.Encoding.CodePages" />
+    <ProjectReference Include="..\CQEPC.TimetableSync.Application\CQEPC.TimetableSync.Application.csproj" />
+    <ProjectReference Include="..\CQEPC.TimetableSync.Domain\CQEPC.TimetableSync.Domain.csproj" />
+  </ItemGroup>
+</Project>

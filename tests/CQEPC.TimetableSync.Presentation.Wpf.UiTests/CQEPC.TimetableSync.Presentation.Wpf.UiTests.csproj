@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" />
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="FlaUI.Core" />
+    <PackageReference Include="FlaUI.UIA3" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="PdfPig" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="Xunit.StaFact" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CQEPC.TimetableSync.Application\CQEPC.TimetableSync.Application.csproj" />
+    <ProjectReference Include="..\..\src\CQEPC.TimetableSync.Infrastructure\CQEPC.TimetableSync.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\CQEPC.TimetableSync.Presentation.Wpf\CQEPC.TimetableSync.Presentation.Wpf.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>
