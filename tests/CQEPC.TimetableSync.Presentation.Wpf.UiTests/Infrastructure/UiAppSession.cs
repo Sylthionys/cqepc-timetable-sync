@@ -306,7 +306,7 @@ internal sealed class UiAppSession : IAsyncDisposable
     public string? FindVisiblePageRootId()
     {
         var window = GetActiveMainWindow();
-        foreach (var automationId in new[] { "Home.PageRoot", "Import.PageRoot", "Settings.PageRoot", "AboutOverlay.Root" })
+        foreach (var automationId in new[] { "AboutOverlay.Root", "ProgramSettingsOverlay.Root", "CourseEditorOverlay.Root", "Home.PageRoot", "Import.PageRoot", "Settings.PageRoot" })
         {
             if (window.FindFirstDescendant(cf => cf.ByAutomationId(automationId)) is not null)
             {
@@ -403,6 +403,10 @@ internal sealed class UiAppSession : IAsyncDisposable
 
     public Task CloseAboutOverlayAsync() => SendAutomationCommandAsync("close-about");
 
+    public Task OpenFirstHomeCourseEditorAsync() => SendAutomationCommandAsync("open-first-home-course-editor");
+
+    public Task OpenDatePickerDropdownAsync(string automationId) => SendAutomationCommandAsync("open-date-picker-dropdown", automationId);
+
     public async Task SelectComboBoxItemByIndexViaBridge(string automationId, int index)
     {
         var response = await SendAutomationRequestAsync("select-combo-index", automationId, index: index);
@@ -497,6 +501,36 @@ internal sealed class UiAppSession : IAsyncDisposable
         return response.Value;
     }
 
+    public async Task<string?> GetHomeSelectedDayStateAsync()
+    {
+        var response = await SendAutomationRequestAsync("get-home-selected-day-state");
+        if (response is null)
+        {
+            throw new XunitException("The automation bridge returned no response for the home-selected-day read request.");
+        }
+
+        if (!response.Success)
+        {
+            throw new XunitException($"The automation bridge failed to read the home-selected-day state: {response.Error}");
+        }
+
+        return response.Value;
+    }
+
+    public async Task SelectHomeDateAsync(DateOnly date)
+    {
+        var response = await SendAutomationRequestAsync("select-home-date", value: date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        if (response is null)
+        {
+            throw new XunitException("The automation bridge returned no response for the select-home-date request.");
+        }
+
+        if (!response.Success)
+        {
+            throw new XunitException($"The automation bridge failed to select the Home date: {response.Error}");
+        }
+    }
+
     public async Task<string?> GetWorkspaceStatusAsync()
     {
         var response = await SendAutomationRequestAsync("get-workspace-status");
@@ -513,11 +547,27 @@ internal sealed class UiAppSession : IAsyncDisposable
         return response.Value;
     }
 
-    public async Task<string?> ApplySelectedImportChangesViaBridgeAsync()
+    public async Task<string?> GetLocalizationStateAsync()
+    {
+        var response = await SendAutomationRequestAsync("get-localization-state");
+        if (response is null)
+        {
+            throw new XunitException("The automation bridge returned no response for the localization-state read request.");
+        }
+
+        if (!response.Success)
+        {
+            throw new XunitException($"The automation bridge failed to read localization state: {response.Error}");
+        }
+
+        return response.Value;
+    }
+
+    public async Task<string?> ApplySelectedImportChangesViaBridgeAsync(TimeSpan? timeout = null)
     {
         var response = await SendAutomationRequestAsync(
             "apply-selected-import-changes",
-            timeout: TimeSpan.FromMinutes(3));
+            timeout: timeout ?? TimeSpan.FromMinutes(3));
         if (response is null)
         {
             throw new XunitException("The automation bridge returned no response for the apply-selected-import-changes request.");
@@ -606,7 +656,7 @@ internal sealed class UiAppSession : IAsyncDisposable
         return string.Concat(value.Select(character => invalidCharacters.Contains(character) ? '_' : character));
     }
 
-    private void InvokeElement(AutomationElement element)
+    private static void InvokeElement(AutomationElement element)
     {
         if (element.Patterns.ScrollItem.IsSupported)
         {
@@ -719,9 +769,9 @@ internal sealed class UiAppSession : IAsyncDisposable
         }
     }
 
-    private async Task SendAutomationCommandAsync(string action)
+    private async Task SendAutomationCommandAsync(string action, string? automationId = null)
     {
-        var response = await SendAutomationRequestAsync(action);
+        var response = await SendAutomationRequestAsync(action, automationId);
         if (response is null)
         {
             throw new XunitException($"The automation bridge returned no response for action '{action}'.");

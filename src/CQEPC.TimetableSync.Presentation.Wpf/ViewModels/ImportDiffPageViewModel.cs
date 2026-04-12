@@ -84,6 +84,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
     public CourseEditorViewModel CourseEditor => workspace.CourseEditor;
 
+    public CoursePresentationEditorViewModel CoursePresentationEditor => workspace.CoursePresentationEditor;
+
     public int SelectedChangeCount =>
         AddedChanges.Count(static item => item.IsSelected)
         + UpdatedChanges.Count(static item => item.IsSelected)
@@ -259,7 +261,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             .Where(static item => item.IsSelected)
             .Select(static item => item.LocalStableId)
             .ToArray();
-        await workspace.ApplyAcceptedChangesAsync(acceptedIds);
+        await workspace.ApplyAcceptedChangesLocallyAsync(acceptedIds);
     }
 
     private IEnumerable<DiffChangeItemViewModel> AllChangeItems() =>
@@ -357,7 +359,9 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             ParsedCourseGroups.Add(new EditableCourseGroupViewModel(
                 group.Key,
                 UiText.FormatImportParsedGroupSummary(timeItems.Length),
-                timeItems));
+                timeItems,
+                new RelayCommand(() => workspace.OpenCoursePresentationEditor(group.Key)),
+                "Import.ParsedCourseGroup.InfoButton"));
         }
     }
 
@@ -386,7 +390,9 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             ParsedCourseGroups.Add(new EditableCourseGroupViewModel(
                 group.Key,
                 UiText.FormatImportParsedOccurrenceGroupSummary(timeItems.Length),
-                timeItems));
+                timeItems,
+                new RelayCommand(() => workspace.OpenCoursePresentationEditor(group.Key)),
+                "Import.ParsedCourseGroup.InfoButton"));
         }
     }
 
@@ -437,8 +443,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             _ => UiText.CourseEditorRepeatNone,
         };
         var weekday = first.OccurrenceDate.ToDateTime(TimeOnly.MinValue).ToString("dddd", CultureInfo.CurrentCulture);
-        var startTime = TimeOnly.FromDateTime(first.Start.LocalDateTime);
-        var endTime = TimeOnly.FromDateTime(first.End.LocalDateTime);
+        var startTime = TimeOnly.FromDateTime(first.Start.DateTime);
+        var endTime = TimeOnly.FromDateTime(first.End.DateTime);
         return string.Join(
             UiText.SummarySeparator,
             repeatLabel,
@@ -476,8 +482,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         var weekday = occurrence.OccurrenceDate
             .ToDateTime(TimeOnly.MinValue)
             .ToString("dddd", CultureInfo.CurrentCulture);
-        var startTime = TimeOnly.FromDateTime(occurrence.Start.LocalDateTime);
-        var endTime = TimeOnly.FromDateTime(occurrence.End.LocalDateTime);
+        var startTime = TimeOnly.FromDateTime(occurrence.Start.DateTime);
+        var endTime = TimeOnly.FromDateTime(occurrence.End.DateTime);
 
         return string.Join(
             UiText.SummarySeparator,
@@ -528,7 +534,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             : CourseScheduleRepeatKind.None;
     }
 
-    private void BuildChangeGroups(
+    private static void BuildChangeGroups(
         IEnumerable<DiffChangeItemViewModel> sourceItems,
         ObservableCollection<EditableCourseGroupViewModel> targetGroups)
     {

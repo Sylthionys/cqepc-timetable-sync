@@ -33,7 +33,7 @@ public static class UiFormatter
     {
         ArgumentNullException.ThrowIfNull(result);
 
-        return result.Status.Kind switch
+        var summary = result.Status.Kind switch
         {
             WorkspaceApplyStatusKind.NoPreview => UiText.WorkspaceApplyNoPreview,
             WorkspaceApplyStatusKind.NoSelection => UiText.WorkspaceApplyNoSelection,
@@ -42,6 +42,10 @@ public static class UiFormatter
             WorkspaceApplyStatusKind.AppliedWithFailures => UiText.FormatWorkspaceAppliedWithFailures(result.SuccessfulChangeCount, result.FailedChangeCount),
             _ => UiText.WorkspaceDefaultStatus,
         };
+
+        return string.IsNullOrWhiteSpace(result.Status.Detail)
+            ? summary
+            : string.Concat(summary, " ", result.Status.Detail);
     }
 
     public static string FormatMissingRequiredFilesSummary(LocalSourceCatalogState state)
@@ -163,14 +167,14 @@ public static class UiFormatter
         {
             return UiText.FormatDiffTaskTime(
                 occurrence.OccurrenceDate,
-                TimeOnly.FromDateTime(occurrence.Start.LocalDateTime),
-                TimeOnly.FromDateTime(occurrence.End.LocalDateTime));
+                TimeOnly.FromDateTime(occurrence.Start.DateTime),
+                TimeOnly.FromDateTime(occurrence.End.DateTime));
         }
 
         return UiText.FormatDiffCalendarSummary(
             occurrence.OccurrenceDate,
-            TimeOnly.FromDateTime(occurrence.Start.LocalDateTime),
-            TimeOnly.FromDateTime(occurrence.End.LocalDateTime),
+            TimeOnly.FromDateTime(occurrence.Start.DateTime),
+            TimeOnly.FromDateTime(occurrence.End.DateTime),
             string.IsNullOrWhiteSpace(occurrence.Metadata.Location) ? UiText.DiffLocationTbd : occurrence.Metadata.Location);
     }
 

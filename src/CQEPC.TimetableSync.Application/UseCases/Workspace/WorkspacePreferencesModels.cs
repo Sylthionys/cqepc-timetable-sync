@@ -61,7 +61,8 @@ public sealed record ProviderDefaults
     public ProviderDefaults(
         string calendarDestination,
         string taskListDestination,
-        IReadOnlyList<CourseTypeAppearanceSetting> courseTypeAppearances)
+        IReadOnlyList<CourseTypeAppearanceSetting> courseTypeAppearances,
+        string? defaultCalendarColorId = null)
     {
         if (string.IsNullOrWhiteSpace(calendarDestination))
         {
@@ -78,6 +79,7 @@ public sealed record ProviderDefaults
         CalendarDestination = calendarDestination.Trim();
         TaskListDestination = taskListDestination.Trim();
         CourseTypeAppearances = WorkspacePreferenceDefaults.NormalizeAppearances(courseTypeAppearances);
+        DefaultCalendarColorId = Normalize(defaultCalendarColorId);
     }
 
     public string CalendarDestination { get; }
@@ -85,6 +87,11 @@ public sealed record ProviderDefaults
     public string TaskListDestination { get; }
 
     public IReadOnlyList<CourseTypeAppearanceSetting> CourseTypeAppearances { get; }
+
+    public string? DefaultCalendarColorId { get; }
+
+    private static string? Normalize(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
 public sealed record ProviderTaskRuleSetting
@@ -130,7 +137,9 @@ public sealed record GoogleProviderSettings
         string? selectedCalendarDisplayName,
         IReadOnlyList<ProviderCalendarDescriptor>? writableCalendars = null,
         IReadOnlyList<ProviderTaskRuleSetting>? taskRules = null,
-        bool importCalendarIntoHomePreviewEnabled = true)
+        bool importCalendarIntoHomePreviewEnabled = true,
+        string? preferredCalendarTimeZoneId = null,
+        string? remoteReadFallbackTimeZoneId = null)
     {
         OAuthClientConfigurationPath = Normalize(oauthClientConfigurationPath);
         ConnectedAccountSummary = Normalize(connectedAccountSummary);
@@ -139,6 +148,8 @@ public sealed record GoogleProviderSettings
         WritableCalendars = NormalizeCalendars(writableCalendars ?? Array.Empty<ProviderCalendarDescriptor>());
         TaskRules = NormalizeTaskRules(ProviderKind.Google, taskRules ?? WorkspacePreferenceDefaults.CreateGoogleTaskRuleDefaults());
         ImportCalendarIntoHomePreviewEnabled = importCalendarIntoHomePreviewEnabled;
+        PreferredCalendarTimeZoneId = Normalize(preferredCalendarTimeZoneId);
+        RemoteReadFallbackTimeZoneId = Normalize(remoteReadFallbackTimeZoneId);
     }
 
     public string? OAuthClientConfigurationPath { get; }
@@ -154,6 +165,10 @@ public sealed record GoogleProviderSettings
     public IReadOnlyList<ProviderTaskRuleSetting> TaskRules { get; }
 
     public bool ImportCalendarIntoHomePreviewEnabled { get; }
+
+    public string? PreferredCalendarTimeZoneId { get; }
+
+    public string? RemoteReadFallbackTimeZoneId { get; }
 
     internal static IReadOnlyList<ProviderCalendarDescriptor> NormalizeCalendars(IReadOnlyList<ProviderCalendarDescriptor> calendars) =>
         calendars
@@ -318,7 +333,9 @@ public sealed record CourseScheduleOverride
         string? campus = null,
         string? location = null,
         string? teacher = null,
-        string? teachingClassComposition = null)
+        string? teachingClassComposition = null,
+        string? calendarTimeZoneId = null,
+        string? googleCalendarColorId = null)
     {
         if (string.IsNullOrWhiteSpace(className))
         {
@@ -366,6 +383,8 @@ public sealed record CourseScheduleOverride
         Location = Normalize(location);
         Teacher = Normalize(teacher);
         TeachingClassComposition = Normalize(teachingClassComposition);
+        CalendarTimeZoneId = Normalize(calendarTimeZoneId);
+        GoogleCalendarColorId = Normalize(googleCalendarColorId);
     }
 
     public string ClassName { get; }
@@ -400,6 +419,42 @@ public sealed record CourseScheduleOverride
 
     public string? TeachingClassComposition { get; }
 
+    public string? CalendarTimeZoneId { get; }
+
+    public string? GoogleCalendarColorId { get; }
+
+    private static string? Normalize(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+public sealed record CoursePresentationOverride
+{
+    public CoursePresentationOverride(string className, string courseTitle, string? calendarTimeZoneId, string? googleCalendarColorId)
+    {
+        if (string.IsNullOrWhiteSpace(className))
+        {
+            throw new ArgumentException("Class name cannot be empty.", nameof(className));
+        }
+
+        if (string.IsNullOrWhiteSpace(courseTitle))
+        {
+            throw new ArgumentException("Course title cannot be empty.", nameof(courseTitle));
+        }
+
+        ClassName = className.Trim();
+        CourseTitle = courseTitle.Trim();
+        CalendarTimeZoneId = Normalize(calendarTimeZoneId);
+        GoogleCalendarColorId = Normalize(googleCalendarColorId);
+    }
+
+    public string ClassName { get; }
+
+    public string CourseTitle { get; }
+
+    public string? CalendarTimeZoneId { get; }
+
+    public string? GoogleCalendarColorId { get; }
+
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
@@ -412,7 +467,8 @@ public sealed record TimetableResolutionSettings
         TimeProfileDefaultMode defaultTimeProfileMode,
         string? explicitDefaultTimeProfileId,
         IReadOnlyList<CourseTimeProfileOverride>? courseTimeProfileOverrides = null,
-        IReadOnlyList<CourseScheduleOverride>? courseScheduleOverrides = null)
+        IReadOnlyList<CourseScheduleOverride>? courseScheduleOverrides = null,
+        IReadOnlyList<CoursePresentationOverride>? coursePresentationOverrides = null)
     {
         ManualFirstWeekStartOverride = manualFirstWeekStartOverride;
         AutoDerivedFirstWeekStart = autoDerivedFirstWeekStart;
@@ -422,6 +478,7 @@ public sealed record TimetableResolutionSettings
             : defaultTimeProfileMode;
         CourseTimeProfileOverrides = NormalizeOverrides(courseTimeProfileOverrides ?? Array.Empty<CourseTimeProfileOverride>());
         CourseScheduleOverrides = NormalizeScheduleOverrides(courseScheduleOverrides ?? Array.Empty<CourseScheduleOverride>());
+        CoursePresentationOverrides = NormalizePresentationOverrides(coursePresentationOverrides ?? Array.Empty<CoursePresentationOverride>());
         EffectiveFirstWeekStart = ManualFirstWeekStartOverride ?? AutoDerivedFirstWeekStart;
         EffectiveFirstWeekSource = ManualFirstWeekStartOverride.HasValue
             ? FirstWeekStartValueSource.ManualOverride
@@ -446,6 +503,8 @@ public sealed record TimetableResolutionSettings
 
     public IReadOnlyList<CourseScheduleOverride> CourseScheduleOverrides { get; }
 
+    public IReadOnlyList<CoursePresentationOverride> CoursePresentationOverrides { get; }
+
     public TimetableResolutionSettings WithManualFirstWeekStartOverride(DateOnly? manualFirstWeekStartOverride) =>
         new(
             manualFirstWeekStartOverride,
@@ -453,7 +512,8 @@ public sealed record TimetableResolutionSettings
             DefaultTimeProfileMode,
             ExplicitDefaultTimeProfileId,
             CourseTimeProfileOverrides,
-            CourseScheduleOverrides);
+            CourseScheduleOverrides,
+            CoursePresentationOverrides);
 
     public TimetableResolutionSettings WithAutoDerivedFirstWeekStart(DateOnly? autoDerivedFirstWeekStart) =>
         new(
@@ -471,7 +531,8 @@ public sealed record TimetableResolutionSettings
             defaultTimeProfileMode,
             explicitDefaultTimeProfileId,
             CourseTimeProfileOverrides,
-            CourseScheduleOverrides);
+            CourseScheduleOverrides,
+            CoursePresentationOverrides);
 
     public TimetableResolutionSettings WithCourseTimeProfileOverrides(IReadOnlyList<CourseTimeProfileOverride> courseTimeProfileOverrides) =>
         new(
@@ -480,7 +541,8 @@ public sealed record TimetableResolutionSettings
             DefaultTimeProfileMode,
             ExplicitDefaultTimeProfileId,
             courseTimeProfileOverrides,
-            CourseScheduleOverrides);
+            CourseScheduleOverrides,
+            CoursePresentationOverrides);
 
     public TimetableResolutionSettings WithCourseScheduleOverrides(IReadOnlyList<CourseScheduleOverride> courseScheduleOverrides) =>
         new(
@@ -489,7 +551,18 @@ public sealed record TimetableResolutionSettings
             DefaultTimeProfileMode,
             ExplicitDefaultTimeProfileId,
             CourseTimeProfileOverrides,
-            courseScheduleOverrides);
+            courseScheduleOverrides,
+            CoursePresentationOverrides);
+
+    public TimetableResolutionSettings WithCoursePresentationOverrides(IReadOnlyList<CoursePresentationOverride> coursePresentationOverrides) =>
+        new(
+            ManualFirstWeekStartOverride,
+            AutoDerivedFirstWeekStart,
+            DefaultTimeProfileMode,
+            ExplicitDefaultTimeProfileId,
+            CourseTimeProfileOverrides,
+            CourseScheduleOverrides,
+            coursePresentationOverrides);
 
     public TimetableResolutionSettings UpsertCourseTimeProfileOverride(CourseTimeProfileOverride courseOverride)
     {
@@ -550,6 +623,20 @@ public sealed record TimetableResolutionSettings
         return WithCourseScheduleOverrides(overrides);
     }
 
+    public TimetableResolutionSettings UpsertCoursePresentationOverride(CoursePresentationOverride presentationOverride)
+    {
+        ArgumentNullException.ThrowIfNull(presentationOverride);
+
+        var overrides = CoursePresentationOverrides
+            .Where(existing =>
+                !string.Equals(existing.ClassName, presentationOverride.ClassName, StringComparison.Ordinal)
+                || !string.Equals(existing.CourseTitle, presentationOverride.CourseTitle, StringComparison.Ordinal))
+            .Concat([presentationOverride])
+            .ToArray();
+
+        return WithCoursePresentationOverrides(overrides);
+    }
+
     public TimetableResolutionSettings RemoveCourseScheduleOverride(string className, SourceFingerprint sourceFingerprint)
     {
         if (string.IsNullOrWhiteSpace(className))
@@ -569,6 +656,24 @@ public sealed record TimetableResolutionSettings
         return WithCourseScheduleOverrides(overrides);
     }
 
+    public TimetableResolutionSettings RemoveCoursePresentationOverride(string className, string courseTitle)
+    {
+        if (string.IsNullOrWhiteSpace(className) || string.IsNullOrWhiteSpace(courseTitle))
+        {
+            return this;
+        }
+
+        var normalizedClassName = className.Trim();
+        var normalizedCourseTitle = courseTitle.Trim();
+        var overrides = CoursePresentationOverrides
+            .Where(existing =>
+                !string.Equals(existing.ClassName, normalizedClassName, StringComparison.Ordinal)
+                || !string.Equals(existing.CourseTitle, normalizedCourseTitle, StringComparison.Ordinal))
+            .ToArray();
+
+        return WithCoursePresentationOverrides(overrides);
+    }
+
     public CourseScheduleOverride? FindCourseScheduleOverride(string className, SourceFingerprint sourceFingerprint)
     {
         if (string.IsNullOrWhiteSpace(className))
@@ -583,6 +688,21 @@ public sealed record TimetableResolutionSettings
             existing =>
                 string.Equals(existing.ClassName, normalizedClassName, StringComparison.Ordinal)
                 && existing.SourceFingerprint == sourceFingerprint);
+    }
+
+    public CoursePresentationOverride? FindCoursePresentationOverride(string className, string courseTitle)
+    {
+        if (string.IsNullOrWhiteSpace(className) || string.IsNullOrWhiteSpace(courseTitle))
+        {
+            return null;
+        }
+
+        var normalizedClassName = className.Trim();
+        var normalizedCourseTitle = courseTitle.Trim();
+        return CoursePresentationOverrides.FirstOrDefault(
+            existing =>
+                string.Equals(existing.ClassName, normalizedClassName, StringComparison.Ordinal)
+                && string.Equals(existing.CourseTitle, normalizedCourseTitle, StringComparison.Ordinal));
     }
 
     private static string? Normalize(string? value) =>
@@ -609,6 +729,18 @@ public sealed record TimetableResolutionSettings
             .OrderBy(static scheduleOverride => scheduleOverride.ClassName, StringComparer.Ordinal)
             .ThenBy(static scheduleOverride => scheduleOverride.CourseTitle, StringComparer.Ordinal)
             .ThenBy(static scheduleOverride => scheduleOverride.StartDate)
+            .ToArray();
+
+    private static CoursePresentationOverride[] NormalizePresentationOverrides(
+        IReadOnlyList<CoursePresentationOverride> source) =>
+        source
+            .Where(static presentationOverride => presentationOverride is not null)
+            .GroupBy(
+                static presentationOverride => $"{presentationOverride.ClassName}\u001F{presentationOverride.CourseTitle}",
+                StringComparer.Ordinal)
+            .Select(static group => group.Last())
+            .OrderBy(static presentationOverride => presentationOverride.ClassName, StringComparer.Ordinal)
+            .ThenBy(static presentationOverride => presentationOverride.CourseTitle, StringComparer.Ordinal)
             .ToArray();
 }
 
@@ -641,6 +773,19 @@ public sealed record AppearanceSettings
     public ThemeMode ThemeMode { get; }
 }
 
+public sealed record ProgramBehaviorSettings
+{
+    public ProgramBehaviorSettings(bool syncGoogleCalendarOnStartup, bool showStatusNotifications)
+    {
+        SyncGoogleCalendarOnStartup = syncGoogleCalendarOnStartup;
+        ShowStatusNotifications = showStatusNotifications;
+    }
+
+    public bool SyncGoogleCalendarOnStartup { get; }
+
+    public bool ShowStatusNotifications { get; }
+}
+
 public sealed record UserPreferences
 {
     public UserPreferences(
@@ -648,6 +793,7 @@ public sealed record UserPreferences
         TimetableResolutionSettings timetableResolution,
         LocalizationSettings localization,
         AppearanceSettings appearance,
+        ProgramBehaviorSettings programBehavior,
         ProviderKind defaultProvider,
         ProviderDefaults googleDefaults,
         ProviderDefaults microsoftDefaults,
@@ -658,6 +804,7 @@ public sealed record UserPreferences
         TimetableResolution = timetableResolution ?? throw new ArgumentNullException(nameof(timetableResolution));
         Localization = localization ?? throw new ArgumentNullException(nameof(localization));
         Appearance = appearance ?? throw new ArgumentNullException(nameof(appearance));
+        ProgramBehavior = programBehavior ?? throw new ArgumentNullException(nameof(programBehavior));
         DefaultProvider = defaultProvider;
         GoogleDefaults = googleDefaults ?? throw new ArgumentNullException(nameof(googleDefaults));
         MicrosoftDefaults = microsoftDefaults ?? throw new ArgumentNullException(nameof(microsoftDefaults));
@@ -684,6 +831,7 @@ public sealed record UserPreferences
                 selectedTimeProfileId),
             localization ?? WorkspacePreferenceDefaults.CreateLocalizationSettings(),
             WorkspacePreferenceDefaults.CreateAppearanceSettings(),
+            WorkspacePreferenceDefaults.CreateProgramBehaviorSettings(),
             defaultProvider,
             googleDefaults,
             microsoftDefaults,
@@ -699,6 +847,8 @@ public sealed record UserPreferences
     public LocalizationSettings Localization { get; }
 
     public AppearanceSettings Appearance { get; }
+
+    public ProgramBehaviorSettings ProgramBehavior { get; }
 
     public DateOnly? FirstWeekStartOverride => TimetableResolution.ManualFirstWeekStartOverride;
 
@@ -730,6 +880,7 @@ public sealed record UserPreferences
             TimetableResolution,
             Localization,
             Appearance,
+            ProgramBehavior,
             DefaultProvider,
             GoogleDefaults,
             MicrosoftDefaults,
@@ -742,6 +893,7 @@ public sealed record UserPreferences
             TimetableResolution,
             Localization,
             Appearance,
+            ProgramBehavior,
             defaultProvider,
             GoogleDefaults,
             MicrosoftDefaults,
@@ -756,6 +908,7 @@ public sealed record UserPreferences
                 TimetableResolution,
                 Localization,
                 Appearance,
+                ProgramBehavior,
                 DefaultProvider,
                 defaults,
                 MicrosoftDefaults,
@@ -766,6 +919,7 @@ public sealed record UserPreferences
                 TimetableResolution,
                 Localization,
                 Appearance,
+                ProgramBehavior,
                 DefaultProvider,
                 GoogleDefaults,
                 defaults,
@@ -780,6 +934,7 @@ public sealed record UserPreferences
             TimetableResolution,
             Localization,
             Appearance,
+            ProgramBehavior,
             DefaultProvider,
             GoogleDefaults,
             MicrosoftDefaults,
@@ -792,6 +947,7 @@ public sealed record UserPreferences
             TimetableResolution,
             Localization,
             Appearance,
+            ProgramBehavior,
             DefaultProvider,
             GoogleDefaults,
             MicrosoftDefaults,
@@ -804,6 +960,7 @@ public sealed record UserPreferences
             timetableResolution,
             Localization,
             Appearance,
+            ProgramBehavior,
             DefaultProvider,
             GoogleDefaults,
             MicrosoftDefaults,
@@ -816,6 +973,7 @@ public sealed record UserPreferences
             TimetableResolution,
             localization,
             Appearance,
+            ProgramBehavior,
             DefaultProvider,
             GoogleDefaults,
             MicrosoftDefaults,
@@ -828,6 +986,20 @@ public sealed record UserPreferences
             TimetableResolution,
             Localization,
             appearance,
+            ProgramBehavior,
+            DefaultProvider,
+            GoogleDefaults,
+            MicrosoftDefaults,
+            GoogleSettings,
+            MicrosoftSettings);
+
+    public UserPreferences WithProgramBehavior(ProgramBehaviorSettings programBehavior) =>
+        new(
+            WeekStartPreference,
+            TimetableResolution,
+            Localization,
+            Appearance,
+            programBehavior,
             DefaultProvider,
             GoogleDefaults,
             MicrosoftDefaults,
@@ -871,6 +1043,7 @@ public static class WorkspacePreferenceDefaults
             CreateTimetableResolutionSettings(),
             CreateLocalizationSettings(),
             CreateAppearanceSettings(),
+            CreateProgramBehaviorSettings(),
             ProviderKind.Google,
             CreateProviderDefaults(ProviderKind.Google),
             CreateProviderDefaults(ProviderKind.Microsoft),
@@ -883,6 +1056,11 @@ public static class WorkspacePreferenceDefaults
     public static AppearanceSettings CreateAppearanceSettings() =>
         new(ThemeMode.Light);
 
+    public static ProgramBehaviorSettings CreateProgramBehaviorSettings() =>
+        new(
+            syncGoogleCalendarOnStartup: true,
+            showStatusNotifications: true);
+
     public static TimetableResolutionSettings CreateTimetableResolutionSettings() =>
         new(
             manualFirstWeekStartOverride: null,
@@ -890,7 +1068,8 @@ public static class WorkspacePreferenceDefaults
             defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
             explicitDefaultTimeProfileId: null,
             courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
-            courseScheduleOverrides: Array.Empty<CourseScheduleOverride>());
+            courseScheduleOverrides: Array.Empty<CourseScheduleOverride>(),
+            coursePresentationOverrides: Array.Empty<CoursePresentationOverride>());
 
     public static ProviderDefaults CreateProviderDefaults(ProviderKind provider)
     {
@@ -906,7 +1085,8 @@ public static class WorkspacePreferenceDefaults
                 new CourseTypeAppearanceSetting(CourseTypeKeys.Computer, "Computer", $"{prefix} Computer", "#8756D8"),
                 new CourseTypeAppearanceSetting(CourseTypeKeys.Extracurricular, "Extracurricular", $"{prefix} Extracurricular", "#C2505A"),
                 new CourseTypeAppearanceSetting(CourseTypeKeys.Other, "Other", $"{prefix} Other", "#5A6472"),
-            ]));
+            ]),
+            defaultCalendarColorId: null);
     }
 
     public static GoogleProviderSettings CreateGoogleSettings() =>
@@ -916,7 +1096,9 @@ public static class WorkspacePreferenceDefaults
             selectedCalendarId: null,
             selectedCalendarDisplayName: null,
             writableCalendars: Array.Empty<ProviderCalendarDescriptor>(),
-            taskRules: CreateGoogleTaskRuleDefaults());
+            taskRules: CreateGoogleTaskRuleDefaults(),
+            preferredCalendarTimeZoneId: "Asia/Shanghai",
+            remoteReadFallbackTimeZoneId: "Asia/Shanghai");
 
     public static MicrosoftProviderSettings CreateMicrosoftSettings() =>
         new(

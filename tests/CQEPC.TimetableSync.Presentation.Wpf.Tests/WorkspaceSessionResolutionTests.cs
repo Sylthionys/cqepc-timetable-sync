@@ -21,6 +21,30 @@ namespace CQEPC.TimetableSync.Presentation.Wpf.Tests;
 public sealed class WorkspaceSessionResolutionTests
 {
     [Fact]
+    public async Task WorkspaceSessionInitializeBuildsFirstHomePreviewWithoutRemoteCalendarPreview()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: "client.json",
+                connectedAccountSummary: "user@example.com",
+                selectedCalendarId: "calendar-1",
+                selectedCalendarDisplayName: "Calendar 1",
+                writableCalendars: [new ProviderCalendarDescriptor("calendar-1", "Calendar 1", true)],
+                taskRules: Array.Empty<ProviderTaskRuleSetting>(),
+                importCalendarIntoHomePreviewEnabled: true));
+        var previewService = new DynamicWorkspacePreviewService();
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            new RecordingUserPreferencesRepository(preferences),
+            previewService);
+
+        await session.InitializeAsync();
+
+        previewService.PreviewRequests.Should().NotBeEmpty();
+        previewService.PreviewRequests[0].IncludeRemoteCalendarPreview.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task WorkspaceSessionKeepsExplicitTimeProfileSelectionVisibleAfterPreviewRefresh()
     {
         var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
@@ -292,6 +316,27 @@ public sealed class WorkspaceSessionResolutionTests
     }
 
     [Fact]
+    public async Task WorkspaceSessionPersistsGoogleDefaultTimeZoneSelectionAndUpdatesFallback()
+    {
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            preferencesRepository,
+            new DynamicWorkspacePreviewService());
+
+        await session.InitializeAsync();
+
+        session.SelectedGoogleTimeZoneOption = session.GoogleTimeZoneOptions.Single(
+            option => option.DisplayName == "UTC");
+        await WaitForAsyncWorkAsync();
+
+        session.CurrentPreferences.GoogleSettings.PreferredCalendarTimeZoneId.Should().Be("UTC");
+        session.CurrentPreferences.GoogleSettings.RemoteReadFallbackTimeZoneId.Should().Be("UTC");
+        preferencesRepository.SavedPreferences.GoogleSettings.PreferredCalendarTimeZoneId.Should().Be("UTC");
+        preferencesRepository.SavedPreferences.GoogleSettings.RemoteReadFallbackTimeZoneId.Should().Be("UTC");
+    }
+
+    [Fact]
     public async Task WorkspaceSessionSwitchingBackToEnglishRefreshesComputedLocalizationText()
     {
         var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
@@ -316,6 +361,34 @@ public sealed class WorkspaceSessionResolutionTests
         localizationService.EffectiveCulture.Name.Should().Be("en-US");
         session.LanguageSelectionTitle.Should().Be("Language");
         session.LocalizationOptions.Select(option => option.DisplayName).Should().Contain("Follow System");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionLocalizationOptionsRemainUniqueAcrossRepeatedLanguageSwitches()
+    {
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var localizationService = new FakeLocalizationService();
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            preferencesRepository,
+            new DynamicWorkspacePreviewService(),
+            localizationService);
+
+        await session.InitializeAsync();
+
+        session.SelectedLocalizationOption = session.LocalizationOptions.Single(
+            option => option.PreferredCultureName == "zh-CN");
+        await WaitForAsyncWorkAsync();
+        session.SelectedLocalizationOption = session.LocalizationOptions.Single(
+            option => option.PreferredCultureName == "en-US");
+        await WaitForAsyncWorkAsync();
+
+        session.LocalizationOptions.Should().HaveCount(3);
+        session.LocalizationOptions
+            .Select(option => option.SelectionKey)
+            .Should()
+            .OnlyHaveUniqueItems();
+        session.SelectedLocalizationOption?.SelectionKey.Should().Be("en-US");
     }
 
     [Fact]
@@ -548,6 +621,77 @@ public sealed class WorkspaceSessionResolutionTests
     }
 
     [Fact]
+    public async Task WorkspaceSessionSeedsCourseEditorWithOccurrenceWallClockTimeInsteadOfMachineLocalTime()
+    {
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var previewService = new DynamicWorkspacePreviewService(
+            request =>
+            {
+                var classSchedules = CreateClassSchedules();
+                var schoolWeeks = new[] { new SchoolWeek(5, new DateOnly(2026, 3, 30), new DateOnly(2026, 4, 5)) };
+                var timeProfiles = CreateTimeProfiles();
+                var occurrence = new ResolvedOccurrence(
+                    "Class A",
+                    schoolWeekNumber: 5,
+                    occurrenceDate: new DateOnly(2026, 4, 3),
+                    start: new DateTimeOffset(new DateTime(2026, 4, 3, 8, 30, 0), TimeSpan.FromHours(-12)),
+                    end: new DateTimeOffset(new DateTime(2026, 4, 3, 10, 0, 0), TimeSpan.FromHours(-12)),
+                    timeProfileId: "branch-campus",
+                    weekday: DayOfWeek.Friday,
+                    metadata: new CourseMetadata(
+                        "PE 2",
+                        new WeekExpression("5"),
+                        new PeriodRange(1, 2),
+                        location: "Gym"),
+                    sourceFingerprint: new SourceFingerprint("pdf", "tz-drift"),
+                    targetKind: SyncTargetKind.CalendarEvent,
+                    courseType: "Theory",
+                    calendarTimeZoneId: "Etc/GMT+12");
+                var normalization = new CQEPC.TimetableSync.Application.Abstractions.Normalization.NormalizationResult(
+                    classSchedules.SelectMany(static schedule => schedule.CourseBlocks).ToArray(),
+                    [occurrence],
+                    [new ExportGroup(ExportGroupKind.SingleOccurrence, [occurrence])],
+                    Array.Empty<UnresolvedItem>());
+
+                return new WorkspacePreviewResult(
+                    request.CatalogState,
+                    request.Preferences,
+                    PreviousSnapshot: null,
+                    classSchedules,
+                    schoolWeeks,
+                    timeProfiles,
+                    ParserWarnings: Array.Empty<CQEPC.TimetableSync.Application.Abstractions.Parsing.ParseWarning>(),
+                    ParserDiagnostics: Array.Empty<CQEPC.TimetableSync.Application.Abstractions.Parsing.ParseDiagnostic>(),
+                    ParserUnresolvedItems: Array.Empty<UnresolvedItem>(),
+                    EffectiveSelectedClassName: "Class A",
+                    DerivedFirstWeekStart: schoolWeeks[0].StartDate,
+                    EffectiveFirstWeekStart: schoolWeeks[0].StartDate,
+                    EffectiveFirstWeekSource: FirstWeekStartValueSource.AutoDerivedFromXls,
+                    EffectiveTimeProfileDefaultMode: TimeProfileDefaultMode.Automatic,
+                    EffectiveExplicitDefaultTimeProfileId: null,
+                    EffectiveSelectedTimeProfileId: "branch-campus",
+                    AppliedTimeProfileOverrideCount: 0,
+                    TaskGenerationRules: Array.Empty<RuleBasedTaskGenerationRule>(),
+                    GeneratedTaskCount: 0,
+                    PreviewWindow: null,
+                    RemotePreviewEvents: Array.Empty<ProviderRemoteCalendarEvent>(),
+                    NormalizationResult: normalization,
+                    SyncPlan: new SyncPlan([occurrence], Array.Empty<PlannedSyncChange>(), Array.Empty<UnresolvedItem>()),
+                    Status: new WorkspacePreviewStatus(WorkspacePreviewStatusKind.UpToDate));
+            });
+        var session = CreateSession(CreateReadyCatalogState(), preferencesRepository, previewService);
+
+        await session.InitializeAsync();
+
+        var occurrence = session.CurrentOccurrences.Single();
+        session.OpenCourseEditor(occurrence);
+
+        session.CourseEditor.StartDate.Should().Be(new DateTime(2026, 4, 3));
+        session.CourseEditor.StartTimeText.Should().Be("08:30");
+        session.CourseEditor.EndTimeText.Should().Be("10:00");
+    }
+
+    [Fact]
     public async Task WorkspaceSessionSeedsUnresolvedCourseEditorFromRawScheduleMetadata()
     {
         var className = "Class A";
@@ -762,6 +906,111 @@ public sealed class WorkspaceSessionResolutionTests
         session.CurrentPreferences.GoogleSettings.SelectedCalendarId.Should().Be("google-cal-2");
         session.CurrentPreferences.GoogleSettings.SelectedCalendarDisplayName.Should().Be("Backup Calendar");
         session.GoogleSelectedCalendarId.Should().Be("google-cal-2");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionInitializeClearsStaleGoogleConnectionStateWhenProviderIsDisconnected()
+    {
+        var initialPreferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: "client.json",
+                connectedAccountSummary: "student@example.com",
+                selectedCalendarId: "google-cal-1",
+                selectedCalendarDisplayName: "Google Timetable",
+                writableCalendars:
+                [
+                    new ProviderCalendarDescriptor("google-cal-1", "Google Timetable", true),
+                ],
+                taskRules: WorkspacePreferenceDefaults.CreateGoogleTaskRuleDefaults()));
+        var preferencesRepository = new RecordingUserPreferencesRepository(initialPreferences);
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            preferencesRepository,
+            new DynamicWorkspacePreviewService(),
+            googleProviderAdapter: new FakeGoogleSyncProviderAdapter(
+                Array.Empty<ProviderCalendarDescriptor>(),
+                connectionState: new ProviderConnectionState(false)));
+
+        await session.InitializeAsync();
+
+        session.IsGoogleConnected.Should().BeFalse();
+        session.GoogleConnectionSummary.Should().Be("Google is not connected.");
+        session.HasSelectedGoogleCalendar.Should().BeFalse();
+        session.HasGoogleWritableCalendars.Should().BeFalse();
+        preferencesRepository.SavedPreferences.GoogleSettings.ConnectedAccountSummary.Should().BeNull();
+        preferencesRepository.SavedPreferences.GoogleSettings.SelectedCalendarId.Should().BeNull();
+        preferencesRepository.SavedPreferences.GoogleSettings.WritableCalendars.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionApplySelectedImportChangesStopsWhenGoogleConnectionWentStale()
+    {
+        var initialPreferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: "client.json",
+                connectedAccountSummary: "student@example.com",
+                selectedCalendarId: "google-cal-1",
+                selectedCalendarDisplayName: "Google Timetable",
+                writableCalendars:
+                [
+                    new ProviderCalendarDescriptor("google-cal-1", "Google Timetable", true),
+                ],
+                taskRules: WorkspacePreferenceDefaults.CreateGoogleTaskRuleDefaults()));
+        var previewService = new DynamicWorkspacePreviewService(
+            request =>
+            {
+                var occurrence = CreateOccurrence("Class A", "Signals", "branch-campus");
+                return new WorkspacePreviewResult(
+                    request.CatalogState,
+                    request.Preferences,
+                    PreviousSnapshot: null,
+                    ParsedClassSchedules: CreateClassSchedules(),
+                    SchoolWeeks: [new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8))],
+                    TimeProfiles: CreateTimeProfiles(),
+                    ParserWarnings: Array.Empty<CQEPC.TimetableSync.Application.Abstractions.Parsing.ParseWarning>(),
+                    ParserDiagnostics: Array.Empty<CQEPC.TimetableSync.Application.Abstractions.Parsing.ParseDiagnostic>(),
+                    ParserUnresolvedItems: Array.Empty<UnresolvedItem>(),
+                    EffectiveSelectedClassName: "Class A",
+                    DerivedFirstWeekStart: new DateOnly(2026, 3, 2),
+                    EffectiveFirstWeekStart: new DateOnly(2026, 3, 2),
+                    EffectiveFirstWeekSource: FirstWeekStartValueSource.AutoDerivedFromXls,
+                    EffectiveTimeProfileDefaultMode: TimeProfileDefaultMode.Automatic,
+                    EffectiveExplicitDefaultTimeProfileId: null,
+                    EffectiveSelectedTimeProfileId: "branch-campus",
+                    AppliedTimeProfileOverrideCount: 0,
+                    TaskGenerationRules: Array.Empty<RuleBasedTaskGenerationRule>(),
+                    GeneratedTaskCount: 0,
+                    NormalizationResult: new CQEPC.TimetableSync.Application.Abstractions.Normalization.NormalizationResult(
+                        CreateClassSchedules().SelectMany(static schedule => schedule.CourseBlocks).ToArray(),
+                        [occurrence],
+                        [new ExportGroup(ExportGroupKind.SingleOccurrence, [occurrence])],
+                        Array.Empty<UnresolvedItem>()),
+                    SyncPlan: new SyncPlan(
+                        [occurrence],
+                        [
+                            new PlannedSyncChange(
+                                SyncChangeKind.Added,
+                                SyncTargetKind.CalendarEvent,
+                                "chg-1",
+                                after: occurrence),
+                        ],
+                        Array.Empty<UnresolvedItem>()),
+                    Status: new WorkspacePreviewStatus(WorkspacePreviewStatusKind.ChangesPending));
+            });
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            new RecordingUserPreferencesRepository(initialPreferences),
+            previewService,
+            googleProviderAdapter: new FakeGoogleSyncProviderAdapter(
+                Array.Empty<ProviderCalendarDescriptor>(),
+                connectionState: new ProviderConnectionState(false)));
+
+        await session.InitializeAsync();
+        await session.ApplySelectedImportChangesAsync();
+
+        previewService.ApplyAcceptedChangesCallCount.Should().Be(0);
+        session.WorkspaceStatus.Should().Be("Google is not connected.");
+        session.IsGoogleConnected.Should().BeFalse();
     }
 
     [Fact]
@@ -1590,6 +1839,7 @@ public sealed class WorkspaceSessionResolutionTests
     {
         private readonly Func<WorkspacePreviewRequest, WorkspacePreviewResult>? previewBuilder;
         private readonly Exception? applyException;
+        private readonly List<WorkspacePreviewRequest> previewRequests = [];
 
         public DynamicWorkspacePreviewService(
             Func<WorkspacePreviewRequest, WorkspacePreviewResult>? previewBuilder = null,
@@ -1601,9 +1851,14 @@ public sealed class WorkspaceSessionResolutionTests
 
         public int BuildPreviewCallCount { get; private set; }
 
+        public int ApplyAcceptedChangesCallCount { get; private set; }
+
+        public List<WorkspacePreviewRequest> PreviewRequests => previewRequests;
+
         public Task<WorkspacePreviewResult> BuildPreviewAsync(WorkspacePreviewRequest request, CancellationToken cancellationToken)
         {
             BuildPreviewCallCount++;
+            previewRequests.Add(request);
             if (previewBuilder is not null)
             {
                 return Task.FromResult(previewBuilder(request));
@@ -1682,6 +1937,24 @@ public sealed class WorkspaceSessionResolutionTests
             IReadOnlyCollection<string> acceptedChangeIds,
             CancellationToken cancellationToken)
         {
+            ApplyAcceptedChangesCallCount++;
+            if (applyException is not null)
+            {
+                return Task.FromException<WorkspaceApplyResult>(applyException);
+            }
+
+            return Task.FromResult(new WorkspaceApplyResult(
+                preview.PreviousSnapshot,
+                SuccessfulChangeCount: acceptedChangeIds.Count,
+                FailedChangeCount: 0,
+                new WorkspaceApplyStatus(WorkspaceApplyStatusKind.Applied)));
+        }
+
+        public Task<WorkspaceApplyResult> ApplyAcceptedChangesLocallyAsync(
+            WorkspacePreviewResult preview,
+            IReadOnlyCollection<string> acceptedChangeIds,
+            CancellationToken cancellationToken)
+        {
             if (applyException is not null)
             {
                 return Task.FromException<WorkspaceApplyResult>(applyException);
@@ -1699,14 +1972,17 @@ public sealed class WorkspaceSessionResolutionTests
     {
         private readonly IReadOnlyList<ProviderCalendarDescriptor> writableCalendars;
         private readonly Dictionary<string, ProviderRemoteCalendarEvent> remoteEvents;
+        private readonly ProviderConnectionState connectionState;
 
         public FakeGoogleSyncProviderAdapter(
             IReadOnlyList<ProviderCalendarDescriptor> writableCalendars,
-            IReadOnlyList<ProviderRemoteCalendarEvent>? remoteEvents = null)
+            IReadOnlyList<ProviderRemoteCalendarEvent>? remoteEvents = null,
+            ProviderConnectionState? connectionState = null)
         {
             this.writableCalendars = writableCalendars;
             this.remoteEvents = (remoteEvents ?? Array.Empty<ProviderRemoteCalendarEvent>())
                 .ToDictionary(static item => item.RemoteItemId, StringComparer.Ordinal);
+            this.connectionState = connectionState ?? new ProviderConnectionState(true, "student@example.com");
         }
 
         public ProviderKind Provider => ProviderKind.Google;
@@ -1714,7 +1990,7 @@ public sealed class WorkspaceSessionResolutionTests
         public ProviderRemoteCalendarEventUpdateRequest? LastUpdateRequest { get; private set; }
 
         public Task<ProviderConnectionState> GetConnectionStateAsync(CancellationToken cancellationToken) =>
-            Task.FromResult(new ProviderConnectionState(true, "student@example.com"));
+            Task.FromResult(connectionState);
 
         public Task<ProviderConnectionState> ConnectAsync(
             ProviderConnectionRequest request,

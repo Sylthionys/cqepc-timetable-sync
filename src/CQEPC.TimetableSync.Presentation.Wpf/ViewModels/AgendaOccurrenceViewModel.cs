@@ -11,7 +11,7 @@ public sealed class AgendaOccurrenceViewModel
         string timeRange,
         string location,
         string teacher,
-        string courseType,
+        string colorDotHex,
         string details,
         HomeScheduleEntryStatus status,
         SyncChangeSource source,
@@ -25,7 +25,7 @@ public sealed class AgendaOccurrenceViewModel
         TimeRange = timeRange;
         Location = location;
         Teacher = teacher;
-        CourseType = courseType;
+        ColorDotHex = colorDotHex;
         Details = details;
         Status = status;
         Source = source;
@@ -45,7 +45,7 @@ public sealed class AgendaOccurrenceViewModel
 
     public string Teacher { get; }
 
-    public string CourseType { get; }
+    public string ColorDotHex { get; }
 
     public string Details { get; }
 

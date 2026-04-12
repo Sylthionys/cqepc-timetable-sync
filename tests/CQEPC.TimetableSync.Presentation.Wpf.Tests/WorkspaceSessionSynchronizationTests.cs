@@ -64,7 +64,7 @@ public sealed class WorkspaceSessionSynchronizationTests
                 observedContexts.Add(SynchronizationContext.Current);
             };
 
-            await session.HandleDroppedFilesAsync(["S:\\Samples\\schedule.pdf"]);
+            await session.HandleDroppedFilesAsync(["C:\\Fixtures\\schedule.pdf"]);
 
             observedThreadIds.Should().NotBeEmpty();
             observedThreadIds.Should().OnlyContain(threadId => threadId == expectedThreadId);
@@ -323,6 +323,16 @@ public sealed class WorkspaceSessionSynchronizationTests
                 SuccessfulChangeCount: acceptedChangeIds.Count,
                 FailedChangeCount: 0,
                 new WorkspaceApplyStatus(WorkspaceApplyStatusKind.Applied)));
+
+        public Task<WorkspaceApplyResult> ApplyAcceptedChangesLocallyAsync(
+            WorkspacePreviewResult preview,
+            IReadOnlyCollection<string> acceptedChangeIds,
+            CancellationToken cancellationToken) =>
+            YieldAsync(new WorkspaceApplyResult(
+                preview.PreviousSnapshot,
+                SuccessfulChangeCount: acceptedChangeIds.Count,
+                FailedChangeCount: 0,
+                new WorkspaceApplyStatus(WorkspaceApplyStatusKind.Applied)));
     }
 
     private sealed class NoOpFilePickerService : IFilePickerService
@@ -337,11 +347,28 @@ public sealed class WorkspaceSessionSynchronizationTests
     private sealed class PumpingSynchronizationContext : SynchronizationContext, IDisposable
     {
         private readonly BlockingCollection<(SendOrPostCallback Callback, object? State)> workItems = new();
+        private volatile bool acceptsPosts = true;
 
         public override void Post(SendOrPostCallback d, object? state)
         {
             ArgumentNullException.ThrowIfNull(d);
-            workItems.Add((d, state));
+            if (!acceptsPosts)
+            {
+                return;
+            }
+
+            try
+            {
+                workItems.Add((d, state));
+            }
+            catch (ObjectDisposedException)
+            {
+                // Ignore posts that arrive after the pump has been torn down.
+            }
+            catch (InvalidOperationException)
+            {
+                // Late continuations may race with shutdown after the test action has completed.
+            }
         }
 
         public static void Run(Func<Task> action)
@@ -364,6 +391,7 @@ public sealed class WorkspaceSessionSynchronizationTests
                 catch (Exception exception)
                 {
                     capturedException = ExceptionDispatchInfo.Capture(exception);
+                    context.acceptsPosts = false;
                     context.workItems.CompleteAdding();
                 }
 
@@ -378,6 +406,7 @@ public sealed class WorkspaceSessionSynchronizationTests
                                     completedTask.Exception.InnerException ?? completedTask.Exception);
                             }
 
+                            context.acceptsPosts = false;
                             context.workItems.CompleteAdding();
                         },
                         CancellationToken.None,
@@ -401,6 +430,7 @@ public sealed class WorkspaceSessionSynchronizationTests
 
         public void Dispose()
         {
+            acceptsPosts = false;
             workItems.Dispose();
         }
     }

@@ -437,6 +437,8 @@ public sealed partial class TimetablePdfParser : ITimetableParser
             }
         }
 
+        var footerCarryoverBodyBottom = FindFooterCarryoverBodyBottom(pathRectangles, columns, page.Width);
+
         columns = columns
             .Select(
                 column =>
@@ -447,6 +449,11 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                     var adjustedBodyBottom = footerTop.HasValue
                         ? Math.Max(column.BodyBottom, Math.Min(adjustedBodyTop - 8d, footerTop.Value + 10d))
                         : column.BodyBottom;
+                    if (footerCarryoverBodyBottom.HasValue)
+                    {
+                        adjustedBodyBottom = Math.Min(adjustedBodyBottom, footerCarryoverBodyBottom.Value);
+                    }
+
                     return column with
                     {
                         BodyTop = adjustedBodyTop,
@@ -610,6 +617,36 @@ public sealed partial class TimetablePdfParser : ITimetableParser
         }
 
         return bands;
+    }
+
+    private static double? FindFooterCarryoverBodyBottom(
+        IReadOnlyList<PdfRectangle> pathRectangles,
+        IReadOnlyList<TimetableColumn> columns,
+        double pageWidth)
+    {
+        if (columns.Count == 0)
+        {
+            return null;
+        }
+
+        var currentBodyBottom = columns.Min(static column => column.BodyBottom);
+        var firstWeekdayLeft = columns.Min(static column => column.Left);
+        var minLeftBandWidth = pageWidth * 0.03d;
+        var maxLeftBandWidth = pageWidth * 0.09d;
+
+        var footerBandRectangles = pathRectangles
+            .Where(rectangle =>
+                rectangle.Right <= firstWeekdayLeft + 2d
+                && rectangle.Width >= minLeftBandWidth
+                && rectangle.Width <= maxLeftBandWidth
+                && rectangle.Height >= 6d
+                && rectangle.Top < currentBodyBottom - 2d
+                && rectangle.Bottom >= 12d)
+            .ToArray();
+
+        return footerBandRectangles.Length == 0
+            ? null
+            : footerBandRectangles.Min(static rectangle => rectangle.Bottom);
     }
 
     private static Dictionary<DayOfWeek, IReadOnlyList<PdfTextLine>> ExtractLinesByWeekday(
@@ -957,8 +994,22 @@ public sealed partial class TimetablePdfParser : ITimetableParser
             .ToArray();
 
         if (orderedLines.Length < 4
-            || BlockStartsWithPeriodLead(orderedLines)
-            || !IsLikelyCarryoverPrefixLine(orderedLines[0].Text))
+            || BlockStartsWithPeriodLead(orderedLines))
+        {
+            return [orderedLines];
+        }
+
+        var standaloneStartIndex = FindStandalonePayloadStartIndex(orderedLines);
+        if (standaloneStartIndex > 0)
+        {
+            return
+            [
+                orderedLines.Take(standaloneStartIndex).ToArray(),
+                orderedLines.Skip(standaloneStartIndex).ToArray(),
+            ];
+        }
+
+        if (!IsLikelyCarryoverPrefixLine(orderedLines[0].Text))
         {
             return [orderedLines];
         }
@@ -1717,6 +1768,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
         }
 
         return IsLikelyMetadataFragmentLine(lines[0].Text)
+            || IsLikelyTruncatedMetadataTailBlock(lines)
             || lines.All(static line => !IsLikelyTitleLine(line.Text));
     }
 
@@ -1790,6 +1842,12 @@ public sealed partial class TimetablePdfParser : ITimetableParser
             return lines;
         }
 
+        var standaloneStartIndex = FindStandalonePayloadStartIndex(lines);
+        if (standaloneStartIndex > 0)
+        {
+            return lines.Skip(standaloneStartIndex).ToArray();
+        }
+
         var metadataLeadIndex = Array.FindIndex(lines.ToArray(), static line => PeriodLeadRegex().IsMatch(line.Text));
         if (metadataLeadIndex < 2)
         {
@@ -1817,6 +1875,31 @@ public sealed partial class TimetablePdfParser : ITimetableParser
         }
 
         return lines.Skip(titleStartIndex).ToArray();
+    }
+
+    private static int FindStandalonePayloadStartIndex(IReadOnlyList<PdfTextLine> lines)
+    {
+        for (var index = 1; index < lines.Count - 1; index++)
+        {
+            var leading = lines.Take(index).ToArray();
+            if (leading.Any(static line => PeriodLeadRegex().IsMatch(line.Text))
+                || !leading.Any(static line => IsLikelyMetadataFragmentLine(line.Text) || LooksLikeMetadataContinuationTail(line.Text)))
+            {
+                continue;
+            }
+
+            var candidate = lines.Skip(index).ToArray();
+            if (candidate.Length < 2
+                || !IsLikelyTitleLine(candidate[0].Text)
+                || !IsStandaloneCoursePayloadShape(candidate))
+            {
+                continue;
+            }
+
+            return index;
+        }
+
+        return -1;
     }
 
     private static bool IsLikelyTopOfPageMetadataCarryover(IReadOnlyList<PdfTextLine> lines) =>
@@ -1972,6 +2055,50 @@ public sealed partial class TimetablePdfParser : ITimetableParser
             || normalized.Contains('/', StringComparison.Ordinal)
             || normalized.Contains(':', StringComparison.Ordinal)
             || normalized.Contains('：', StringComparison.Ordinal);
+    }
+
+    private static bool IsLikelyTruncatedMetadataTailBlock(IReadOnlyList<PdfTextLine> lines)
+    {
+        if (lines.Count < 2)
+        {
+            return false;
+        }
+
+        var first = NormalizeText(lines[0].Text);
+        if (first.Length == 0
+            || PeriodLeadRegex().IsMatch(first)
+            || IsCourseTypeMarker(first[^1]))
+        {
+            return false;
+        }
+
+        var trailing = lines.Skip(1).ToArray();
+        return trailing.All(static line => !PeriodLeadRegex().IsMatch(line.Text))
+            && trailing.Any(static line => IsLikelyMetadataFragmentLine(line.Text))
+            && trailing.All(static line => IsLikelyMetadataFragmentLine(line.Text) || !IsLikelyTitleLine(line.Text));
+    }
+
+    private static bool LooksLikeMetadataContinuationTail(string text)
+    {
+        var normalized = NormalizeText(text);
+        if (normalized.Length == 0
+            || PeriodLeadRegex().IsMatch(normalized)
+            || IsCourseTypeMarker(normalized[^1]))
+        {
+            return false;
+        }
+
+        return normalized.EndsWith('-')
+            || normalized.EndsWith("组成", StringComparison.Ordinal)
+            || normalized.EndsWith("教学", StringComparison.Ordinal)
+            || normalized.EndsWith("选课", StringComparison.Ordinal)
+            || normalized.EndsWith("总学", StringComparison.Ordinal)
+            || normalized.EndsWith("学班", StringComparison.Ordinal)
+            || normalized.EndsWith("课程学时", StringComparison.Ordinal)
+            || normalized.Contains("教学班", StringComparison.Ordinal)
+            || normalized.Contains("考核", StringComparison.Ordinal)
+            || normalized.Contains("学时", StringComparison.Ordinal)
+            || normalized.Contains("学分", StringComparison.Ordinal);
     }
 
     private static bool IsDecorativeLine(string text)

@@ -91,6 +91,7 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
             resolution,
             localization,
             Normalize(preferences.Appearance),
+            Normalize(preferences.ProgramBehavior),
             preferences.DefaultProvider,
             googleDefaults,
             microsoftDefaults,
@@ -106,6 +107,7 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
             TimetableResolution = Normalize(preferences.TimetableResolution),
             Localization = Normalize(preferences.Localization),
             Appearance = Normalize(preferences.Appearance),
+            ProgramBehavior = Normalize(preferences.ProgramBehavior),
             GoogleDefaults = NormalizeForStorage(preferences.GoogleDefaults),
             MicrosoftDefaults = NormalizeForStorage(preferences.MicrosoftDefaults),
             GoogleSettings = Normalize(preferences.GoogleSettings),
@@ -116,7 +118,8 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
         new(
             defaults.CalendarDestination ?? WorkspacePreferenceDefaults.CreateProviderDefaults(provider).CalendarDestination,
             defaults.TaskListDestination ?? WorkspacePreferenceDefaults.CreateProviderDefaults(provider).TaskListDestination,
-            WorkspacePreferenceDefaults.NormalizeAppearances(defaults.CourseTypeAppearances ?? Array.Empty<CourseTypeAppearanceSetting>()));
+            WorkspacePreferenceDefaults.NormalizeAppearances(defaults.CourseTypeAppearances ?? Array.Empty<CourseTypeAppearanceSetting>()),
+            defaults.DefaultCalendarColorId);
 
     private static TimetableResolutionSettings Normalize(
         SerializedTimetableResolutionSettings? settings,
@@ -166,9 +169,21 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
                     scheduleOverride.Campus,
                     scheduleOverride.Location,
                     scheduleOverride.Teacher,
-                    scheduleOverride.TeachingClassComposition))
+                    scheduleOverride.TeachingClassComposition,
+                    scheduleOverride.CalendarTimeZoneId,
+                    scheduleOverride.GoogleCalendarColorId))
             .ToArray()
             ?? Array.Empty<CourseScheduleOverride>();
+        var presentationOverrides = settings.CoursePresentationOverrides?
+            .Where(static presentationOverride => presentationOverride is not null)
+            .Select(
+                static presentationOverride => new CoursePresentationOverride(
+                    presentationOverride.ClassName ?? string.Empty,
+                    presentationOverride.CourseTitle ?? string.Empty,
+                    presentationOverride.CalendarTimeZoneId,
+                    presentationOverride.GoogleCalendarColorId))
+            .ToArray()
+            ?? Array.Empty<CoursePresentationOverride>();
 
         return new TimetableResolutionSettings(
             settings.ManualFirstWeekStartOverride ?? legacyFirstWeekStartOverride,
@@ -176,7 +191,8 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
             mode,
             explicitDefaultTimeProfileId,
             courseOverrides,
-            scheduleOverrides);
+            scheduleOverrides,
+            presentationOverrides);
     }
 
     private static SerializedTimetableResolutionSettings Normalize(TimetableResolutionSettings settings) =>
@@ -218,6 +234,19 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
                             Location = scheduleOverride.Location,
                             Teacher = scheduleOverride.Teacher,
                             TeachingClassComposition = scheduleOverride.TeachingClassComposition,
+                            CalendarTimeZoneId = scheduleOverride.CalendarTimeZoneId,
+                            GoogleCalendarColorId = scheduleOverride.GoogleCalendarColorId,
+                        })
+                .ToArray(),
+            CoursePresentationOverrides = settings.CoursePresentationOverrides
+                .Select(
+                    static presentationOverride =>
+                        new SerializedCoursePresentationOverride
+                        {
+                            ClassName = presentationOverride.ClassName,
+                            CourseTitle = presentationOverride.CourseTitle,
+                            CalendarTimeZoneId = presentationOverride.CalendarTimeZoneId,
+                            GoogleCalendarColorId = presentationOverride.GoogleCalendarColorId,
                         })
                 .ToArray(),
         };
@@ -228,6 +257,7 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
             preferences.TimetableResolution,
             preferences.Localization,
             preferences.Appearance,
+            preferences.ProgramBehavior,
             preferences.DefaultProvider,
             Normalize(preferences.GoogleDefaults),
             Normalize(preferences.MicrosoftDefaults),
@@ -238,7 +268,8 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
         new(
             defaults.CalendarDestination,
             defaults.TaskListDestination,
-            WorkspacePreferenceDefaults.NormalizeAppearances(defaults.CourseTypeAppearances));
+            WorkspacePreferenceDefaults.NormalizeAppearances(defaults.CourseTypeAppearances),
+            defaults.DefaultCalendarColorId);
 
     private static SerializedProviderDefaults NormalizeForStorage(ProviderDefaults defaults) =>
         new()
@@ -246,6 +277,7 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
             CalendarDestination = defaults.CalendarDestination,
             TaskListDestination = defaults.TaskListDestination,
             CourseTypeAppearances = defaults.CourseTypeAppearances.ToArray(),
+            DefaultCalendarColorId = defaults.DefaultCalendarColorId,
         };
 
     private static GoogleProviderSettings Normalize(GoogleProviderSettings settings) =>
@@ -255,7 +287,10 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
             settings.SelectedCalendarId,
             settings.SelectedCalendarDisplayName,
             settings.WritableCalendars,
-            settings.TaskRules);
+            settings.TaskRules,
+            settings.ImportCalendarIntoHomePreviewEnabled,
+            settings.PreferredCalendarTimeZoneId,
+            settings.RemoteReadFallbackTimeZoneId);
 
     private static MicrosoftProviderSettings Normalize(MicrosoftProviderSettings settings) =>
         new(
@@ -296,6 +331,20 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
             ThemeMode = settings.ThemeMode,
         };
 
+    private static ProgramBehaviorSettings Normalize(SerializedProgramBehaviorSettings? settings) =>
+        settings is null
+            ? WorkspacePreferenceDefaults.CreateProgramBehaviorSettings()
+            : new ProgramBehaviorSettings(
+                settings.SyncGoogleCalendarOnStartup,
+                settings.ShowStatusNotifications);
+
+    private static SerializedProgramBehaviorSettings Normalize(ProgramBehaviorSettings settings) =>
+        new()
+        {
+            SyncGoogleCalendarOnStartup = settings.SyncGoogleCalendarOnStartup,
+            ShowStatusNotifications = settings.ShowStatusNotifications,
+        };
+
     private sealed class SerializedUserPreferences
     {
         public WeekStartPreference WeekStartPreference { get; set; } = WeekStartPreference.Monday;
@@ -311,6 +360,8 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
         public SerializedLocalizationSettings? Localization { get; set; }
 
         public SerializedAppearanceSettings? Appearance { get; set; }
+
+        public SerializedProgramBehaviorSettings? ProgramBehavior { get; set; }
 
         public SerializedProviderDefaults? GoogleDefaults { get; set; }
 
@@ -328,6 +379,8 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
         public string? TaskListDestination { get; set; }
 
         public IReadOnlyList<CourseTypeAppearanceSetting>? CourseTypeAppearances { get; set; }
+
+        public string? DefaultCalendarColorId { get; set; }
     }
 
     private sealed class SerializedLocalizationSettings
@@ -338,6 +391,13 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
     private sealed class SerializedAppearanceSettings
     {
         public ThemeMode ThemeMode { get; set; } = ThemeMode.Light;
+    }
+
+    private sealed class SerializedProgramBehaviorSettings
+    {
+        public bool SyncGoogleCalendarOnStartup { get; set; } = true;
+
+        public bool ShowStatusNotifications { get; set; } = true;
     }
 
     private sealed class SerializedTimetableResolutionSettings
@@ -353,6 +413,8 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
         public IReadOnlyList<SerializedCourseTimeProfileOverride>? CourseTimeProfileOverrides { get; set; }
 
         public IReadOnlyList<SerializedCourseScheduleOverride>? CourseScheduleOverrides { get; set; }
+
+        public IReadOnlyList<SerializedCoursePresentationOverride>? CoursePresentationOverrides { get; set; }
     }
 
     private sealed class SerializedCourseTimeProfileOverride
@@ -399,5 +461,20 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
         public string? Teacher { get; set; }
 
         public string? TeachingClassComposition { get; set; }
+
+        public string? CalendarTimeZoneId { get; set; }
+
+        public string? GoogleCalendarColorId { get; set; }
+    }
+
+    private sealed class SerializedCoursePresentationOverride
+    {
+        public string? ClassName { get; set; }
+
+        public string? CourseTitle { get; set; }
+
+        public string? CalendarTimeZoneId { get; set; }
+
+        public string? GoogleCalendarColorId { get; set; }
     }
 }

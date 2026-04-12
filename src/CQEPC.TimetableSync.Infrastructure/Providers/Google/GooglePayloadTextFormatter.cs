@@ -28,6 +28,8 @@ internal static class GooglePayloadTextFormatter
         lines.Add(string.Empty);
         lines.Add($"{GoogleSyncConstants.ManagedByKey}: {GoogleSyncConstants.ManagedByValue}");
         lines.Add($"{GoogleSyncConstants.LocalSyncIdKey}: {localSyncId}");
+        lines.Add($"{GoogleSyncConstants.SourceFingerprintKey}: {occurrence.SourceFingerprint.Hash}");
+        lines.Add($"{GoogleSyncConstants.SourceKindKey}: {occurrence.SourceFingerprint.SourceKind}");
         return string.Join(Environment.NewLine, lines);
     }
 

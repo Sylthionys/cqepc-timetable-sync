@@ -48,6 +48,8 @@ internal sealed class AppLaunchOptions
 
     public bool IsAutomationMode => UiMode == UiLaunchMode.Automation;
 
+    internal bool UseDeferredInteractiveInitialization => UiMode == UiLaunchMode.None;
+
     public ShellPage RequestedPage { get; }
 
     public string FixtureName { get; }

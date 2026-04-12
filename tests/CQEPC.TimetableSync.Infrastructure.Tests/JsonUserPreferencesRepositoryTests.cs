@@ -19,6 +19,8 @@ public sealed class JsonUserPreferencesRepositoryTests
 
         preferences.DefaultProvider.Should().Be(ProviderKind.Google);
         preferences.SelectedTimeProfileId.Should().BeNull();
+        preferences.GoogleSettings.PreferredCalendarTimeZoneId.Should().Be("Asia/Shanghai");
+        preferences.GoogleSettings.RemoteReadFallbackTimeZoneId.Should().Be("Asia/Shanghai");
     }
 
     [Fact]
@@ -48,6 +50,8 @@ public sealed class JsonUserPreferencesRepositoryTests
         loaded.SelectedTimeProfileId.Should().Be("main-campus");
         loaded.MicrosoftDefaults.CalendarDestination.Should().Be("Outlook Classes");
         loaded.MicrosoftDefaults.CourseTypeAppearances.Should().Contain(item => item.CourseTypeKey == CourseTypeKeys.Other);
+        loaded.ProgramBehavior.SyncGoogleCalendarOnStartup.Should().BeTrue();
+        loaded.ProgramBehavior.ShowStatusNotifications.Should().BeTrue();
     }
 
     [Fact]
@@ -76,7 +80,9 @@ public sealed class JsonUserPreferencesRepositoryTests
                 oauthClientConfigurationPath: L059,
                 connectedAccountSummary: L060,
                 selectedCalendarId: "calendar-cn",
-                selectedCalendarDisplayName: L046));
+                selectedCalendarDisplayName: L046,
+                preferredCalendarTimeZoneId: "UTC",
+                remoteReadFallbackTimeZoneId: "Asia/Shanghai"));
 
         await repository.SaveAsync(preferences, CancellationToken.None);
         var loaded = await repository.LoadAsync(CancellationToken.None);
@@ -85,6 +91,8 @@ public sealed class JsonUserPreferencesRepositoryTests
         loaded.GoogleDefaults.CalendarDestination.Should().Be(L046);
         loaded.GoogleSettings.ConnectedAccountSummary.Should().Be(L060);
         loaded.GoogleSettings.SelectedCalendarDisplayName.Should().Be(L046);
+        loaded.GoogleSettings.PreferredCalendarTimeZoneId.Should().Be("UTC");
+        loaded.GoogleSettings.RemoteReadFallbackTimeZoneId.Should().Be("Asia/Shanghai");
         loaded.MicrosoftDefaults.TaskListDestination.Should().Be(L056);
     }
 
@@ -156,5 +164,22 @@ public sealed class JsonUserPreferencesRepositoryTests
         loaded.MicrosoftSettings.TaskLists.Should().ContainSingle(item => item.Id == "tasks-456" && item.IsDefault);
         loaded.MicrosoftSettings.TaskRules.Should().ContainSingle(item => item.RuleId == MicrosoftTaskRuleIds.FirstMorningClass && item.Enabled);
         loaded.MicrosoftSettings.TaskRules.Should().ContainSingle(item => item.RuleId == MicrosoftTaskRuleIds.FirstAfternoonClass && !item.Enabled);
+    }
+
+    [Fact]
+    public async Task SaveAsyncAndLoadAsyncRoundTripProgramBehaviorSettings()
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        var repository = new JsonUserPreferencesRepository(new LocalStoragePaths(tempDirectory.DirectoryPath));
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithProgramBehavior(new ProgramBehaviorSettings(
+                syncGoogleCalendarOnStartup: false,
+                showStatusNotifications: false));
+
+        await repository.SaveAsync(preferences, CancellationToken.None);
+        var loaded = await repository.LoadAsync(CancellationToken.None);
+
+        loaded.ProgramBehavior.SyncGoogleCalendarOnStartup.Should().BeFalse();
+        loaded.ProgramBehavior.ShowStatusNotifications.Should().BeFalse();
     }
 }

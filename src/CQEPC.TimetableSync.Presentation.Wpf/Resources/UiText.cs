@@ -98,6 +98,40 @@ public static class UiText
     public static string ShellFileDropHint => GetString(
         nameof(ShellFileDropHint),
         "Drop supported files anywhere in the window to refresh the local workspace.");
+    public static string TaskCenterIdleTitle => GetString(nameof(TaskCenterIdleTitle), "No active tasks");
+    public static string TaskCenterIdleSummary => GetString(nameof(TaskCenterIdleSummary), "Background sync tasks will appear here when running.");
+    public static string TaskCenterRunningSummaryFormat => GetString(nameof(TaskCenterRunningSummaryFormat), "{0} tasks are running.");
+    public static string TaskStartupLoadSourcesTitle => GetString(nameof(TaskStartupLoadSourcesTitle), "Loading remembered source files");
+    public static string TaskStartupLoadSourcesDetail => GetString(nameof(TaskStartupLoadSourcesDetail), "Reading the remembered timetable PDF, teaching progress XLS, and class-time DOCX references.");
+    public static string TaskStartupLoadPreferencesTitle => GetString(nameof(TaskStartupLoadPreferencesTitle), "Loading saved preferences");
+    public static string TaskStartupLoadPreferencesDetail => GetString(nameof(TaskStartupLoadPreferencesDetail), "Reading saved provider settings, time profiles, and preview options.");
+    public static string TaskStartupGoogleConnectionTitle => GetString(nameof(TaskStartupGoogleConnectionTitle), "Checking Google connection");
+    public static string TaskStartupGoogleConnectionDetail => GetString(nameof(TaskStartupGoogleConnectionDetail), "Checking whether the saved Google account is still available.");
+    public static string TaskStartupMicrosoftConnectionTitle => GetString(nameof(TaskStartupMicrosoftConnectionTitle), "Checking Microsoft connection");
+    public static string TaskStartupMicrosoftConnectionDetail => GetString(nameof(TaskStartupMicrosoftConnectionDetail), "Checking whether the saved Microsoft account is still available.");
+    public static string TaskStartupBuildPreviewTitle => GetString(nameof(TaskStartupBuildPreviewTitle), "Building Home preview");
+    public static string TaskStartupBuildPreviewDetail => GetString(nameof(TaskStartupBuildPreviewDetail), "Parsing local timetable sources and rendering the first Home preview.");
+    public static string TaskConnectGoogleTitle => GetString(nameof(TaskConnectGoogleTitle), "Connecting Google Calendar");
+    public static string TaskConnectGoogleDetail => GetString(nameof(TaskConnectGoogleDetail), "Preparing Google authorization.");
+    public static string TaskConnectGoogleAuthorizingDetail => GetString(nameof(TaskConnectGoogleAuthorizingDetail), "Waiting for Google account authorization.");
+    public static string TaskRefreshGoogleCalendarsTitle => GetString(nameof(TaskRefreshGoogleCalendarsTitle), "Loading Google calendars");
+    public static string TaskRefreshGoogleCalendarsDetail => GetString(nameof(TaskRefreshGoogleCalendarsDetail), "Fetching writable Google calendars.");
+    public static string TaskRefreshGoogleCalendarsLoadingDetail => GetString(nameof(TaskRefreshGoogleCalendarsLoadingDetail), "Reading writable calendars and updating the selected destination.");
+    public static string TaskSyncGoogleExistingEventsTitle => GetString(nameof(TaskSyncGoogleExistingEventsTitle), "Syncing existing Google events");
+    public static string TaskSyncGoogleExistingEventsDetail => GetString(nameof(TaskSyncGoogleExistingEventsDetail), "Refreshing existing Google Calendar events in the preview.");
+    public static string TaskSyncGoogleExistingEventsRefreshingDetail => GetString(nameof(TaskSyncGoogleExistingEventsRefreshingDetail), "Reading current Google Calendar events and rebuilding the local preview.");
+    public static string TaskStartupGoogleSyncTitle => GetString(nameof(TaskStartupGoogleSyncTitle), "Startup Google event sync");
+    public static string TaskStartupGoogleSyncDetail => GetString(nameof(TaskStartupGoogleSyncDetail), "Syncing existing Google events automatically after startup.");
+    public static string TaskPostConnectGoogleSyncTitle => GetString(nameof(TaskPostConnectGoogleSyncTitle), "Post-connect Google event sync");
+    public static string TaskPostConnectGoogleSyncDetail => GetString(nameof(TaskPostConnectGoogleSyncDetail), "Syncing existing Google events automatically after connecting.");
+    public static string TaskApplyGoogleCalendarTitle => GetString(nameof(TaskApplyGoogleCalendarTitle), "Applying changes to Google Calendar");
+    public static string TaskApplyGoogleCalendarDetail => GetString(nameof(TaskApplyGoogleCalendarDetail), "Sending selected timetable changes to Google Calendar.");
+    public static string TaskApplyGoogleCalendarSavingDetail => GetString(nameof(TaskApplyGoogleCalendarSavingDetail), "Applying selected changes to Google Calendar.");
+    public static string TaskApplyGoogleCalendarRefreshingDetail => GetString(nameof(TaskApplyGoogleCalendarRefreshingDetail), "Refreshing the preview after the apply completed.");
+    public static string TaskPostApplyGoogleSyncTitle => GetString(nameof(TaskPostApplyGoogleSyncTitle), "Post-apply Google event sync");
+    public static string TaskPostApplyGoogleSyncDetail => GetString(nameof(TaskPostApplyGoogleSyncDetail), "Syncing existing Google events automatically after the apply.");
+    public static string TaskGoogleCalendarUnknown => GetString(nameof(TaskGoogleCalendarUnknown), "selected Google calendar");
+    public static string TaskGoogleCalendarSyncDetailFormat => GetString(nameof(TaskGoogleCalendarSyncDetailFormat), "Syncing existing events from Google Calendar \"{0}\".");
 
     public static string HomeTitle => GetString(nameof(HomeTitle), "Home");
     public static string HomeEmptyStateBuildTitle => GetString(nameof(HomeEmptyStateBuildTitle), "Build a Local Preview");
@@ -165,7 +199,7 @@ public static class UiText
     public static string SettingsTitle => GetString(nameof(SettingsTitle), "Settings");
     public static string SettingsSummary => GetString(
         nameof(SettingsSummary),
-        "Import local source files, tune preview defaults, and configure provider-aware destinations and category/color mappings.");
+        "Import local source files, tune preview defaults, and configure provider-aware destinations plus default course color behavior.");
     public static string SettingsDropZoneTitle => GetString(nameof(SettingsDropZoneTitle), "Import Source Files");
     public static string SettingsDropZoneSummary => GetString(
         nameof(SettingsDropZoneSummary),
@@ -416,6 +450,9 @@ public static class UiText
     public static string WorkspaceAppliedWithFailuresFormat => GetString(
         nameof(WorkspaceAppliedWithFailuresFormat),
         "Applied {0} change(s); {1} change(s) failed.");
+    public static string WorkspaceImportApplyLocalOnly => GetString(
+        nameof(WorkspaceImportApplyLocalOnly),
+        "Home preview updated only. Remote calendars remain unchanged until you apply from Home.");
     public static string WorkspaceGoogleConnected => GetString(nameof(WorkspaceGoogleConnected), "Connected Google account.");
     public static string WorkspaceGoogleConnectedFormat => GetString(nameof(WorkspaceGoogleConnectedFormat), "Connected Google account: {0}");
     public static string WorkspaceMicrosoftConnected => GetString(nameof(WorkspaceMicrosoftConnected), "Connected Microsoft account.");
@@ -432,6 +469,7 @@ public static class UiText
         "No writable Google calendars were found for the connected account.");
     public static string WorkspaceLoadedGoogleCalendarsFormat => GetString(nameof(WorkspaceLoadedGoogleCalendarsFormat), "Loaded {0} writable Google calendar(s).");
     public static string WorkspaceGoogleCalendarRefreshFailedFormat => GetString(nameof(WorkspaceGoogleCalendarRefreshFailedFormat), "Google calendar refresh failed: {0}");
+    public static string WorkspaceGoogleApplyVerificationPendingFormat => GetString(nameof(WorkspaceGoogleApplyVerificationPendingFormat), "Google apply verification still sees {0} calendar change(s) pending. The app kept the preview unsatisfied instead of assuming success.");
     public static string WorkspaceRemoteCalendarEventSavedFormat => GetString(nameof(WorkspaceRemoteCalendarEventSavedFormat), "Updated Google event: {0}");
     public static string WorkspaceRemoteCalendarEventLoadFailedFormat => GetString(nameof(WorkspaceRemoteCalendarEventLoadFailedFormat), "Loading Google event failed: {0}");
     public static string WorkspaceRemoteCalendarEventSaveFailedFormat => GetString(nameof(WorkspaceRemoteCalendarEventSaveFailedFormat), "Saving Google event failed: {0}");
@@ -543,6 +581,12 @@ public static class UiText
     public static string FormatHomeExistingCalendarSummary(string calendarDisplayName) =>
         Format(HomeExistingCalendarSummaryFormat, calendarDisplayName);
 
+    public static string FormatTaskCenterRunningSummary(int count) =>
+        Format(TaskCenterRunningSummaryFormat, count);
+
+    public static string FormatTaskGoogleCalendarSyncDetail(string calendarName) =>
+        Format(TaskGoogleCalendarSyncDetailFormat, calendarName);
+
     public static string FormatCourseEditorOccurrenceSummary(int count) =>
         Format(CourseEditorOccurrenceSummaryFormat, count);
 
@@ -601,6 +645,9 @@ public static class UiText
 
     public static string FormatGoogleCalendarRefreshFailed(string message) =>
         Format(WorkspaceGoogleCalendarRefreshFailedFormat, message);
+
+    public static string FormatWorkspaceGoogleApplyVerificationPending(int count) =>
+        Format(WorkspaceGoogleApplyVerificationPendingFormat, count);
 
     public static string FormatMicrosoftConnectionFailed(string message) =>
         Format(WorkspaceMicrosoftConnectionFailedFormat, message);

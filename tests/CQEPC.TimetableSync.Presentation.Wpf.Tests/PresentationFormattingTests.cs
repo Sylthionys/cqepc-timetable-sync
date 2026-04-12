@@ -332,5 +332,11 @@ public sealed class PresentationFormattingTests
             IReadOnlyCollection<string> acceptedChangeIds,
             CancellationToken cancellationToken) =>
             Task.FromResult(applyResult);
+
+        public Task<WorkspaceApplyResult> ApplyAcceptedChangesLocallyAsync(
+            WorkspacePreviewResult preview,
+            IReadOnlyCollection<string> acceptedChangeIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(applyResult);
     }
 }

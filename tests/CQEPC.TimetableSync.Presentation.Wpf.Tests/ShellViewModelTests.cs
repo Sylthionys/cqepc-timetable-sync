@@ -317,6 +317,409 @@ public sealed class ShellViewModelTests
     }
 
     [Fact]
+    public async Task WorkspaceSessionInitializeAutoSyncsGoogleExistingCalendarWhenConnected()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: null,
+                connectedAccountSummary: "student@example.com",
+                selectedCalendarId: "google-primary",
+                selectedCalendarDisplayName: "Google Timetable",
+                writableCalendars:
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+        var previewService = new FakeWorkspacePreviewService(
+            request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+                ]));
+        var session = new WorkspaceSessionViewModel(
+            new FakeLocalSourceOnboardingService(CreateCatalogState()),
+            new FakeFilePickerService(),
+            new FakeUserPreferencesRepository(preferences),
+            previewService,
+            new CountingGoogleSyncProviderAdapter(
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+
+        await session.InitializeAsync();
+
+        previewService.BuildPreviewCallCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionInitializeSkipsStartupGoogleSyncWhenDisabled()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithProgramBehavior(new ProgramBehaviorSettings(
+                syncGoogleCalendarOnStartup: false,
+                showStatusNotifications: true))
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: null,
+                connectedAccountSummary: "student@example.com",
+                selectedCalendarId: "google-primary",
+                selectedCalendarDisplayName: "Google Timetable",
+                writableCalendars:
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+        var previewService = new FakeWorkspacePreviewService(
+            request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+                ]));
+        var session = new WorkspaceSessionViewModel(
+            new FakeLocalSourceOnboardingService(CreateCatalogState()),
+            new FakeFilePickerService(),
+            new FakeUserPreferencesRepository(preferences),
+            previewService,
+            new CountingGoogleSyncProviderAdapter(
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+
+        await session.InitializeAsync();
+
+        previewService.BuildPreviewCallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionApplySelectedImportChangesAutoSyncsGoogleExistingCalendarAfterApply()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: null,
+                connectedAccountSummary: "student@example.com",
+                selectedCalendarId: "google-primary",
+                selectedCalendarDisplayName: "Google Timetable",
+                writableCalendars:
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+        var previewService = new FakeWorkspacePreviewService(
+            request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+                ],
+                syncPlan: new SyncPlan(
+                    [
+                        CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+                    ],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Added,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-1",
+                            after: CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40))),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        var session = new WorkspaceSessionViewModel(
+            new FakeLocalSourceOnboardingService(CreateCatalogState()),
+            new FakeFilePickerService(),
+            new FakeUserPreferencesRepository(preferences),
+            previewService,
+            new CountingGoogleSyncProviderAdapter(
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+
+        await session.InitializeAsync();
+        previewService.BuildPreviewCallCount.Should().Be(2);
+
+        await session.ApplySelectedImportChangesAsync();
+
+        previewService.BuildPreviewCallCount.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionApplySelectedImportChangesWaitsForGooglePreviewConvergenceWhenAcceptedCalendarChangeStillAppears()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: null,
+                connectedAccountSummary: "student@example.com",
+                selectedCalendarId: "google-primary",
+                selectedCalendarDisplayName: "Google Timetable",
+                writableCalendars:
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+        var occurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40));
+        var remoteDelete = new PlannedSyncChange(
+            SyncChangeKind.Deleted,
+            SyncTargetKind.CalendarEvent,
+            "chg-delete-1",
+            changeSource: SyncChangeSource.RemoteManaged,
+            before: occurrence,
+            remoteEvent: new ProviderRemoteCalendarEvent(
+                "remote-1",
+                "google-primary",
+                occurrence.Metadata.CourseTitle,
+                occurrence.Start,
+                occurrence.End,
+                occurrence.Metadata.Location,
+                "managed",
+                isManagedByApp: true,
+                localSyncId: "chg-delete-1",
+                sourceFingerprintHash: occurrence.SourceFingerprint.Hash,
+                sourceKind: occurrence.SourceFingerprint.SourceKind));
+        var buildIndex = 0;
+        var previewService = new FakeWorkspacePreviewService(
+            request =>
+            {
+                buildIndex++;
+                var pendingChanges = buildIndex switch
+                {
+                    1 or 2 or 3 =>
+                    [
+                        remoteDelete,
+                    ],
+                    _ => Array.Empty<PlannedSyncChange>(),
+                };
+
+                return CreatePreviewResult(
+                    request.CatalogState,
+                    request.Preferences,
+                    effectiveSelectedClassName: "Class A",
+                    occurrences: [occurrence],
+                    syncPlan: new SyncPlan([occurrence], pendingChanges, Array.Empty<UnresolvedItem>()));
+            });
+        var session = new WorkspaceSessionViewModel(
+            new FakeLocalSourceOnboardingService(CreateCatalogState()),
+            new FakeFilePickerService(),
+            new FakeUserPreferencesRepository(preferences),
+            previewService,
+            new CountingGoogleSyncProviderAdapter(
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+
+        await session.InitializeAsync();
+        previewService.BuildPreviewCallCount.Should().Be(2);
+
+        await session.ApplySelectedImportChangesAsync();
+
+        previewService.BuildPreviewCallCount.Should().Be(4);
+        session.WorkspaceStatus.Should().Be(UiText.FormatWorkspaceApplied(1));
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionApplySelectedImportChangesAutomaticallyRemovesManagedGoogleDuplicateAfterApply()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: null,
+                connectedAccountSummary: "student@example.com",
+                selectedCalendarId: "google-primary",
+                selectedCalendarDisplayName: "Google Timetable",
+                writableCalendars:
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+        var occurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40));
+        var duplicateRemote = new ProviderRemoteCalendarEvent(
+            "remote-duplicate-1",
+            "google-primary",
+            occurrence.Metadata.CourseTitle,
+            occurrence.Start,
+            occurrence.End,
+            occurrence.Metadata.Location,
+            "managed",
+            isManagedByApp: true,
+            localSyncId: "remote|duplicate",
+            sourceFingerprintHash: occurrence.SourceFingerprint.Hash,
+            sourceKind: occurrence.SourceFingerprint.SourceKind);
+        var appliedIdBatches = new List<string[]>();
+        var buildIndex = 0;
+        var previewService = new FakeWorkspacePreviewService(
+            request =>
+            {
+                buildIndex++;
+                return buildIndex switch
+                {
+                    1 or 2 => CreatePreviewResult(
+                        request.CatalogState,
+                        request.Preferences,
+                        effectiveSelectedClassName: "Class A",
+                        occurrences: [occurrence],
+                        syncPlan: new SyncPlan(
+                            [occurrence],
+                            [
+                                new PlannedSyncChange(
+                                    SyncChangeKind.Added,
+                                    SyncTargetKind.CalendarEvent,
+                                    "chg-1",
+                                    after: occurrence),
+                            ],
+                            Array.Empty<UnresolvedItem>())),
+                    3 => CreatePreviewResult(
+                        request.CatalogState,
+                        request.Preferences,
+                        effectiveSelectedClassName: "Class A",
+                        occurrences: [occurrence],
+                        syncPlan: new SyncPlan(
+                            [occurrence],
+                            [
+                                new PlannedSyncChange(
+                                    SyncChangeKind.Deleted,
+                                    SyncTargetKind.CalendarEvent,
+                                    "dup-delete-1",
+                                    changeSource: SyncChangeSource.RemoteManaged,
+                                    before: occurrence,
+                                    remoteEvent: duplicateRemote),
+                            ],
+                            Array.Empty<UnresolvedItem>(),
+                            remotePreviewEvents:
+                            [
+                                new ProviderRemoteCalendarEvent(
+                                    "remote-primary-1",
+                                    "google-primary",
+                                    occurrence.Metadata.CourseTitle,
+                                    occurrence.Start,
+                                    occurrence.End,
+                                    occurrence.Metadata.Location,
+                                    "managed",
+                                    isManagedByApp: true,
+                                    localSyncId: SyncIdentity.CreateOccurrenceId(occurrence),
+                                    sourceFingerprintHash: occurrence.SourceFingerprint.Hash,
+                                    sourceKind: occurrence.SourceFingerprint.SourceKind),
+                                duplicateRemote,
+                            ],
+                            deletionWindow: new PreviewDateWindow(
+                                occurrence.Start.AddDays(-1),
+                                occurrence.End.AddDays(1)))),
+                    _ => CreatePreviewResult(
+                        request.CatalogState,
+                        request.Preferences,
+                        effectiveSelectedClassName: "Class A",
+                        occurrences: [occurrence],
+                        syncPlan: new SyncPlan(
+                            [occurrence],
+                            Array.Empty<PlannedSyncChange>(),
+                            Array.Empty<UnresolvedItem>())),
+                };
+            },
+            onApplyAcceptedChanges: ids => appliedIdBatches.Add(ids.ToArray()));
+        var session = new WorkspaceSessionViewModel(
+            new FakeLocalSourceOnboardingService(CreateCatalogState()),
+            new FakeFilePickerService(),
+            new FakeUserPreferencesRepository(preferences),
+            previewService,
+            new CountingGoogleSyncProviderAdapter(
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+
+        await session.InitializeAsync();
+
+        await session.ApplySelectedImportChangesAsync();
+
+        appliedIdBatches.Should().HaveCount(2);
+        appliedIdBatches[0].Should().Equal("chg-1");
+        appliedIdBatches[1].Should().Equal("dup-delete-1");
+        previewService.BuildPreviewCallCount.Should().Be(4);
+        session.WorkspaceStatus.Should().Be(UiText.FormatWorkspaceApplied(1));
+    }
+
+    [Fact]
+    public async Task ShellViewModelReflectsRunningGoogleApplyTasks()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: null,
+                connectedAccountSummary: "student@example.com",
+                selectedCalendarId: "google-primary",
+                selectedCalendarDisplayName: "Google Timetable",
+                writableCalendars:
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+        var applyStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseApply = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var previewService = new BlockingApplyWorkspacePreviewService(applyStarted, releaseApply);
+        var session = new WorkspaceSessionViewModel(
+            new FakeLocalSourceOnboardingService(CreateCatalogState()),
+            new FakeFilePickerService(),
+            new FakeUserPreferencesRepository(preferences),
+            previewService,
+            new CountingGoogleSyncProviderAdapter(
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+
+        await session.InitializeAsync();
+
+        var shell = new ShellViewModel(session, new SettingsPageViewModel(session));
+        var applyTask = session.ApplySelectedImportChangesAsync();
+        await applyStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        session.HasActiveTasks.Should().BeTrue();
+        shell.HasActiveTasks.Should().BeTrue();
+        shell.ActiveTaskTitle.Should().NotBeNullOrWhiteSpace();
+
+        releaseApply.SetResult();
+        await applyTask;
+
+        shell.HasActiveTasks.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ShellViewModelHidesTaskCenterNotificationWhenStatusNotificationsAreDisabled()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithProgramBehavior(new ProgramBehaviorSettings(
+                syncGoogleCalendarOnStartup: true,
+                showStatusNotifications: false))
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: null,
+                connectedAccountSummary: "student@example.com",
+                selectedCalendarId: "google-primary",
+                selectedCalendarDisplayName: "Google Timetable",
+                writableCalendars:
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+        var applyStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseApply = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var previewService = new BlockingApplyWorkspacePreviewService(applyStarted, releaseApply);
+        var session = new WorkspaceSessionViewModel(
+            new FakeLocalSourceOnboardingService(CreateCatalogState()),
+            new FakeFilePickerService(),
+            new FakeUserPreferencesRepository(preferences),
+            previewService,
+            new CountingGoogleSyncProviderAdapter(
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                ]));
+
+        await session.InitializeAsync();
+
+        var shell = new ShellViewModel(session, new SettingsPageViewModel(session));
+        var applyTask = session.ApplySelectedImportChangesAsync();
+        await applyStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        session.HasActiveTasks.Should().BeTrue();
+        shell.ShowTaskCenterNotification.Should().BeFalse();
+
+        releaseApply.SetResult();
+        await applyTask;
+    }
+
+    [Fact]
     public async Task HomePageViewModelApplySchedulesCommandNavigatesToSettingsWhenGoogleIsDisconnected()
     {
         var applyCallCount = 0;
@@ -447,7 +850,7 @@ public sealed class ShellViewModelTests
             googleAdapter);
         await session.InitializeAsync();
 
-        previewService.BuildPreviewCallCount.Should().Be(1);
+        previewService.BuildPreviewCallCount.Should().Be(2);
         googleAdapter.ListWritableCalendarsCallCount.Should().Be(0);
 
         var home = new HomePageViewModel(
@@ -458,7 +861,7 @@ public sealed class ShellViewModelTests
 
         await home.SyncCalendarCommand.ExecuteAsync(null);
 
-        previewService.BuildPreviewCallCount.Should().Be(2);
+        previewService.BuildPreviewCallCount.Should().Be(3);
         googleAdapter.ListWritableCalendarsCallCount.Should().Be(0);
     }
 
@@ -568,6 +971,44 @@ public sealed class ShellViewModelTests
         import.SelectedChangeCount.Should().Be(2);
         import.ApplySelectedLabel.Should().Be("Apply Selected (2)");
         import.CanApplySelected.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelApplySelectedUsesLocalWorkspaceApplyOnly()
+    {
+        var previewService = new FakeWorkspacePreviewService(
+            request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+                ],
+                syncPlan: new SyncPlan(
+                    [
+                        CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+                    ],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Added,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-1",
+                            after: CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40))),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        var session = new WorkspaceSessionViewModel(
+            new FakeLocalSourceOnboardingService(CreateCatalogState()),
+            new FakeFilePickerService(),
+            new FakeUserPreferencesRepository(WorkspacePreferenceDefaults.Create()),
+            previewService);
+        await session.InitializeAsync();
+
+        var import = new ImportDiffPageViewModel(session);
+        await import.ApplySelectedCommand.ExecuteAsync(null);
+
+        previewService.LocalApplyAcceptedChangeIds.Should().Equal("chg-1");
+        previewService.RemoteApplyAcceptedChangeIds.Should().BeEmpty();
     }
 
     [Fact]
@@ -879,6 +1320,301 @@ public sealed class ShellViewModelTests
     }
 
     [Fact]
+    public async Task HomePageViewModelCollapsesColorOnlyUpdateIntoSingleOrangeAgendaItem()
+    {
+        var beforeOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 0),
+            googleCalendarColorId: "11");
+        var afterOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 0),
+            googleCalendarColorId: "9");
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [afterOccurrence],
+                syncPlan: new SyncPlan(
+                    [afterOccurrence],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Updated,
+                            SyncTargetKind.CalendarEvent,
+                            "updated-color-1",
+                            before: beforeOccurrence,
+                            after: afterOccurrence),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        await session.InitializeAsync();
+
+        var home = new HomePageViewModel(
+            session,
+            new RelayCommand(() => { }),
+            new RelayCommand(() => { }),
+            new FixedTimeProvider(new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.FromHours(8))));
+
+        home.SelectedDayOccurrences.Should().ContainSingle();
+        home.SelectedDayOccurrences[0].Status.Should().Be(HomeScheduleEntryStatus.UpdatedAfter);
+        home.SelectedDayOccurrences[0].BorderBrushHex.Should().Be("#D48C1F");
+        home.SelectedDayOccurrences[0].ColorDotHex.Should().Be("#5484ED");
+    }
+
+    [Fact]
+    public async Task HomePageViewModelDeduplicatesRemoteManagedAndLocalSnapshotUpdatesForSameOccurrence()
+    {
+        var beforeOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 0),
+            googleCalendarColorId: "11");
+        var afterOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 0),
+            googleCalendarColorId: "9");
+        var localStableId = "updated-color-merge-1";
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [afterOccurrence],
+                syncPlan: new SyncPlan(
+                    [afterOccurrence],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Updated,
+                            SyncTargetKind.CalendarEvent,
+                            localStableId,
+                            changeSource: SyncChangeSource.LocalSnapshot,
+                            before: beforeOccurrence,
+                            after: afterOccurrence),
+                        new PlannedSyncChange(
+                            SyncChangeKind.Updated,
+                            SyncTargetKind.CalendarEvent,
+                            localStableId,
+                            changeSource: SyncChangeSource.RemoteManaged,
+                            before: beforeOccurrence,
+                            after: afterOccurrence,
+                            remoteEvent: new ProviderRemoteCalendarEvent(
+                                "remote-1",
+                                "google-cal",
+                                "Signals",
+                                beforeOccurrence.Start,
+                                beforeOccurrence.End,
+                                beforeOccurrence.Metadata.Location,
+                                "managed",
+                                isManagedByApp: true,
+                                localSyncId: localStableId,
+                                sourceFingerprintHash: beforeOccurrence.SourceFingerprint.Hash,
+                                sourceKind: beforeOccurrence.SourceFingerprint.SourceKind,
+                                googleCalendarColorId: "11")),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        await session.InitializeAsync();
+
+        var home = new HomePageViewModel(
+            session,
+            new RelayCommand(() => { }),
+            new RelayCommand(() => { }),
+            new FixedTimeProvider(new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.FromHours(8))));
+
+        home.SelectedDayOccurrences.Count(item => item.Title == "Signals").Should().Be(1);
+        home.SelectedDayOccurrences[0].ColorDotHex.Should().Be("#5484ED");
+    }
+
+    [Fact]
+    public async Task HomePageViewModelCollapsesRemoteManagedUpdateWhenRemoteBeforeLosesTeacherAndNotes()
+    {
+        var afterOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 0),
+            googleCalendarColorId: "9");
+        var remoteBeforeOccurrence = new ResolvedOccurrence(
+            "Google Calendar",
+            1,
+            afterOccurrence.OccurrenceDate,
+            afterOccurrence.Start,
+            afterOccurrence.End,
+            "google-remote-preview",
+            afterOccurrence.Weekday,
+            new CourseMetadata(
+                afterOccurrence.Metadata.CourseTitle,
+                new WeekExpression("remote"),
+                new PeriodRange(1, 1),
+                notes: "managed",
+                location: afterOccurrence.Metadata.Location),
+            new SourceFingerprint("google-managed", "remote-1"),
+            SyncTargetKind.CalendarEvent,
+            googleCalendarColorId: "11");
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [afterOccurrence],
+                syncPlan: new SyncPlan(
+                    [afterOccurrence],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Updated,
+                            SyncTargetKind.CalendarEvent,
+                            "remote-managed-color-1",
+                            changeSource: SyncChangeSource.RemoteManaged,
+                            before: remoteBeforeOccurrence,
+                            after: afterOccurrence,
+                            remoteEvent: new ProviderRemoteCalendarEvent(
+                                "remote-1",
+                                "google-cal",
+                                afterOccurrence.Metadata.CourseTitle,
+                                afterOccurrence.Start,
+                                afterOccurrence.End,
+                                afterOccurrence.Metadata.Location,
+                                "managed",
+                                isManagedByApp: true,
+                                localSyncId: "remote-managed-color-1",
+                                sourceFingerprintHash: afterOccurrence.SourceFingerprint.Hash,
+                                sourceKind: afterOccurrence.SourceFingerprint.SourceKind,
+                                googleCalendarColorId: "11")),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        await session.InitializeAsync();
+
+        var home = new HomePageViewModel(
+            session,
+            new RelayCommand(() => { }),
+            new RelayCommand(() => { }),
+            new FixedTimeProvider(new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.FromHours(8))));
+
+        home.SelectedDayOccurrences.Count(item => item.Title == "Signals").Should().Be(1);
+        home.SelectedDayOccurrences[0].Status.Should().Be(HomeScheduleEntryStatus.UpdatedAfter);
+        home.SelectedDayOccurrences[0].BorderBrushHex.Should().Be("#D48C1F");
+    }
+
+    [Fact]
+    public async Task HomePageViewModelPrefersSingleUpdatedRowOverDuplicateRemoteDeletionForSameVisibleOccurrence()
+    {
+        var afterOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 0),
+            googleCalendarColorId: "9");
+        var remoteUpdatedBefore = new ResolvedOccurrence(
+            "Google Calendar",
+            1,
+            afterOccurrence.OccurrenceDate,
+            afterOccurrence.Start,
+            afterOccurrence.End,
+            "google-remote-preview",
+            afterOccurrence.Weekday,
+            new CourseMetadata(
+                afterOccurrence.Metadata.CourseTitle,
+                new WeekExpression("remote"),
+                new PeriodRange(1, 1),
+                notes: "managed",
+                location: afterOccurrence.Metadata.Location),
+            new SourceFingerprint("google-managed", "remote-primary"),
+            SyncTargetKind.CalendarEvent,
+            googleCalendarColorId: "11");
+        var duplicateRemoteBefore = new ResolvedOccurrence(
+            "Google Calendar",
+            1,
+            afterOccurrence.OccurrenceDate,
+            afterOccurrence.Start,
+            afterOccurrence.End,
+            "google-remote-preview",
+            afterOccurrence.Weekday,
+            new CourseMetadata(
+                afterOccurrence.Metadata.CourseTitle,
+                new WeekExpression("remote"),
+                new PeriodRange(1, 1),
+                notes: "duplicate",
+                location: afterOccurrence.Metadata.Location),
+            new SourceFingerprint("google-managed", "remote-duplicate"),
+            SyncTargetKind.CalendarEvent,
+            googleCalendarColorId: "11");
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [afterOccurrence],
+                syncPlan: new SyncPlan(
+                    [afterOccurrence],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Updated,
+                            SyncTargetKind.CalendarEvent,
+                            "primary-local-sync-id",
+                            changeSource: SyncChangeSource.RemoteManaged,
+                            before: remoteUpdatedBefore,
+                            after: afterOccurrence,
+                            remoteEvent: new ProviderRemoteCalendarEvent(
+                                "remote-primary",
+                                "google-cal",
+                                afterOccurrence.Metadata.CourseTitle,
+                                afterOccurrence.Start,
+                                afterOccurrence.End,
+                                afterOccurrence.Metadata.Location,
+                                "managed",
+                                isManagedByApp: true,
+                                localSyncId: "primary-local-sync-id",
+                                sourceFingerprintHash: afterOccurrence.SourceFingerprint.Hash,
+                                sourceKind: afterOccurrence.SourceFingerprint.SourceKind,
+                                googleCalendarColorId: "11")),
+                        new PlannedSyncChange(
+                            SyncChangeKind.Deleted,
+                            SyncTargetKind.CalendarEvent,
+                            "duplicate-local-sync-id",
+                            changeSource: SyncChangeSource.RemoteManaged,
+                            before: duplicateRemoteBefore,
+                            remoteEvent: new ProviderRemoteCalendarEvent(
+                                "remote-duplicate",
+                                "google-cal",
+                                afterOccurrence.Metadata.CourseTitle,
+                                afterOccurrence.Start,
+                                afterOccurrence.End,
+                                afterOccurrence.Metadata.Location,
+                                "duplicate",
+                                isManagedByApp: true,
+                                localSyncId: "duplicate-local-sync-id",
+                                sourceFingerprintHash: afterOccurrence.SourceFingerprint.Hash,
+                                sourceKind: afterOccurrence.SourceFingerprint.SourceKind,
+                                googleCalendarColorId: "11")),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        await session.InitializeAsync();
+
+        var home = new HomePageViewModel(
+            session,
+            new RelayCommand(() => { }),
+            new RelayCommand(() => { }),
+            new FixedTimeProvider(new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.FromHours(8))));
+
+        home.SelectedDayOccurrences.Count(item => item.Title == "Signals" && item.TimeRange == "08:00-09:00").Should().Be(1);
+        home.SelectedDayOccurrences[0].Status.Should().Be(HomeScheduleEntryStatus.UpdatedAfter);
+        home.SelectedDayOccurrences[0].BorderBrushHex.Should().Be("#D48C1F");
+        home.SelectedDayOccurrences[0].ColorDotHex.Should().Be("#5484ED");
+    }
+
+    [Fact]
     public async Task HomePageViewModelKeepsDeletedOccurrenceWhenDeleteIsDeselected()
     {
         var deletedOccurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40));
@@ -1070,7 +1806,8 @@ public sealed class ShellViewModelTests
         DateOnly date,
         TimeOnly start,
         TimeOnly end,
-        SourceFingerprint? sourceFingerprint = null) =>
+        SourceFingerprint? sourceFingerprint = null,
+        string? googleCalendarColorId = null) =>
         new(
             className,
             schoolWeekNumber: 1,
@@ -1087,7 +1824,8 @@ public sealed class ShellViewModelTests
                 location: courseTitle == "Circuits" ? "Room 302" : "Room 301",
                 teacher: "Teacher A"),
             sourceFingerprint: sourceFingerprint ?? new SourceFingerprint("pdf", $"{className}-{courseTitle}-{date:yyyyMMdd}"),
-            courseType: L010);
+            courseType: L010,
+            googleCalendarColorId: googleCalendarColorId);
 
     private sealed class FakeLocalSourceOnboardingService : ILocalSourceOnboardingService
     {
@@ -1160,6 +1898,10 @@ public sealed class ShellViewModelTests
 
         public int BuildPreviewCallCount { get; private set; }
 
+        public IReadOnlyList<string> RemoteApplyAcceptedChangeIds { get; private set; } = Array.Empty<string>();
+
+        public IReadOnlyList<string> LocalApplyAcceptedChangeIds { get; private set; } = Array.Empty<string>();
+
         public Task<WorkspacePreviewResult> BuildPreviewAsync(WorkspacePreviewRequest request, CancellationToken cancellationToken) =>
             Task.FromResult(BuildPreview(request));
 
@@ -1169,10 +1911,26 @@ public sealed class ShellViewModelTests
             CancellationToken cancellationToken)
         {
             onApplyAcceptedChanges?.Invoke(acceptedChangeIds);
+            RemoteApplyAcceptedChangeIds = acceptedChangeIds.ToArray();
             return Task.FromResult(new WorkspaceApplyResult(
                 preview.PreviousSnapshot,
                 acceptedChangeIds.Count,
                 0,
+                acceptedChangeIds.Count == 0
+                    ? new WorkspaceApplyStatus(WorkspaceApplyStatusKind.NoSelection)
+                    : new WorkspaceApplyStatus(WorkspaceApplyStatusKind.Applied)));
+        }
+
+        public Task<WorkspaceApplyResult> ApplyAcceptedChangesLocallyAsync(
+            WorkspacePreviewResult preview,
+            IReadOnlyCollection<string> acceptedChangeIds,
+            CancellationToken cancellationToken)
+        {
+            LocalApplyAcceptedChangeIds = acceptedChangeIds.ToArray();
+            return Task.FromResult(new WorkspaceApplyResult(
+                preview.PreviousSnapshot,
+                SuccessfulChangeCount: acceptedChangeIds.Count,
+                FailedChangeCount: 0,
                 acceptedChangeIds.Count == 0
                     ? new WorkspaceApplyStatus(WorkspaceApplyStatusKind.NoSelection)
                     : new WorkspaceApplyStatus(WorkspaceApplyStatusKind.Applied)));
@@ -1261,5 +2019,63 @@ public sealed class ShellViewModelTests
         public override DateTimeOffset GetUtcNow() => currentTime.ToUniversalTime();
 
         public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.CreateCustomTimeZone("Test", currentTime.Offset, "Test", "Test");
+    }
+
+    private sealed class BlockingApplyWorkspacePreviewService : IWorkspacePreviewService
+    {
+        private readonly TaskCompletionSource applyStarted;
+        private readonly TaskCompletionSource releaseApply;
+
+        public BlockingApplyWorkspacePreviewService(TaskCompletionSource applyStarted, TaskCompletionSource releaseApply)
+        {
+            this.applyStarted = applyStarted;
+            this.releaseApply = releaseApply;
+        }
+
+        public Task<WorkspacePreviewResult> BuildPreviewAsync(WorkspacePreviewRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult(CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+                ],
+                syncPlan: new SyncPlan(
+                    [
+                        CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+                    ],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Added,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-1",
+                            after: CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40))),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+
+        public async Task<WorkspaceApplyResult> ApplyAcceptedChangesAsync(
+            WorkspacePreviewResult preview,
+            IReadOnlyCollection<string> acceptedChangeIds,
+            CancellationToken cancellationToken)
+        {
+            applyStarted.TrySetResult();
+            await releaseApply.Task.WaitAsync(cancellationToken);
+            return new WorkspaceApplyResult(
+                preview.PreviousSnapshot,
+                SuccessfulChangeCount: acceptedChangeIds.Count,
+                FailedChangeCount: 0,
+                new WorkspaceApplyStatus(WorkspaceApplyStatusKind.Applied));
+        }
+
+        public Task<WorkspaceApplyResult> ApplyAcceptedChangesLocallyAsync(
+            WorkspacePreviewResult preview,
+            IReadOnlyCollection<string> acceptedChangeIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new WorkspaceApplyResult(
+                preview.PreviousSnapshot,
+                SuccessfulChangeCount: acceptedChangeIds.Count,
+                FailedChangeCount: 0,
+                new WorkspaceApplyStatus(WorkspaceApplyStatusKind.Applied)));
     }
 }

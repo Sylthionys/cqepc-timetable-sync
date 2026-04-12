@@ -8,6 +8,7 @@ public sealed class SettingsPageViewModel
     {
         Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         About = new AboutOverlayViewModel(workspace);
+        ProgramSettings = new ProgramSettingsOverlayViewModel(workspace, About);
     }
 
     public string Title { get; } = UiText.SettingsTitle;
@@ -21,4 +22,6 @@ public sealed class SettingsPageViewModel
     public WorkspaceSessionViewModel Workspace { get; }
 
     public AboutOverlayViewModel About { get; }
+
+    public ProgramSettingsOverlayViewModel ProgramSettings { get; }
 }

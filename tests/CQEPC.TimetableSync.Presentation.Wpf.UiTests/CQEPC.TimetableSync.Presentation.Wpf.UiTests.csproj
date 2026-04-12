@@ -28,4 +28,8 @@
     <ProjectReference Include="..\..\src\CQEPC.TimetableSync.Presentation.Wpf\CQEPC.TimetableSync.Presentation.Wpf.csproj"
                       ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Fixtures\manual-google-workflow.zh-Hans.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
