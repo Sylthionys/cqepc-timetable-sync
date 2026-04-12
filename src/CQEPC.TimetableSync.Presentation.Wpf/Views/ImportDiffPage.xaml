@@ -28,6 +28,7 @@
         <Style x:Key="DiffItemTitleStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="17" />
             <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
 
@@ -46,6 +47,7 @@
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="TextElement.Foreground" Value="{DynamicResource TextBrush}" />
         </Style>
 
         <Style x:Key="DiffStretchItemContainerStyle" TargetType="ContentPresenter">
@@ -85,6 +87,30 @@
                                 <Setter TargetName="Chrome" Property="Opacity" Value="0.96" />
                             </Trigger>
                         </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ImportInfoButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Content" Value="i" />
+        </Style>
+
+        <Style x:Key="OverlayDismissButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Cursor" Value="Arrow" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" />
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -316,8 +342,16 @@
                                                 Background="{DynamicResource PanelBrush}"
                                                 BorderBrush="{DynamicResource BorderBrush}">
                                             <StackPanel>
-                                                <TextBlock Style="{StaticResource DiffItemTitleStyle}"
-                                                           Text="{Binding Title}" />
+                                                <DockPanel LastChildFill="False">
+                                                    <Button DockPanel.Dock="Right"
+                                                            Margin="12,0,0,0"
+                                                            AutomationProperties.AutomationId="{Binding HeaderActionAutomationId}"
+                                                            Style="{StaticResource ImportInfoButtonStyle}"
+                                                            Command="{Binding HeaderActionCommand}"
+                                                            Visibility="{Binding HasHeaderAction, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                    <TextBlock Style="{StaticResource DiffItemTitleStyle}"
+                                                               Text="{Binding Title}" />
+                                                </DockPanel>
                                                 <TextBlock Margin="0,8,0,0"
                                                            Style="{StaticResource DiffBodyTextStyle}"
                                                            Text="{Binding Summary}" />
@@ -604,6 +638,17 @@
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"
                                        DataContext="{Binding CourseEditor}" />
+        </Grid>
+
+        <Grid Visibility="{Binding CoursePresentationEditor.IsOpen, Converter={StaticResource BooleanToVisibilityConverter}}"
+              Background="{DynamicResource OverlayBackdropBrush}">
+            <Button AutomationProperties.AutomationId="CoursePresentationEditor.Backdrop"
+                    Style="{StaticResource OverlayDismissButtonStyle}"
+                    Command="{Binding CoursePresentationEditor.CancelCommand}" />
+            <views:CoursePresentationEditorOverlay Margin="32"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   DataContext="{Binding CoursePresentationEditor}" />
         </Grid>
     </Grid>
 </UserControl>

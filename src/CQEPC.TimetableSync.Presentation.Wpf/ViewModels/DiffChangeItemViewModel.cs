@@ -78,12 +78,12 @@ public sealed class DiffChangeItemViewModel : ObservableObject
             : occurrence.TargetKind == SyncTargetKind.TaskItem
                 ? UiText.FormatDiffTaskTime(
                     occurrence.OccurrenceDate,
-                    TimeOnly.FromDateTime(occurrence.Start.LocalDateTime),
-                    TimeOnly.FromDateTime(occurrence.End.LocalDateTime))
+                    TimeOnly.FromDateTime(occurrence.Start.DateTime),
+                    TimeOnly.FromDateTime(occurrence.End.DateTime))
                 : UiText.FormatDiffCalendarTime(
                     occurrence.OccurrenceDate,
-                    TimeOnly.FromDateTime(occurrence.Start.LocalDateTime),
-                    TimeOnly.FromDateTime(occurrence.End.LocalDateTime));
+                    TimeOnly.FromDateTime(occurrence.Start.DateTime),
+                    TimeOnly.FromDateTime(occurrence.End.DateTime));
 
     private static string FormatLocation(ResolvedOccurrence? occurrence) =>
         occurrence?.Metadata.Location

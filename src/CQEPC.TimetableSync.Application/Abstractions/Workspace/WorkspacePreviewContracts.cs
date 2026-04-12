@@ -10,6 +10,11 @@ public interface IWorkspacePreviewService
         WorkspacePreviewRequest request,
         CancellationToken cancellationToken);
 
+    Task<WorkspaceApplyResult> ApplyAcceptedChangesLocallyAsync(
+        WorkspacePreviewResult preview,
+        IReadOnlyCollection<string> acceptedChangeIds,
+        CancellationToken cancellationToken);
+
     Task<WorkspaceApplyResult> ApplyAcceptedChangesAsync(
         WorkspacePreviewResult preview,
         IReadOnlyCollection<string> acceptedChangeIds,
@@ -20,7 +25,8 @@ public sealed record WorkspacePreviewRequest(
     LocalSourceCatalogState CatalogState,
     UserPreferences Preferences,
     string? SelectedClassName,
-    bool IncludeRuleBasedTasks = false);
+    bool IncludeRuleBasedTasks = false,
+    bool IncludeRemoteCalendarPreview = true);
 
 public enum WorkspacePreviewStatusKind
 {
@@ -45,7 +51,9 @@ public enum WorkspaceApplyStatusKind
     AppliedWithFailures,
 }
 
-public sealed record WorkspaceApplyStatus(WorkspaceApplyStatusKind Kind);
+public sealed record WorkspaceApplyStatus(
+    WorkspaceApplyStatusKind Kind,
+    string? Detail = null);
 
 public sealed record WorkspaceApplyResult(
     ImportedScheduleSnapshot? Snapshot,

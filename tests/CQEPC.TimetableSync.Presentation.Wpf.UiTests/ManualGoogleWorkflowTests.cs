@@ -14,11 +14,13 @@ using CQEPC.TimetableSync.Infrastructure.Providers.Google;
 using CQEPC.TimetableSync.Infrastructure.Sync;
 using CQEPC.TimetableSync.Presentation.Wpf.UiTests.Infrastructure;
 using FlaUI.Core.AutomationElements;
+using FlaUI.Core.Definitions;
 using FluentAssertions;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Xunit;
+using static CQEPC.TimetableSync.Presentation.Wpf.UiTests.Infrastructure.ManualGoogleWorkflowChineseText;
 using static CQEPC.TimetableSync.Presentation.Wpf.UiTests.Infrastructure.SyntheticChineseSamples;
 
 namespace CQEPC.TimetableSync.Presentation.Wpf.UiTests;
@@ -73,6 +75,396 @@ public sealed class ManualGoogleWorkflowTests
                     await Task.Delay(TimeSpan.FromSeconds(25));
                 }
             });
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageHomeApplyWithStaleGoogleConnectionRedirectsToSettings()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var preferencesRepository = new JsonUserPreferencesRepository(new LocalStoragePaths(actualStorageRoot));
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        var googleTokenDirectory = Path.Combine(actualStorageRoot, "tokens", "google");
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.ConnectedAccountSummary)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId)
+            || Directory.Exists(googleTokenDirectory) && Directory.EnumerateFiles(googleTokenDirectory, "*", SearchOption.AllDirectories).Any())
+        {
+            return;
+        }
+
+        var storageRoot = await CreateClonedActualStorageRootAsync(actualStorageRoot);
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var workspaceRepository = new JsonWorkspaceRepository(storagePaths);
+        var snapshot = await workspaceRepository.LoadLatestSnapshotAsync(CancellationToken.None);
+        var beforeScreenshotPath = string.Empty;
+        var afterScreenshotPath = string.Empty;
+
+        await using var session = await UiAppSession.LaunchAsync(
+            nameof(ActualLocalStorageHomeApplyWithStaleGoogleConnectionRedirectsToSettings),
+            storageRoot);
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+                current.ScrollToVerticalPercent("Settings.PageRoot", 24);
+
+                var parsedClassCount = current.GetComboBoxItemCount("Settings.ParsedClassCombo");
+                if (parsedClassCount > 1)
+                {
+                    var selectedClassState = ParseSelectedClassState(await current.GetSelectedClassStateAsync());
+                    var alternateClassName = SelectDifferentLiveGoogleClassName(
+                        snapshot?.SelectedClassName ?? selectedClassState.SelectedParsedClassName,
+                        current.GetComboBoxItemTexts("Settings.ParsedClassCombo"));
+                    if (!string.IsNullOrWhiteSpace(alternateClassName))
+                    {
+                        current.SelectComboBoxItem("Settings.ParsedClassCombo", alternateClassName);
+                        current.WaitForText(FormatSelectedClassText(alternateClassName), TimeSpan.FromSeconds(30));
+                    }
+                }
+
+                current.NavigateTo("Shell.Nav.Home", "Home.PageRoot");
+                beforeScreenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(beforeScreenshotPath).Should().BeTrue();
+
+                var plannedChangeState = ParsePlannedChangeState(await current.GetPlannedChangeStateAsync());
+                plannedChangeState.Length.Should().BeGreaterThan(0);
+                current.WaitForButton("Home.PrimaryAction.ApplySelected").IsEnabled.Should().BeTrue();
+
+                current.ClickButton("Home.PrimaryAction.ApplySelected", "Settings.PageRoot");
+                current.FindVisiblePageRootId().Should().Be("Settings.PageRoot");
+
+                afterScreenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(afterScreenshotPath).Should().BeTrue();
+            });
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageHomeAgendaAndCourseEditorDatePickerCanBeCaptured()
+    {
+        var storageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(storageRoot))
+        {
+            return;
+        }
+
+        await using var session = await UiAppSession.LaunchAsync(
+            nameof(ActualLocalStorageHomeAgendaAndCourseEditorDatePickerCanBeCaptured),
+            storageRoot);
+        await session.RunAsync(
+            async current =>
+            {
+                current.WaitForElement("Home.PageRoot");
+                current.WaitForElement("Home.SelectedDayCourseList");
+
+                var homeScreenshotPath = current.CaptureWindowScreenshotAsyncCompatible();
+                File.Exists(homeScreenshotPath).Should().BeTrue();
+
+                current.WaitForElement("Home.SelectedDayCourseList");
+                await current.OpenFirstHomeCourseEditorAsync();
+
+                current.WaitForElement("CourseEditorOverlay.Root");
+                var overlayScreenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(overlayScreenshotPath).Should().BeTrue();
+
+                current.WaitForElement("CourseEditor.StartDatePicker");
+                await current.OpenDatePickerDropdownAsync("CourseEditor.StartDatePicker");
+
+                var datePickerScreenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(datePickerScreenshotPath).Should().BeTrue();
+            });
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageLiveGooglePreviewDoesNotLeaveManagedDriftOutsidePlannedChanges()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateClonedActualStorageRootAsync(actualStorageRoot);
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var mappingRepository = new JsonSyncMappingRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId))
+        {
+            return;
+        }
+
+        var livePreviewContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var preview = livePreviewContext.Preview;
+        preview.SyncPlan.Should().NotBeNull("the cloned live Google storage should produce a usable sync plan");
+
+        var currentByLocalSyncId = preview.SyncPlan!.Occurrences
+            .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
+            .ToDictionary(SyncIdentity.CreateOccurrenceId, StringComparer.Ordinal);
+        var representedRemoteIds = preview.SyncPlan.PlannedChanges
+            .Where(static change => change.RemoteEvent is not null)
+            .Select(static change => change.RemoteEvent!.RemoteItemId)
+            .ToHashSet(StringComparer.Ordinal);
+        var exactMatchRemoteIds = preview.ExactMatchRemoteEventIds.ToHashSet(StringComparer.Ordinal);
+
+        var anomalies = preview.RemotePreviewEvents
+            .Where(static remoteEvent => remoteEvent.IsManagedByApp && !string.IsNullOrWhiteSpace(remoteEvent.LocalSyncId))
+            .Where(remoteEvent => currentByLocalSyncId.TryGetValue(remoteEvent.LocalSyncId!, out var occurrence)
+                                  && !MatchesRemotePayload(occurrence, remoteEvent)
+                                  && !representedRemoteIds.Contains(remoteEvent.RemoteItemId)
+                                  && !exactMatchRemoteIds.Contains(remoteEvent.RemoteItemId))
+            .Select(remoteEvent =>
+            {
+                var occurrence = currentByLocalSyncId[remoteEvent.LocalSyncId!];
+                return string.Join(
+                    " | ",
+                    $"localSyncId={remoteEvent.LocalSyncId}",
+                    $"remoteItemId={remoteEvent.RemoteItemId}",
+                    $"title={remoteEvent.Title}",
+                    $"remoteStart={remoteEvent.Start:O}",
+                    $"remoteEnd={remoteEvent.End:O}",
+                    $"remoteLocation={remoteEvent.Location ?? "<null>"}",
+                    $"originalStart={remoteEvent.OriginalStartTimeUtc?.ToString("O", CultureInfo.InvariantCulture) ?? "<null>"}",
+                    $"expectedStart={occurrence.Start:O}",
+                    $"expectedEnd={occurrence.End:O}",
+                    $"expectedLocation={occurrence.Metadata.Location ?? "<null>"}");
+            })
+            .ToArray();
+
+        anomalies.Should().BeEmpty(
+            $"live Google preview left managed drift outside the sync plan. SelectedClass={livePreviewContext.SelectedClassName}; anomalies={string.Join(" || ", anomalies)}");
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageLiveGooglePreviewRepresentsManagedDuplicateGroupsInSyncPlan()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateClonedActualStorageRootAsync(actualStorageRoot);
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var mappingRepository = new JsonSyncMappingRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId))
+        {
+            return;
+        }
+
+        var livePreviewContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var preview = livePreviewContext.Preview;
+        preview.SyncPlan.Should().NotBeNull("the cloned live Google storage should produce a usable sync plan");
+
+        var deletionWindow = preview.SyncPlan!.DeletionWindow;
+        var exactMatchRemoteIds = preview.ExactMatchRemoteEventIds.ToHashSet(StringComparer.Ordinal);
+        var representedRemoteIds = preview.SyncPlan.PlannedChanges
+            .Where(static change => change.RemoteEvent is not null)
+            .Select(static change => change.RemoteEvent!.RemoteItemId)
+            .ToHashSet(StringComparer.Ordinal);
+        var currentCalendarCountsByKey = preview.SyncPlan.Occurrences
+            .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
+            .GroupBy(
+                static occurrence => string.Join(
+                    "|",
+                    occurrence.Metadata.CourseTitle,
+                    occurrence.Start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+                    occurrence.End.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+                    occurrence.Metadata.Location ?? string.Empty),
+                StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
+
+        var duplicateGroups = preview.RemotePreviewEvents
+            .Where(static remoteEvent => remoteEvent.IsManagedByApp)
+            .Where(remoteEvent => deletionWindow is null || Overlaps(deletionWindow, remoteEvent.Start, remoteEvent.End))
+            .GroupBy(
+                static remoteEvent => string.Join(
+                    "|",
+                    remoteEvent.Title,
+                    remoteEvent.Start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+                    remoteEvent.End.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+                    remoteEvent.Location ?? string.Empty),
+                StringComparer.Ordinal)
+            .Where(static group => group.Count() > 1)
+            .ToArray();
+
+        var anomalies = duplicateGroups
+            .Select(group =>
+            {
+                var exactIds = group
+                    .Where(remoteEvent => exactMatchRemoteIds.Contains(remoteEvent.RemoteItemId))
+                    .Select(static remoteEvent => remoteEvent.RemoteItemId)
+                    .OrderBy(static id => id, StringComparer.Ordinal)
+                    .ToArray();
+                var representedIds = group
+                    .Where(remoteEvent => representedRemoteIds.Contains(remoteEvent.RemoteItemId))
+                    .Select(static remoteEvent => remoteEvent.RemoteItemId)
+                    .OrderBy(static id => id, StringComparer.Ordinal)
+                    .ToArray();
+                var missingIds = group
+                    .Where(remoteEvent =>
+                        !exactMatchRemoteIds.Contains(remoteEvent.RemoteItemId)
+                        && !representedRemoteIds.Contains(remoteEvent.RemoteItemId))
+                    .Select(static remoteEvent => remoteEvent.RemoteItemId)
+                    .OrderBy(static id => id, StringComparer.Ordinal)
+                    .ToArray();
+
+                return new
+                {
+                    Key = group.Key,
+                    ExpectedExactCount = currentCalendarCountsByKey.TryGetValue(group.Key, out var count) ? count : 0,
+                    ExactIds = exactIds,
+                    RepresentedIds = representedIds,
+                    MissingIds = missingIds,
+                    RemoteIds = group
+                        .Select(remoteEvent =>
+                            string.Join(
+                                ",",
+                                remoteEvent.RemoteItemId,
+                                remoteEvent.ParentRemoteItemId ?? "<no-parent>",
+                                remoteEvent.LocalSyncId ?? "<no-local-sync-id>",
+                                remoteEvent.OriginalStartTimeUtc?.ToString("O", CultureInfo.InvariantCulture) ?? "<no-original-start>"))
+                        .OrderBy(static value => value, StringComparer.Ordinal)
+                        .ToArray(),
+                };
+            })
+            .Where(result =>
+            {
+                var expectedDeletes = Math.Max(0, result.RemoteIds.Length - result.ExpectedExactCount);
+                var representedDeletes = result.RepresentedIds.Length;
+                return result.ExactIds.Length > result.ExpectedExactCount
+                    || result.MissingIds.Length > 0
+                    || representedDeletes < expectedDeletes;
+            })
+            .Select(result =>
+                string.Join(
+                    " | ",
+                    $"group={result.Key}",
+                    $"expectedExact={result.ExpectedExactCount}",
+                    $"exact={string.Join(',', result.ExactIds)}",
+                    $"represented={string.Join(',', result.RepresentedIds)}",
+                    $"missing={string.Join(',', result.MissingIds)}",
+                    $"remote={string.Join(';', result.RemoteIds)}"))
+            .ToArray();
+
+        anomalies.Should().BeEmpty(
+            $"live Google preview did not fully represent managed duplicate groups. SelectedClass={livePreviewContext.SelectedClassName}; anomalies={string.Join(" || ", anomalies)}");
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageLiveGoogleApplyRemovesRepresentedManagedDuplicateGroup()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateClonedActualStorageRootAsync(actualStorageRoot);
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var mappingRepository = new JsonSyncMappingRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId))
+        {
+            return;
+        }
+
+        var livePreviewContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var preview = livePreviewContext.Preview;
+        preview.SyncPlan.Should().NotBeNull("the cloned live Google storage should produce a usable sync plan");
+
+        var currentCalendarCountsByKey = preview.SyncPlan!.Occurrences
+            .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
+            .GroupBy(static occurrence => CreatePayloadKey(
+                occurrence.Metadata.CourseTitle,
+                occurrence.Start,
+                occurrence.End,
+                occurrence.Metadata.Location))
+            .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
+        var deletionWindow = preview.SyncPlan.DeletionWindow;
+        var deleteChanges = preview.SyncPlan.PlannedChanges
+            .Where(static change =>
+                change.ChangeKind == SyncChangeKind.Deleted
+                && change.ChangeSource == SyncChangeSource.RemoteManaged
+                && change.RemoteEvent is not null)
+            .ToArray();
+        var duplicateGroup = preview.RemotePreviewEvents
+            .Where(static remoteEvent => remoteEvent.IsManagedByApp)
+            .Where(remoteEvent => deletionWindow is null || Overlaps(deletionWindow, remoteEvent.Start, remoteEvent.End))
+            .GroupBy(static remoteEvent => CreatePayloadKey(
+                remoteEvent.Title,
+                remoteEvent.Start,
+                remoteEvent.End,
+                remoteEvent.Location))
+            .Select(group => new
+            {
+                Key = group.Key,
+                RemoteEvents = group.ToArray(),
+                CurrentCount = currentCalendarCountsByKey.TryGetValue(group.Key, out var count) ? count : 0,
+            })
+            .Where(group => group.RemoteEvents.Length > group.CurrentCount)
+            .Select(group => new
+            {
+                group.Key,
+                group.RemoteEvents,
+                DeleteChanges = deleteChanges
+                    .Where(change => group.RemoteEvents.Any(remoteEvent =>
+                        string.Equals(remoteEvent.RemoteItemId, change.RemoteEvent!.RemoteItemId, StringComparison.Ordinal)))
+                    .ToArray(),
+            })
+            .FirstOrDefault(group => group.DeleteChanges.Length > 0);
+
+        if (duplicateGroup is null)
+        {
+            return;
+        }
+
+        var previewService = CreateLiveGooglePreviewService(storagePaths);
+        var acceptedChangeIds = duplicateGroup.DeleteChanges
+            .Select(static change => change.LocalStableId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        acceptedChangeIds.Length.Should().BeGreaterThan(0);
+
+        var applyResult = await previewService.ApplyAcceptedChangesAsync(
+            preview,
+            acceptedChangeIds,
+            CancellationToken.None);
+        applyResult.Status.Kind.Should().NotBe(WorkspaceApplyStatusKind.NoSuccess);
+
+        var refreshedPreview = (await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None)).Preview;
+        var refreshedRemoteIds = refreshedPreview.RemotePreviewEvents
+            .Where(remoteEvent => string.Equals(
+                CreatePayloadKey(remoteEvent.Title, remoteEvent.Start, remoteEvent.End, remoteEvent.Location),
+                duplicateGroup.Key,
+                StringComparison.Ordinal))
+            .Select(static remoteEvent => remoteEvent.RemoteItemId)
+            .ToHashSet(StringComparer.Ordinal);
+
+        refreshedRemoteIds.Should().NotContain(duplicateGroup.DeleteChanges.Select(change => change.RemoteEvent!.RemoteItemId));
     }
 
     [ManualUiFact]
@@ -262,6 +654,135 @@ public sealed class ManualGoogleWorkflowTests
                 explicitProfileCount.Should().BeGreaterThan(0, $"live import should surface explicit profiles; profiles={string.Join(", ", explicitProfiles)}, screenshot={screenshotPath}");
                 explicitSelection.Should().NotBeNullOrWhiteSpace($"explicit profile selection should commit after live import; screenshot={screenshotPath}");
             });
+    }
+
+    [ManualUiFact]
+    public async Task ImportingRealFilesIntoRunningAppShowsAllFourAprilNinthOccurrences()
+    {
+        if (!TryGetRealFixturePaths(out var realFixturePaths))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateEmptyStorageRootAsync();
+        PreviewOccurrenceStatePayload? previewOccurrenceState = null;
+        string? screenshotPath = null;
+
+        await using var session = await UiAppSession.LaunchAsync(
+            nameof(ImportingRealFilesIntoRunningAppShowsAllFourAprilNinthOccurrences),
+            storageRoot.FullName);
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+                await current.ImportFilesAsync(realFixturePaths.TimetablePdf, realFixturePaths.TeachingProgressXls, realFixturePaths.ClassTimeDocx);
+
+                current.NavigateTo("Shell.Nav.Home", "Home.PageRoot");
+                previewOccurrenceState = ParsePreviewOccurrenceState(await current.GetPreviewOccurrenceStateAsync());
+                screenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(screenshotPath).Should().BeTrue();
+            });
+
+        previewOccurrenceState.Should().NotBeNull();
+        previewOccurrenceState!.EffectiveSelectedClassName.Should().Be(SelectedClassName);
+
+        var aprilNinthOccurrences = previewOccurrenceState.Occurrences
+            .Where(static occurrence =>
+                occurrence.TargetKind == SyncTargetKind.CalendarEvent
+                && occurrence.OccurrenceDate == new DateOnly(2026, 4, 9))
+            .OrderBy(static occurrence => occurrence.Start)
+            .ThenBy(static occurrence => occurrence.CourseTitle, StringComparer.Ordinal)
+            .ToArray();
+        aprilNinthOccurrences.Should().HaveCount(4, $"real file import should surface all four April 9 occurrences; screenshot={screenshotPath}");
+
+        aprilNinthOccurrences.Should().Contain(occurrence =>
+            string.Equals(occurrence.CourseTitle, SportsCourseTitle, StringComparison.Ordinal)
+            && occurrence.Start == new DateTimeOffset(2026, 4, 9, 8, 30, 0, TimeSpan.FromHours(8))
+            && occurrence.End == new DateTimeOffset(2026, 4, 9, 9, 50, 0, TimeSpan.FromHours(8)),
+            $"real file import should surface the April 9 sports occurrence; screenshot={screenshotPath}");
+        aprilNinthOccurrences.Should().Contain(occurrence =>
+            string.Equals(occurrence.CourseTitle, ElectromechanicalCourseTitle, StringComparison.Ordinal)
+            && occurrence.Start == new DateTimeOffset(2026, 4, 9, 10, 30, 0, TimeSpan.FromHours(8))
+            && occurrence.End == new DateTimeOffset(2026, 4, 9, 12, 0, 0, TimeSpan.FromHours(8)),
+            $"real file import should surface the April 9 electromechanical occurrence; screenshot={screenshotPath}");
+        aprilNinthOccurrences.Should().Contain(occurrence =>
+            string.Equals(occurrence.CourseTitle, CalculusCourseTitle, StringComparison.Ordinal)
+            && occurrence.Start == new DateTimeOffset(2026, 4, 9, 14, 30, 0, TimeSpan.FromHours(8))
+            && occurrence.End == new DateTimeOffset(2026, 4, 9, 16, 0, 0, TimeSpan.FromHours(8)),
+            $"real file import should surface the April 9 calculus occurrence; screenshot={screenshotPath}");
+        aprilNinthOccurrences.Should().Contain(occurrence =>
+            string.Equals(occurrence.CourseTitle, MentalHealthCourseTitle, StringComparison.Ordinal)
+            && occurrence.Start == new DateTimeOffset(2026, 4, 9, 16, 20, 0, TimeSpan.FromHours(8))
+            && occurrence.End == new DateTimeOffset(2026, 4, 9, 17, 50, 0, TimeSpan.FromHours(8)),
+            $"real file import should surface the April 9 mental-health occurrence; screenshot={screenshotPath}");
+    }
+
+    [ManualUiFact]
+    public async Task ImportingRealFilesIntoRunningAppShowsMaySourceTruthAndVisibleUnresolvedItems()
+    {
+        if (!TryGetRealFixturePaths(out var realFixturePaths))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateEmptyStorageRootAsync();
+        PreviewOccurrenceStatePayload? previewOccurrenceState = null;
+
+        await using var session = await UiAppSession.LaunchAsync(
+            nameof(ImportingRealFilesIntoRunningAppShowsMaySourceTruthAndVisibleUnresolvedItems),
+            storageRoot.FullName);
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+                await current.ImportFilesAsync(realFixturePaths.TimetablePdf, realFixturePaths.TeachingProgressXls, realFixturePaths.ClassTimeDocx);
+
+                current.NavigateTo("Shell.Nav.Home", "Home.PageRoot");
+                previewOccurrenceState = ParsePreviewOccurrenceState(await current.GetPreviewOccurrenceStateAsync());
+                current.WaitForText("\u672a\u89e3\u6790");
+                current.WaitForText("Automatic time-profile selection remained ambiguous across 2 candidates that define periods 11-12.");
+            });
+
+        previewOccurrenceState.Should().NotBeNull();
+        previewOccurrenceState!.UnresolvedItems.Should().Contain(item =>
+            string.Equals(item.Code, "NRM003", StringComparison.Ordinal)
+            && string.Equals(item.Summary, "\u4f53\u80b22 (Wednesday, periods 11-12)", StringComparison.Ordinal));
+
+        var maySixthOccurrences = previewOccurrenceState.Occurrences
+            .Where(static occurrence =>
+                occurrence.TargetKind == SyncTargetKind.CalendarEvent
+                && occurrence.OccurrenceDate == new DateOnly(2026, 5, 6))
+            .OrderBy(static occurrence => occurrence.Start)
+            .ThenBy(static occurrence => occurrence.CourseTitle, StringComparer.Ordinal)
+            .ToArray();
+        maySixthOccurrences.Should().HaveCount(3);
+        maySixthOccurrences.Should().Contain(occurrence =>
+            string.Equals(occurrence.CourseTitle, "\u5927\u5b66\u82f1\u8bed2", StringComparison.Ordinal)
+            && occurrence.Start == new DateTimeOffset(2026, 5, 6, 8, 30, 0, TimeSpan.FromHours(8)));
+        maySixthOccurrences.Should().Contain(occurrence =>
+            string.Equals(occurrence.CourseTitle, "\u9ad8\u7b49\u6570\u5b662", StringComparison.Ordinal)
+            && occurrence.Start == new DateTimeOffset(2026, 5, 6, 10, 30, 0, TimeSpan.FromHours(8)));
+        maySixthOccurrences.Should().Contain(occurrence =>
+            string.Equals(occurrence.CourseTitle, "\u52b3\u52a8\u6559\u80b2", StringComparison.Ordinal)
+            && occurrence.Start == new DateTimeOffset(2026, 5, 6, 19, 0, 0, TimeSpan.FromHours(8)));
+
+        var maySeventhOccurrences = previewOccurrenceState.Occurrences
+            .Where(static occurrence =>
+                occurrence.TargetKind == SyncTargetKind.CalendarEvent
+                && occurrence.OccurrenceDate == new DateOnly(2026, 5, 7))
+            .OrderBy(static occurrence => occurrence.Start)
+            .ThenBy(static occurrence => occurrence.CourseTitle, StringComparer.Ordinal)
+            .ToArray();
+        maySeventhOccurrences.Should().HaveCount(3);
+        maySeventhOccurrences.Should().Contain(occurrence =>
+            string.Equals(occurrence.CourseTitle, "\u4f53\u80b22", StringComparison.Ordinal)
+            && occurrence.Start == new DateTimeOffset(2026, 5, 7, 8, 30, 0, TimeSpan.FromHours(8)));
+        maySeventhOccurrences.Should().Contain(occurrence =>
+            string.Equals(occurrence.CourseTitle, "\u7535\u673a\u6280\u672f", StringComparison.Ordinal)
+            && occurrence.Start == new DateTimeOffset(2026, 5, 7, 10, 30, 0, TimeSpan.FromHours(8)));
+        maySeventhOccurrences.Should().Contain(occurrence =>
+            string.Equals(occurrence.CourseTitle, "\u5fc3\u7406\u5065\u5eb7\u6559\u80b22", StringComparison.Ordinal)
+            && occurrence.Start == new DateTimeOffset(2026, 5, 7, 16, 20, 0, TimeSpan.FromHours(8)));
     }
 
     [ManualUiFact]
@@ -631,12 +1152,12 @@ public sealed class ManualGoogleWorkflowTests
                     string.Equals(change.ChangeKind, nameof(SyncChangeKind.Updated), StringComparison.Ordinal),
                     $"target={updateMapping.LocalSyncId}, matches={string.Join(';', updateTargetChanges.Select(FormatPlannedChangeState))}");
 
-                var selectedChangeIds = new[]
-                {
+                string[] selectedChangeIds =
+                [
                     updateMapping.LocalSyncId,
                     recreateMapping.LocalSyncId,
                     SyncIdentity.CreateOccurrenceId(strayOccurrence),
-                };
+                ];
                 plannedChangeState.Should().Contain(change =>
                     string.Equals(change.LocalStableId, recreateMapping.LocalSyncId, StringComparison.Ordinal),
                     $"the seeded remote delete should remain selectable; target={recreateMapping.LocalSyncId}, all={string.Join(';', plannedChangeState.Select(FormatPlannedChangeState))}");
@@ -674,6 +1195,375 @@ public sealed class ManualGoogleWorkflowTests
                 var homeAfterPath = await current.CaptureCurrentPageScreenshotAsync();
                 File.Exists(homeAfterPath).Should().BeTrue();
             });
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageHomeGoogleWorkflowShowsSingleOrangeRowForColorOnlyDrift()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateClonedActualStorageRootAsync(actualStorageRoot);
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId))
+        {
+            return;
+        }
+
+        var livePreviewContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var preview = livePreviewContext.Preview;
+        var existingMappings = livePreviewContext.ExistingMappings;
+        var selectedClassName = livePreviewContext.SelectedClassName;
+        var remotePreviewEvents = preview.RemotePreviewEvents;
+        var mappedOccurrences = preview.SyncPlan!.Occurrences
+            .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
+            .Select(occurrence => new
+            {
+                Occurrence = occurrence,
+                Mapping = existingMappings.FirstOrDefault(mapping =>
+                    mapping.TargetKind == SyncTargetKind.CalendarEvent
+                    && string.Equals(mapping.LocalSyncId, SyncIdentity.CreateOccurrenceId(occurrence), StringComparison.Ordinal)),
+            })
+            .Where(static pair => pair.Mapping is not null)
+            .Select(pair => new
+            {
+                pair.Occurrence,
+                Mapping = pair.Mapping!,
+                RemoteMatches = GetMappedRemoteCandidates(pair.Occurrence, pair.Mapping!, remotePreviewEvents),
+            })
+            .Where(candidate => candidate.RemoteMatches.Length == 1)
+            .ToArray();
+        if (mappedOccurrences.Length == 0)
+        {
+            return;
+        }
+
+        var target = mappedOccurrences[0];
+        var connectionContext = new ProviderConnectionContext(preferences.GoogleSettings.OAuthClientConfigurationPath);
+        var adapter = new GoogleSyncProviderAdapter(storagePaths);
+        var originalRemoteEvent = await adapter.GetCalendarEventAsync(
+            connectionContext,
+            target.RemoteMatches[0].CalendarId,
+            target.RemoteMatches[0].RemoteItemId,
+            CancellationToken.None);
+        var expectedColorId = target.Occurrence.GoogleCalendarColorId;
+        var driftedColorId = string.Equals(expectedColorId, "11", StringComparison.Ordinal) ? "9" : "11";
+        await adapter.UpdateCalendarEventAsync(
+            new ProviderRemoteCalendarEventUpdateRequest(
+                connectionContext,
+                originalRemoteEvent.CalendarId,
+                originalRemoteEvent.RemoteItemId,
+                originalRemoteEvent.Title,
+                originalRemoteEvent.Start,
+                originalRemoteEvent.End,
+                originalRemoteEvent.Location,
+                originalRemoteEvent.Description,
+                driftedColorId),
+            CancellationToken.None);
+
+        await using var session = await UiAppSession.LaunchAsync(
+            nameof(ActualLocalStorageHomeGoogleWorkflowShowsSingleOrangeRowForColorOnlyDrift),
+            storageRoot);
+        await session.RunAsync(
+            async current =>
+            {
+                current.WaitForElement("Home.PageRoot");
+                current.WaitForButton("Home.Action.SyncCalendar").IsEnabled.Should().BeTrue();
+                current.ClickButton("Home.Action.SyncCalendar");
+                await Task.Delay(TimeSpan.FromSeconds(5));
+
+                var plannedChangeState = ParsePlannedChangeState(await current.GetPlannedChangeStateAsync());
+                plannedChangeState.Should().Contain(change =>
+                    string.Equals(change.LocalStableId, target.Mapping.LocalSyncId, StringComparison.Ordinal)
+                    && string.Equals(change.ChangeKind, nameof(SyncChangeKind.Updated), StringComparison.Ordinal));
+                plannedChangeState.Should().NotContain(change =>
+                    string.Equals(change.LocalStableId, target.Mapping.LocalSyncId, StringComparison.Ordinal)
+                    && string.Equals(change.ChangeKind, nameof(SyncChangeKind.Added), StringComparison.Ordinal));
+                plannedChangeState.Should().NotContain(change =>
+                    string.Equals(change.LocalStableId, target.Mapping.LocalSyncId, StringComparison.Ordinal)
+                    && string.Equals(change.ChangeKind, nameof(SyncChangeKind.Deleted), StringComparison.Ordinal));
+
+                await current.SelectHomeDateAsync(target.Occurrence.OccurrenceDate);
+                var selectedDayState = ParseHomeSelectedDayState(await current.GetHomeSelectedDayStateAsync());
+                selectedDayState.Occurrences.Count(item =>
+                    string.Equals(item.Title, target.Occurrence.Metadata.CourseTitle, StringComparison.Ordinal)
+                    && string.Equals(item.TimeRange, $"{target.Occurrence.Start:HH:mm}-{target.Occurrence.End:HH:mm}", StringComparison.Ordinal))
+                    .Should().Be(1, $"selectedClass={selectedClassName}, localSyncId={target.Mapping.LocalSyncId}");
+                selectedDayState.Occurrences.Should().Contain(item =>
+                    string.Equals(item.Title, target.Occurrence.Metadata.CourseTitle, StringComparison.Ordinal)
+                    && string.Equals(item.TimeRange, $"{target.Occurrence.Start:HH:mm}-{target.Occurrence.End:HH:mm}", StringComparison.Ordinal)
+                    && string.Equals(item.BorderBrushHex, "#D48C1F", StringComparison.Ordinal));
+
+                var screenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(screenshotPath).Should().BeTrue();
+            });
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageImportApplyOnlyUpdatesHomePreviewBeforeHomeGoogleApply()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateClonedActualStorageRootAsync(actualStorageRoot);
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var mappingRepository = new JsonSyncMappingRepository(storagePaths);
+        var workspaceRepository = new JsonWorkspaceRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId))
+        {
+            return;
+        }
+
+        var snapshot = await workspaceRepository.LoadLatestSnapshotAsync(CancellationToken.None);
+        if (snapshot is null || snapshot.Occurrences.Count == 0)
+        {
+            return;
+        }
+
+        var livePreviewContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var alternateClassName = SelectDifferentLiveGoogleClassName(
+            snapshot.SelectedClassName ?? livePreviewContext.SelectedClassName,
+            livePreviewContext.Preview.ParsedClassSchedules.Select(static schedule => schedule.ClassName));
+        if (string.IsNullOrWhiteSpace(alternateClassName))
+        {
+            return;
+        }
+
+        var existingMappings = await mappingRepository.LoadAsync(ProviderKind.Google, CancellationToken.None);
+        var adapter = new GoogleSyncProviderAdapter(storagePaths);
+        var connectionContext = new ProviderConnectionContext(preferences.GoogleSettings.OAuthClientConfigurationPath);
+        var calendarId = preferences.GoogleSettings.SelectedCalendarId!;
+        var calendarDisplayName = preferences.GoogleSettings.SelectedCalendarDisplayName ?? preferences.GoogleDefaults.CalendarDestination;
+        var taskListDisplayName = preferences.GoogleDefaults.TaskListDestination;
+        var categoryNamesByCourseTypeKey = BuildCategoryNamesByCourseTypeKey(preferences.GoogleDefaults);
+
+        ResolvedOccurrence? addedOccurrence = null;
+        ResolvedOccurrence? deletedOccurrence = null;
+        string? addedLocalSyncId = null;
+        string? deletedLocalSyncId = null;
+        string? deletedRemoteItemId = null;
+        string? addedRemoteItemId = null;
+        var applyAttempted = false;
+        var matchingRemoteCountBeforeImport = -1;
+        var matchingRemoteCountAfterImport = -1;
+        var matchingRemoteCountAfterHomeApply = -1;
+
+        try
+        {
+            await using var session = await UiAppSession.LaunchAsync(
+                nameof(ActualLocalStorageImportApplyOnlyUpdatesHomePreviewBeforeHomeGoogleApply),
+                storageRoot);
+            await session.RunAsync(
+                async current =>
+                {
+                    current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+                    current.ScrollToVerticalPercent("Settings.PageRoot", 24);
+
+                    var parsedClassCount = current.GetComboBoxItemCount("Settings.ParsedClassCombo");
+                    if (parsedClassCount <= 1)
+                    {
+                        return;
+                    }
+
+                    current.GetComboBoxItemTexts("Settings.ParsedClassCombo")
+                        .Should()
+                        .Contain(alternateClassName);
+                    current.SelectComboBoxItem("Settings.ParsedClassCombo", alternateClassName);
+                    current.WaitForText(FormatSelectedClassText(alternateClassName), TimeSpan.FromSeconds(30));
+
+                    var selectedClassState = ParseSelectedClassState(await current.GetSelectedClassStateAsync());
+                    selectedClassState.SelectedParsedClassName.Should().Be(alternateClassName);
+                    selectedClassState.EffectiveSelectedClassName.Should().Be(alternateClassName);
+
+                    current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+                    current.WaitForButton("Import.ApplySelected").IsEnabled.Should().BeTrue();
+
+                    var previewOccurrenceState = ParsePreviewOccurrenceState(await current.GetPreviewOccurrenceStateAsync());
+                    var plannedChangeState = ParsePlannedChangeState(await current.GetPlannedChangeStateAsync());
+                    var previousOccurrencesById = snapshot.Occurrences.ToDictionary(SyncIdentity.CreateOccurrenceId, StringComparer.Ordinal);
+
+                    deletedLocalSyncId = plannedChangeState
+                        .Where(change =>
+                            string.Equals(change.ChangeKind, nameof(SyncChangeKind.Deleted), StringComparison.Ordinal)
+                            && string.Equals(change.ChangeSource, nameof(SyncChangeSource.RemoteManaged), StringComparison.Ordinal)
+                            && !string.IsNullOrWhiteSpace(change.LocalStableId)
+                            && previousOccurrencesById.ContainsKey(change.LocalStableId!))
+                        .Select(static change => change.LocalStableId)
+                        .FirstOrDefault();
+                    deletedLocalSyncId.Should().NotBeNullOrWhiteSpace();
+                    deletedOccurrence = previousOccurrencesById[deletedLocalSyncId!];
+                    deletedRemoteItemId = existingMappings.First(mapping =>
+                        mapping.TargetKind == SyncTargetKind.CalendarEvent
+                        && string.Equals(mapping.LocalSyncId, deletedLocalSyncId, StringComparison.Ordinal)).RemoteItemId;
+
+                    var addCandidate = previewOccurrenceState.Occurrences
+                        .Where(occurrence =>
+                            occurrence.TargetKind == SyncTargetKind.CalendarEvent
+                            && string.Equals(occurrence.ClassName, alternateClassName, StringComparison.Ordinal))
+                        .FirstOrDefault(occurrence =>
+                            plannedChangeState.Any(change =>
+                                string.Equals(change.ChangeKind, nameof(SyncChangeKind.Added), StringComparison.Ordinal)
+                                && string.Equals(change.LocalStableId, occurrence.LocalStableId, StringComparison.Ordinal)));
+                    addCandidate.Should().NotBeNull();
+                    addedLocalSyncId = addCandidate!.LocalStableId;
+                    addedOccurrence = ToResolvedOccurrence(addCandidate);
+
+                    matchingRemoteCountBeforeImport = (await adapter.ListCalendarPreviewEventsAsync(
+                            connectionContext,
+                            calendarId,
+                            CreateOccurrenceWindow(addedOccurrence),
+                            CancellationToken.None))
+                        .Count(remoteEvent => IsMatchingManagedRemoteEvent(remoteEvent, addedOccurrence, addedLocalSyncId));
+
+                    await current.SetSelectedImportChangeIdsAsync([deletedLocalSyncId!, addedLocalSyncId]);
+                    current.ClickButton("Import.ApplySelected");
+                    await Task.Delay(TimeSpan.FromSeconds(5));
+
+                    var importStatus = await current.GetWorkspaceStatusAsync();
+                    importStatus.Should().Contain("Remote calendars remain unchanged until you apply from Home.");
+
+                    var postImportChanges = ParsePlannedChangeState(await current.GetPlannedChangeStateAsync());
+                    postImportChanges.Should().NotContain(change =>
+                        string.Equals(change.LocalStableId, deletedLocalSyncId, StringComparison.Ordinal)
+                        || string.Equals(change.LocalStableId, addedLocalSyncId, StringComparison.Ordinal));
+
+                    matchingRemoteCountAfterImport = (await adapter.ListCalendarPreviewEventsAsync(
+                            connectionContext,
+                            calendarId,
+                            CreateOccurrenceWindow(addedOccurrence),
+                            CancellationToken.None))
+                        .Count(remoteEvent => IsMatchingManagedRemoteEvent(remoteEvent, addedOccurrence, addedLocalSyncId));
+                    matchingRemoteCountAfterImport.Should().Be(
+                        matchingRemoteCountBeforeImport,
+                        "Import.ApplySelected should only update the local snapshot and Home preview.");
+
+                    current.NavigateTo("Shell.Nav.Home", "Home.PageRoot");
+                    current.WaitForButton("Home.Action.SyncCalendar").IsEnabled.Should().BeTrue();
+                    current.ClickButton("Home.Action.SyncCalendar");
+                    await Task.Delay(TimeSpan.FromSeconds(5));
+
+                    await current.SetSelectedImportChangeIdsAsync([deletedLocalSyncId!, addedLocalSyncId]);
+                    current.WaitForButton("Home.PrimaryAction.ApplySelected").IsEnabled.Should().BeTrue();
+                    applyAttempted = true;
+                    await current.ApplySelectedImportChangesViaBridgeAsync(TimeSpan.FromMinutes(10));
+
+                    matchingRemoteCountAfterHomeApply = (await adapter.ListCalendarPreviewEventsAsync(
+                            connectionContext,
+                            calendarId,
+                            CreateOccurrenceWindow(addedOccurrence),
+                            CancellationToken.None))
+                        .Count(remoteEvent => IsMatchingManagedRemoteEvent(remoteEvent, addedOccurrence, addedLocalSyncId));
+                    matchingRemoteCountAfterHomeApply.Should().Be(
+                        matchingRemoteCountBeforeImport + 1,
+                        "Home apply should be the only step that creates the new Google event.");
+                });
+
+            var addedMapping = await WaitForGoogleMappingStateAsync(
+                mappingRepository,
+                addedLocalSyncId!,
+                deletedLocalSyncId!,
+                CancellationToken.None);
+            addedRemoteItemId = addedMapping.RemoteItemId;
+
+            var addedRemoteEvent = await WaitForGoogleEventAsync(
+                adapter,
+                connectionContext,
+                calendarId,
+                addedMapping.RemoteItemId,
+                CancellationToken.None);
+            addedRemoteEvent.Title.Should().Be(addedOccurrence!.Metadata.CourseTitle);
+            addedRemoteEvent.Start.ToUniversalTime().Should().Be(addedOccurrence.Start.ToUniversalTime());
+            addedRemoteEvent.End.ToUniversalTime().Should().Be(addedOccurrence.End.ToUniversalTime());
+            addedRemoteEvent.Location.Should().Be(addedOccurrence.Metadata.Location);
+            addedRemoteEvent.IsManagedByApp.Should().BeTrue();
+            addedRemoteEvent.LocalSyncId.Should().Be(addedLocalSyncId);
+
+            await AssertRemoteEventRemovedFromPreviewAsync(
+                adapter,
+                connectionContext,
+                calendarId,
+                deletedOccurrence!.Start,
+                deletedOccurrence.End,
+                remoteEvent => string.Equals(remoteEvent.RemoteItemId, deletedRemoteItemId, StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (applyAttempted && addedOccurrence is not null && deletedOccurrence is not null)
+            {
+                var cleanupMappings = await mappingRepository.LoadAsync(ProviderKind.Google, CancellationToken.None);
+                var cleanupChanges = new List<PlannedSyncChange>();
+                if (!string.IsNullOrWhiteSpace(addedLocalSyncId)
+                    && cleanupMappings.Any(mapping =>
+                        mapping.TargetKind == SyncTargetKind.CalendarEvent
+                        && string.Equals(mapping.LocalSyncId, addedLocalSyncId, StringComparison.Ordinal)))
+                {
+                    cleanupChanges.Add(new PlannedSyncChange(
+                        SyncChangeKind.Deleted,
+                        SyncTargetKind.CalendarEvent,
+                        addedLocalSyncId,
+                        before: addedOccurrence));
+                }
+
+                if (!string.IsNullOrWhiteSpace(deletedLocalSyncId)
+                    && cleanupMappings.All(mapping =>
+                        mapping.TargetKind != SyncTargetKind.CalendarEvent
+                        || !string.Equals(mapping.LocalSyncId, deletedLocalSyncId, StringComparison.Ordinal)))
+                {
+                    cleanupChanges.Add(new PlannedSyncChange(
+                        SyncChangeKind.Added,
+                        SyncTargetKind.CalendarEvent,
+                        deletedLocalSyncId,
+                        after: deletedOccurrence));
+                }
+
+                if (cleanupChanges.Count > 0)
+                {
+                    var cleanupApplyResult = await adapter.ApplyAcceptedChangesAsync(
+                        new ProviderApplyRequest(
+                            connectionContext,
+                            calendarId,
+                            calendarDisplayName,
+                            "@default",
+                            taskListDisplayName,
+                            categoryNamesByCourseTypeKey,
+                            cleanupChanges,
+                            cleanupChanges
+                                .Select(change => change.After ?? change.Before)
+                                .Where(static occurrence => occurrence is not null)
+                                .Cast<ResolvedOccurrence>()
+                                .ToArray(),
+                            cleanupChanges
+                                .Select(change => change.After ?? change.Before)
+                                .Where(static occurrence => occurrence is not null)
+                                .Cast<ResolvedOccurrence>()
+                                .Select(static occurrence => new ExportGroup(ExportGroupKind.SingleOccurrence, [occurrence]))
+                                .ToArray(),
+                            cleanupMappings),
+                        CancellationToken.None);
+
+                    var updatedCleanupMappings = cleanupApplyResult.UpdatedMappings;
+                    await mappingRepository.SaveAsync(ProviderKind.Google, updatedCleanupMappings, CancellationToken.None);
+                }
+            }
+        }
     }
 
     [ManualUiFact]
@@ -930,6 +1820,681 @@ public sealed class ManualGoogleWorkflowTests
         }
     }
 
+    [ManualUiFact]
+    public async Task ActualLocalStorageHomeGoogleWorkflowSwitchingParsedClassLeavesRemoteCalendarExactlyMatchingSelectedClass()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateClonedActualStorageRootAsync(actualStorageRoot);
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var mappingRepository = new JsonSyncMappingRepository(storagePaths);
+        var workspaceRepository = new JsonWorkspaceRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId))
+        {
+            return;
+        }
+
+        var snapshot = await workspaceRepository.LoadLatestSnapshotAsync(CancellationToken.None);
+        if (snapshot is null || snapshot.Occurrences.Count == 0)
+        {
+            return;
+        }
+
+        var livePreviewContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var alternateClassName = SelectDifferentLiveGoogleClassName(
+            snapshot.SelectedClassName ?? livePreviewContext.SelectedClassName,
+            livePreviewContext.Preview.ParsedClassSchedules.Select(static schedule => schedule.ClassName));
+        if (string.IsNullOrWhiteSpace(alternateClassName))
+        {
+            return;
+        }
+
+        var adapter = new GoogleSyncProviderAdapter(storagePaths);
+        var connectionContext = new ProviderConnectionContext(preferences.GoogleSettings.OAuthClientConfigurationPath);
+        var calendarId = preferences.GoogleSettings.SelectedCalendarId!;
+        ResolvedOccurrence[] expectedOccurrences = [];
+        PreviewDateWindow? previewWindow = null;
+        string? beforeScreenshotPath = null;
+        string? afterScreenshotPath = null;
+        string? workspaceStatus = null;
+
+        await using var session = await UiAppSession.LaunchAsync(
+            nameof(ActualLocalStorageHomeGoogleWorkflowSwitchingParsedClassLeavesRemoteCalendarExactlyMatchingSelectedClass),
+            storageRoot);
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+                current.ScrollToVerticalPercent("Settings.PageRoot", 24);
+
+                var parsedClassCount = current.GetComboBoxItemCount("Settings.ParsedClassCombo");
+                if (parsedClassCount <= 1)
+                {
+                    return;
+                }
+
+                current.GetComboBoxItemTexts("Settings.ParsedClassCombo")
+                    .Should()
+                    .Contain(alternateClassName);
+                current.SelectComboBoxItem("Settings.ParsedClassCombo", alternateClassName);
+                current.WaitForText(FormatSelectedClassText(alternateClassName), TimeSpan.FromSeconds(30));
+
+                var selectedClassState = ParseSelectedClassState(await current.GetSelectedClassStateAsync());
+                selectedClassState.SelectedParsedClassName.Should().Be(alternateClassName);
+                selectedClassState.EffectiveSelectedClassName.Should().Be(alternateClassName);
+
+                current.NavigateTo("Shell.Nav.Home", "Home.PageRoot");
+                beforeScreenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(beforeScreenshotPath).Should().BeTrue();
+
+                current.WaitForButton("Home.Action.SyncCalendar").IsEnabled.Should().BeTrue();
+                current.ClickButton("Home.Action.SyncCalendar");
+                await Task.Delay(TimeSpan.FromSeconds(5));
+
+                var previewOccurrenceState = ParsePreviewOccurrenceState(await current.GetPreviewOccurrenceStateAsync());
+                previewOccurrenceState.SelectedParsedClassName.Should().Be(alternateClassName);
+                previewOccurrenceState.EffectiveSelectedClassName.Should().Be(alternateClassName);
+                previewOccurrenceState.DeletionWindowStart.Should().NotBeNull();
+                previewOccurrenceState.DeletionWindowEnd.Should().NotBeNull();
+                previewWindow = new PreviewDateWindow(
+                    previewOccurrenceState.DeletionWindowStart!.Value,
+                    previewOccurrenceState.DeletionWindowEnd!.Value);
+
+                expectedOccurrences = previewOccurrenceState.Occurrences
+                    .Where(occurrence =>
+                        occurrence.TargetKind == SyncTargetKind.CalendarEvent
+                        && string.Equals(occurrence.ClassName, alternateClassName, StringComparison.Ordinal))
+                    .Select(ToResolvedOccurrence)
+                    .OrderBy(static occurrence => occurrence.Start)
+                    .ThenBy(static occurrence => occurrence.Metadata.CourseTitle, StringComparer.Ordinal)
+                    .ToArray();
+                expectedOccurrences.Length.Should().BeGreaterThan(
+                    0,
+                    $"switching to {alternateClassName} should expose calendar occurrences for exact-match verification");
+
+                var selectedChangeIds = ParsePlannedChangeState(await current.GetPlannedChangeStateAsync())
+                    .Where(change =>
+                        string.Equals(change.TargetKind, nameof(SyncTargetKind.CalendarEvent), StringComparison.Ordinal)
+                        && !string.IsNullOrWhiteSpace(change.LocalStableId))
+                    .Select(static change => change.LocalStableId!)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+                selectedChangeIds.Length.Should().BeGreaterThan(
+                    0,
+                    $"switching from {snapshot.SelectedClassName ?? "<none>"} to {alternateClassName} should produce calendar deltas");
+
+                await current.SetSelectedImportChangeIdsAsync(selectedChangeIds);
+                current.WaitForButton("Home.PrimaryAction.ApplySelected").IsEnabled.Should().BeTrue();
+                workspaceStatus = await current.ApplySelectedImportChangesViaBridgeAsync(TimeSpan.FromMinutes(10));
+
+                var postApplyChanges = ParsePlannedChangeState(await current.GetPlannedChangeStateAsync());
+                postApplyChanges.Should().NotContain(change =>
+                    string.Equals(change.TargetKind, nameof(SyncTargetKind.CalendarEvent), StringComparison.Ordinal)
+                    && selectedChangeIds.Contains(change.LocalStableId ?? string.Empty, StringComparer.Ordinal),
+                    $"workspaceStatus={workspaceStatus}, remaining={string.Join(';', postApplyChanges.Select(FormatPlannedChangeState))}");
+
+                afterScreenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(afterScreenshotPath).Should().BeTrue();
+            });
+
+        expectedOccurrences.Length.Should().BeGreaterThan(0);
+        previewWindow.Should().NotBeNull();
+
+        await WaitForGoogleClassAlignmentAsync(
+            mappingRepository,
+            adapter,
+            connectionContext,
+            calendarId,
+            expectedOccurrences,
+            previewWindow!,
+            CancellationToken.None);
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageCurrentSelectedClassHomeApplyKeepsDenseDateOccurrencesAlignedWithLiveGoogle()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateClonedActualStorageRootAsync(actualStorageRoot);
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId))
+        {
+            return;
+        }
+
+        var adapter = new GoogleSyncProviderAdapter(storagePaths);
+        var connectionContext = new ProviderConnectionContext(preferences.GoogleSettings.OAuthClientConfigurationPath);
+        var calendarId = preferences.GoogleSettings.SelectedCalendarId!;
+        var livePreviewContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var selectedClassName = livePreviewContext.SelectedClassName;
+        if (string.IsNullOrWhiteSpace(selectedClassName))
+        {
+            return;
+        }
+
+        PreviewDateWindow? previewWindow = null;
+        ResolvedOccurrence[] verificationOccurrences = [];
+        await using var session = await UiAppSession.LaunchAsync(
+            nameof(ActualLocalStorageCurrentSelectedClassHomeApplyKeepsDenseDateOccurrencesAlignedWithLiveGoogle),
+            storageRoot);
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Home", "Home.PageRoot");
+                current.WaitForButton("Home.Action.SyncCalendar").IsEnabled.Should().BeTrue();
+                current.ClickButton("Home.Action.SyncCalendar");
+                await Task.Delay(TimeSpan.FromSeconds(5));
+
+                var previewOccurrenceState = ParsePreviewOccurrenceState(await current.GetPreviewOccurrenceStateAsync());
+                previewOccurrenceState.EffectiveSelectedClassName.Should().Be(selectedClassName);
+                previewOccurrenceState.DeletionWindowStart.Should().NotBeNull();
+                previewOccurrenceState.DeletionWindowEnd.Should().NotBeNull();
+
+                previewWindow = new PreviewDateWindow(
+                    previewOccurrenceState.DeletionWindowStart!.Value,
+                    previewOccurrenceState.DeletionWindowEnd!.Value);
+                var expectedOccurrences = previewOccurrenceState.Occurrences
+                    .Where(occurrence =>
+                        occurrence.TargetKind == SyncTargetKind.CalendarEvent
+                        && string.Equals(occurrence.ClassName, selectedClassName, StringComparison.Ordinal))
+                    .Select(ToResolvedOccurrence)
+                    .OrderBy(static occurrence => occurrence.Start)
+                    .ThenBy(static occurrence => occurrence.Metadata.CourseTitle, StringComparer.Ordinal)
+                    .ToArray();
+                expectedOccurrences.Length.Should().BeGreaterThan(0);
+
+                var verificationDate = expectedOccurrences
+                    .GroupBy(static occurrence => occurrence.OccurrenceDate)
+                    .OrderByDescending(static group => group.Count())
+                    .ThenBy(static group => group.Key)
+                    .Select(static group => group.Key)
+                    .First();
+                verificationOccurrences = expectedOccurrences
+                    .Where(occurrence => occurrence.OccurrenceDate == verificationDate)
+                    .OrderBy(static occurrence => occurrence.Start)
+                    .ToArray();
+                verificationOccurrences.Length.Should().BeGreaterThan(0);
+
+                var selectedChangeIds = ParsePlannedChangeState(await current.GetPlannedChangeStateAsync())
+                    .Where(change =>
+                        string.Equals(change.TargetKind, nameof(SyncTargetKind.CalendarEvent), StringComparison.Ordinal)
+                        && !string.IsNullOrWhiteSpace(change.LocalStableId))
+                    .Select(static change => change.LocalStableId!)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+
+                if (selectedChangeIds.Length > 0)
+                {
+                    await current.SetSelectedImportChangeIdsAsync(selectedChangeIds);
+                    current.WaitForButton("Home.PrimaryAction.ApplySelected").IsEnabled.Should().BeTrue();
+                    await current.ApplySelectedImportChangesViaBridgeAsync(TimeSpan.FromMinutes(10));
+                }
+            });
+
+        previewWindow.Should().NotBeNull();
+        verificationOccurrences.Length.Should().BeGreaterThan(0);
+
+        var previewService = CreateLiveGooglePreviewService(storagePaths);
+        var refreshedPreviewContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var verificationIds = verificationOccurrences
+            .Select(SyncIdentity.CreateOccurrenceId)
+            .ToHashSet(StringComparer.Ordinal);
+        var pendingVerificationChanges = refreshedPreviewContext.Preview.SyncPlan?.PlannedChanges
+            .Where(change => verificationIds.Contains(change.LocalStableId))
+            .Select(change => $"{change.LocalStableId}:{change.ChangeKind}:{change.ChangeSource}")
+            .ToArray()
+            ?? Array.Empty<string>();
+        pendingVerificationChanges.Should().BeEmpty(
+            "the provider apply path should not leave the dense verification date pending after Home apply");
+
+        await WaitForGoogleOccurrencesAsync(
+            adapter,
+            connectionContext,
+            calendarId,
+            verificationOccurrences,
+            previewWindow!,
+            CancellationToken.None);
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageCurrentSelectedClassDirectApplyPersistsMappingsForAllSuccessfulCalendarChanges()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateClonedActualStorageRootAsync(actualStorageRoot);
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var mappingRepository = new JsonSyncMappingRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId))
+        {
+            return;
+        }
+
+        var previewService = CreateLiveGooglePreviewService(storagePaths);
+        var livePreviewContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var preview = livePreviewContext.Preview;
+        preview.SyncPlan.Should().NotBeNull();
+
+        var acceptedChangeIds = preview.SyncPlan!.PlannedChanges
+            .Where(static change => change.TargetKind == SyncTargetKind.CalendarEvent)
+            .Select(static change => change.LocalStableId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        acceptedChangeIds.Length.Should().BeGreaterThan(0);
+
+        var applyResult = await previewService.ApplyAcceptedChangesAsync(
+            preview,
+            acceptedChangeIds,
+            CancellationToken.None);
+
+        var persistedMappings = await mappingRepository.LoadAsync(ProviderKind.Google, CancellationToken.None);
+        var successfulIds = acceptedChangeIds
+            .Intersect(
+                applyResult.Snapshot?.Occurrences
+                    .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
+                    .Select(SyncIdentity.CreateOccurrenceId)
+                    .ToHashSet(StringComparer.Ordinal)
+                ?? [],
+                StringComparer.Ordinal)
+            .ToArray();
+
+        successfulIds.Should().OnlyContain(localSyncId =>
+            persistedMappings.Any(mapping =>
+                mapping.TargetKind == SyncTargetKind.CalendarEvent
+                && string.Equals(mapping.LocalSyncId, localSyncId, StringComparison.Ordinal)));
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageCurrentSelectedClassDirectApplyCreatesConflictLevelRemoteEventsForDenseDate()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateClonedActualStorageRootAsync(actualStorageRoot);
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId))
+        {
+            return;
+        }
+
+        var previewService = CreateLiveGooglePreviewService(storagePaths);
+        var adapter = new GoogleSyncProviderAdapter(storagePaths);
+        var connectionContext = new ProviderConnectionContext(preferences.GoogleSettings.OAuthClientConfigurationPath);
+        var calendarId = preferences.GoogleSettings.SelectedCalendarId!;
+        var livePreviewContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var preview = livePreviewContext.Preview;
+        preview.SyncPlan.Should().NotBeNull();
+
+        var acceptedChangeIds = preview.SyncPlan!.PlannedChanges
+            .Where(static change => change.TargetKind == SyncTargetKind.CalendarEvent)
+            .Select(static change => change.LocalStableId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        acceptedChangeIds.Length.Should().BeGreaterThan(0);
+
+        var expectedOccurrences = preview.SyncPlan.Occurrences
+            .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
+            .OrderBy(static occurrence => occurrence.Start)
+            .ToArray();
+        var verificationDate = expectedOccurrences
+            .GroupBy(static occurrence => occurrence.OccurrenceDate)
+            .OrderByDescending(static group => group.Count())
+            .ThenBy(static group => group.Key)
+            .Select(static group => group.Key)
+            .First();
+        var verificationOccurrences = expectedOccurrences
+            .Where(occurrence => occurrence.OccurrenceDate == verificationDate)
+            .OrderBy(static occurrence => occurrence.Start)
+            .ToArray();
+        verificationOccurrences.Length.Should().BeGreaterThan(0);
+
+        var applyResult = await previewService.ApplyAcceptedChangesAsync(
+            preview,
+            acceptedChangeIds,
+            CancellationToken.None);
+        applyResult.Status.Kind.Should().NotBe(WorkspaceApplyStatusKind.NoSuccess);
+
+        var previewWindow = new PreviewDateWindow(
+            verificationOccurrences[0].Start.AddHours(-6),
+            verificationOccurrences[^1].End.AddHours(6));
+        var remoteEvents = await adapter.ListCalendarPreviewEventsAsync(
+            connectionContext,
+            calendarId,
+            previewWindow,
+            CancellationToken.None);
+
+        verificationOccurrences.Should().OnlyContain(occurrence =>
+            remoteEvents.Any(remoteEvent =>
+                string.Equals(remoteEvent.Title, occurrence.Metadata.CourseTitle, StringComparison.Ordinal)
+                && remoteEvent.Start.ToUniversalTime() == occurrence.Start.ToUniversalTime()
+                && remoteEvent.End.ToUniversalTime() == occurrence.End.ToUniversalTime()));
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageSingleClassGoogleWorkflowKeepsAprilNinthCoursesAlignedWithLiveGoogle()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateClonedActualStorageRootAsync(actualStorageRoot);
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var mappingRepository = new JsonSyncMappingRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId))
+        {
+            return;
+        }
+
+        var adapter = new GoogleSyncProviderAdapter(storagePaths);
+        var connectionContext = new ProviderConnectionContext(preferences.GoogleSettings.OAuthClientConfigurationPath);
+        var calendarId = preferences.GoogleSettings.SelectedCalendarId!;
+        var livePreviewContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var selectedClassName = livePreviewContext.SelectedClassName;
+        if (string.IsNullOrWhiteSpace(selectedClassName))
+        {
+            return;
+        }
+
+        PreviewDateWindow? previewWindow = null;
+        ResolvedOccurrence[] expectedAprilNinthOccurrences = [];
+        string[] selectedChangeIds = [];
+        string? screenshotPath = null;
+        string? applyStatus = null;
+
+        await using var session = await UiAppSession.LaunchAsync(
+            nameof(ActualLocalStorageSingleClassGoogleWorkflowKeepsAprilNinthCoursesAlignedWithLiveGoogle),
+            storageRoot);
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+                current.ScrollToVerticalPercent("Settings.PageRoot", 24);
+
+                var parsedClassCombo = current.MainWindow.FindFirstDescendant(cf => cf.ByAutomationId("Settings.ParsedClassCombo"));
+                var parsedClassDisplay = current.MainWindow.FindFirstDescendant(cf => cf.ByAutomationId("Settings.ParsedClassDisplayText"));
+                if (parsedClassCombo is not null && current.GetComboBoxItemCount("Settings.ParsedClassCombo") > 0)
+                {
+                    current.GetComboBoxItemTexts("Settings.ParsedClassCombo")
+                        .Should()
+                        .Contain(selectedClassName);
+                    current.SelectComboBoxItem("Settings.ParsedClassCombo", selectedClassName);
+                }
+                else
+                {
+                    parsedClassDisplay.Should().NotBeNull();
+                    parsedClassDisplay!.Name.Should().Contain(selectedClassName);
+                }
+
+                current.NavigateTo("Shell.Nav.Home", "Home.PageRoot");
+                current.WaitForButton("Home.Action.SyncCalendar").IsEnabled.Should().BeTrue();
+                current.ClickButton("Home.Action.SyncCalendar");
+                await Task.Delay(TimeSpan.FromSeconds(5));
+
+                var previewOccurrenceState = ParsePreviewOccurrenceState(await current.GetPreviewOccurrenceStateAsync());
+                previewOccurrenceState.EffectiveSelectedClassName.Should().Be(selectedClassName);
+                previewOccurrenceState.DeletionWindowStart.Should().NotBeNull();
+                previewOccurrenceState.DeletionWindowEnd.Should().NotBeNull();
+
+                previewWindow = new PreviewDateWindow(
+                    previewOccurrenceState.DeletionWindowStart!.Value,
+                    previewOccurrenceState.DeletionWindowEnd!.Value);
+                var expectedOccurrences = previewOccurrenceState.Occurrences
+                    .Where(occurrence =>
+                        occurrence.TargetKind == SyncTargetKind.CalendarEvent
+                        && string.Equals(occurrence.ClassName, selectedClassName, StringComparison.Ordinal))
+                    .Select(ToResolvedOccurrence)
+                    .OrderBy(static occurrence => occurrence.Start)
+                    .ThenBy(static occurrence => occurrence.Metadata.CourseTitle, StringComparer.Ordinal)
+                    .ToArray();
+                expectedOccurrences.Length.Should().BeGreaterThan(0);
+                expectedAprilNinthOccurrences = expectedOccurrences
+                    .Where(occurrence => occurrence.OccurrenceDate == new DateOnly(2026, 4, 9))
+                    .OrderBy(static occurrence => occurrence.Start)
+                    .ToArray();
+                expectedAprilNinthOccurrences.Should().HaveCount(4);
+                expectedAprilNinthOccurrences.Should().Contain(occurrence =>
+                    occurrence.OccurrenceDate == new DateOnly(2026, 4, 9)
+                    && occurrence.Start == new DateTimeOffset(2026, 4, 9, 8, 30, 0, TimeSpan.FromHours(8))
+                    && occurrence.End == new DateTimeOffset(2026, 4, 9, 9, 50, 0, TimeSpan.FromHours(8)));
+                expectedAprilNinthOccurrences.Should().Contain(occurrence =>
+                    occurrence.OccurrenceDate == new DateOnly(2026, 4, 9)
+                    && occurrence.Start == new DateTimeOffset(2026, 4, 9, 10, 30, 0, TimeSpan.FromHours(8))
+                    && occurrence.End == new DateTimeOffset(2026, 4, 9, 12, 0, 0, TimeSpan.FromHours(8)));
+                expectedAprilNinthOccurrences.Should().Contain(occurrence =>
+                    occurrence.OccurrenceDate == new DateOnly(2026, 4, 9)
+                    && occurrence.Start == new DateTimeOffset(2026, 4, 9, 14, 30, 0, TimeSpan.FromHours(8))
+                    && occurrence.End == new DateTimeOffset(2026, 4, 9, 16, 0, 0, TimeSpan.FromHours(8)));
+                expectedAprilNinthOccurrences.Should().Contain(occurrence =>
+                    occurrence.OccurrenceDate == new DateOnly(2026, 4, 9)
+                    && occurrence.Start == new DateTimeOffset(2026, 4, 9, 16, 20, 0, TimeSpan.FromHours(8))
+                    && occurrence.End == new DateTimeOffset(2026, 4, 9, 17, 50, 0, TimeSpan.FromHours(8)));
+
+                selectedChangeIds = ParsePlannedChangeState(await current.GetPlannedChangeStateAsync())
+                    .Where(change =>
+                        string.Equals(change.TargetKind, nameof(SyncTargetKind.CalendarEvent), StringComparison.Ordinal)
+                        && !string.IsNullOrWhiteSpace(change.LocalStableId))
+                    .Select(static change => change.LocalStableId!)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+
+                if (selectedChangeIds.Length > 0)
+                {
+                    await current.SetSelectedImportChangeIdsAsync(selectedChangeIds);
+                    current.WaitForButton("Home.PrimaryAction.ApplySelected").IsEnabled.Should().BeTrue();
+                    applyStatus = await current.ApplySelectedImportChangesViaBridgeAsync(TimeSpan.FromMinutes(10));
+
+                    var remainingChanges = ParsePlannedChangeState(await current.GetPlannedChangeStateAsync());
+                    remainingChanges.Should().NotContain(change =>
+                        string.Equals(change.TargetKind, nameof(SyncTargetKind.CalendarEvent), StringComparison.Ordinal)
+                        && selectedChangeIds.Contains(change.LocalStableId ?? string.Empty, StringComparer.Ordinal),
+                        $"applyStatus={applyStatus}");
+                }
+
+                screenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(screenshotPath).Should().BeTrue();
+            });
+
+        previewWindow.Should().NotBeNull();
+        expectedAprilNinthOccurrences.Should().HaveCount(4);
+
+        await WaitForGoogleOccurrencesAsync(
+            adapter,
+            connectionContext,
+            calendarId,
+            expectedAprilNinthOccurrences,
+            previewWindow!,
+            CancellationToken.None);
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageSingleClassGoogleWorkflowKeepsAllFourAprilNinthCoursesAlignedWithLiveGoogle()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateClonedActualStorageRootAsync(actualStorageRoot);
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId))
+        {
+            return;
+        }
+
+        var adapter = new GoogleSyncProviderAdapter(storagePaths);
+        var connectionContext = new ProviderConnectionContext(preferences.GoogleSettings.OAuthClientConfigurationPath);
+        var calendarId = preferences.GoogleSettings.SelectedCalendarId!;
+        var livePreviewContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var selectedClassName = livePreviewContext.SelectedClassName;
+        if (string.IsNullOrWhiteSpace(selectedClassName))
+        {
+            return;
+        }
+
+        PreviewDateWindow? previewWindow = null;
+        string[] selectedChangeIds = [];
+
+        await using var session = await UiAppSession.LaunchAsync(
+            nameof(ActualLocalStorageSingleClassGoogleWorkflowKeepsAllFourAprilNinthCoursesAlignedWithLiveGoogle),
+            storageRoot);
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+                current.ScrollToVerticalPercent("Settings.PageRoot", 24);
+
+                var parsedClassCombo = current.MainWindow.FindFirstDescendant(cf => cf.ByAutomationId("Settings.ParsedClassCombo"));
+                var parsedClassDisplay = current.MainWindow.FindFirstDescendant(cf => cf.ByAutomationId("Settings.ParsedClassDisplayText"));
+                if (parsedClassCombo is not null && current.GetComboBoxItemCount("Settings.ParsedClassCombo") > 0)
+                {
+                    current.GetComboBoxItemTexts("Settings.ParsedClassCombo")
+                        .Should()
+                        .Contain(selectedClassName);
+                    current.SelectComboBoxItem("Settings.ParsedClassCombo", selectedClassName);
+                }
+                else
+                {
+                    parsedClassDisplay.Should().NotBeNull();
+                    parsedClassDisplay!.Name.Should().Contain(selectedClassName);
+                }
+
+                current.NavigateTo("Shell.Nav.Home", "Home.PageRoot");
+                current.WaitForButton("Home.Action.SyncCalendar").IsEnabled.Should().BeTrue();
+                current.ClickButton("Home.Action.SyncCalendar");
+                await Task.Delay(TimeSpan.FromSeconds(5));
+
+                var previewOccurrenceState = ParsePreviewOccurrenceState(await current.GetPreviewOccurrenceStateAsync());
+                previewOccurrenceState.EffectiveSelectedClassName.Should().Be(selectedClassName);
+                previewOccurrenceState.DeletionWindowStart.Should().NotBeNull();
+                previewOccurrenceState.DeletionWindowEnd.Should().NotBeNull();
+
+                previewWindow = new PreviewDateWindow(
+                    previewOccurrenceState.DeletionWindowStart!.Value,
+                    previewOccurrenceState.DeletionWindowEnd!.Value);
+
+                var aprilNinthOccurrences = previewOccurrenceState.Occurrences
+                    .Where(occurrence =>
+                        occurrence.TargetKind == SyncTargetKind.CalendarEvent
+                        && string.Equals(occurrence.ClassName, selectedClassName, StringComparison.Ordinal)
+                        && occurrence.OccurrenceDate == new DateOnly(2026, 4, 9))
+                    .OrderBy(static occurrence => occurrence.Start)
+                    .ToArray();
+                aprilNinthOccurrences.Should().HaveCount(4);
+                aprilNinthOccurrences.Should().Contain(occurrence =>
+                    occurrence.Start == new DateTimeOffset(2026, 4, 9, 8, 30, 0, TimeSpan.FromHours(8))
+                    && occurrence.End == new DateTimeOffset(2026, 4, 9, 9, 50, 0, TimeSpan.FromHours(8)));
+                aprilNinthOccurrences.Should().Contain(occurrence =>
+                    occurrence.Start == new DateTimeOffset(2026, 4, 9, 10, 30, 0, TimeSpan.FromHours(8))
+                    && occurrence.End == new DateTimeOffset(2026, 4, 9, 12, 0, 0, TimeSpan.FromHours(8)));
+                aprilNinthOccurrences.Should().Contain(occurrence =>
+                    occurrence.Start == new DateTimeOffset(2026, 4, 9, 14, 30, 0, TimeSpan.FromHours(8))
+                    && occurrence.End == new DateTimeOffset(2026, 4, 9, 16, 0, 0, TimeSpan.FromHours(8)));
+                aprilNinthOccurrences.Should().Contain(occurrence =>
+                    occurrence.Start == new DateTimeOffset(2026, 4, 9, 16, 20, 0, TimeSpan.FromHours(8))
+                    && occurrence.End == new DateTimeOffset(2026, 4, 9, 17, 50, 0, TimeSpan.FromHours(8)));
+
+                selectedChangeIds = ParsePlannedChangeState(await current.GetPlannedChangeStateAsync())
+                    .Where(change =>
+                        string.Equals(change.TargetKind, nameof(SyncTargetKind.CalendarEvent), StringComparison.Ordinal)
+                        && !string.IsNullOrWhiteSpace(change.LocalStableId))
+                    .Select(static change => change.LocalStableId!)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+
+                if (selectedChangeIds.Length > 0)
+                {
+                    await current.SetSelectedImportChangeIdsAsync(selectedChangeIds);
+                    current.WaitForButton("Home.PrimaryAction.ApplySelected").IsEnabled.Should().BeTrue();
+                    await current.ApplySelectedImportChangesViaBridgeAsync(TimeSpan.FromMinutes(10));
+                }
+            });
+
+        previewWindow.Should().NotBeNull();
+
+        var remoteEvents = await adapter.ListCalendarPreviewEventsAsync(
+            connectionContext,
+            calendarId,
+            previewWindow!,
+            CancellationToken.None);
+        var remoteAprilNinthOccurrences = remoteEvents
+            .Where(remoteEvent =>
+                remoteEvent.IsManagedByApp
+                && (string.Equals(remoteEvent.Title, SportsCourseTitle, StringComparison.Ordinal)
+                    || string.Equals(remoteEvent.Title, ElectromechanicalCourseTitle, StringComparison.Ordinal)
+                    || string.Equals(remoteEvent.Title, CalculusCourseTitle, StringComparison.Ordinal)
+                    || string.Equals(remoteEvent.Title, MentalHealthCourseTitle, StringComparison.Ordinal)))
+            .Where(remoteEvent => remoteEvent.OccurrenceDate == new DateOnly(2026, 4, 9))
+            .OrderBy(static remoteEvent => remoteEvent.Start)
+            .ToArray();
+
+        remoteAprilNinthOccurrences.Should().HaveCount(4);
+        remoteAprilNinthOccurrences.Should().Contain(remoteEvent =>
+            remoteEvent.Start == new DateTimeOffset(2026, 4, 9, 8, 30, 0, TimeSpan.FromHours(8))
+            && remoteEvent.End == new DateTimeOffset(2026, 4, 9, 9, 50, 0, TimeSpan.FromHours(8)));
+        remoteAprilNinthOccurrences.Should().Contain(remoteEvent =>
+            remoteEvent.Start == new DateTimeOffset(2026, 4, 9, 10, 30, 0, TimeSpan.FromHours(8))
+            && remoteEvent.End == new DateTimeOffset(2026, 4, 9, 12, 0, 0, TimeSpan.FromHours(8)));
+        remoteAprilNinthOccurrences.Should().Contain(remoteEvent =>
+            remoteEvent.Start == new DateTimeOffset(2026, 4, 9, 14, 30, 0, TimeSpan.FromHours(8))
+            && remoteEvent.End == new DateTimeOffset(2026, 4, 9, 16, 0, 0, TimeSpan.FromHours(8)));
+        remoteAprilNinthOccurrences.Should().Contain(remoteEvent =>
+            remoteEvent.Start == new DateTimeOffset(2026, 4, 9, 16, 20, 0, TimeSpan.FromHours(8))
+            && remoteEvent.End == new DateTimeOffset(2026, 4, 9, 17, 50, 0, TimeSpan.FromHours(8)));
+    }
+
     private static void ClickButtonByText(AutomationElement root, params string[] texts)
     {
         foreach (var text in texts)
@@ -945,6 +2510,26 @@ public sealed class ManualGoogleWorkflowTests
         }
 
         throw new Xunit.Sdk.XunitException($"Could not find a button with text: {string.Join(", ", texts)}");
+    }
+
+    private static Button? WaitForLargestButtonDescendant(AutomationElement root, TimeSpan? timeout = null)
+    {
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(8));
+        while (DateTime.UtcNow < deadline)
+        {
+            var button = root.FindAllDescendants(cf => cf.ByControlType(ControlType.Button))
+                .Select(element => element.AsButton())
+                .OrderByDescending(static candidate => candidate.BoundingRectangle.Width * candidate.BoundingRectangle.Height)
+                .FirstOrDefault();
+            if (button is not null)
+            {
+                return button;
+            }
+
+            Thread.Sleep(200);
+        }
+
+        return null;
     }
 
     private static async Task<DirectoryInfo> CreateStorageRootWithRealFilesAsync(
@@ -1060,23 +2645,13 @@ public sealed class ManualGoogleWorkflowTests
         CancellationToken cancellationToken)
     {
         var catalogRepository = new JsonLocalSourceCatalogRepository(storagePaths);
-        var workspaceRepository = new JsonWorkspaceRepository(storagePaths);
         var mappingRepository = new JsonSyncMappingRepository(storagePaths);
         var catalogState = await catalogRepository.LoadAsync(cancellationToken);
+        var workspaceRepository = new JsonWorkspaceRepository(storagePaths);
         var snapshot = await workspaceRepository.LoadLatestSnapshotAsync(cancellationToken);
         var selectedClassName = snapshot is null ? null : SelectLiveGoogleClassName(snapshot);
 
-        var previewService = new WorkspacePreviewService(
-            new TimetablePdfParser(),
-            new TeachingProgressXlsParser(),
-            new ClassTimeDocxParser(),
-            new TimetableNormalizer(),
-            new LocalSnapshotSyncDiffService(workspaceRepository),
-            workspaceRepository,
-            taskGenerationService: new RuleBasedTaskGenerationService(),
-            syncMappingRepository: mappingRepository,
-            providerAdapters: [new GoogleSyncProviderAdapter(storagePaths)],
-            exportGroupBuilder: new ExportGroupBuilder());
+        var previewService = CreateLiveGooglePreviewService(storagePaths);
         var preview = await previewService.BuildPreviewAsync(
             new WorkspacePreviewRequest(
                 catalogState,
@@ -1089,6 +2664,24 @@ public sealed class ManualGoogleWorkflowTests
             preview.EffectiveSelectedClassName ?? selectedClassName ?? string.Empty,
             preview,
             await mappingRepository.LoadAsync(ProviderKind.Google, cancellationToken));
+    }
+
+    private static WorkspacePreviewService CreateLiveGooglePreviewService(LocalStoragePaths storagePaths)
+    {
+        var workspaceRepository = new JsonWorkspaceRepository(storagePaths);
+        var mappingRepository = new JsonSyncMappingRepository(storagePaths);
+
+        return new WorkspacePreviewService(
+            new TimetablePdfParser(),
+            new TeachingProgressXlsParser(),
+            new ClassTimeDocxParser(),
+            new TimetableNormalizer(),
+            new LocalSnapshotSyncDiffService(workspaceRepository),
+            workspaceRepository,
+            taskGenerationService: new RuleBasedTaskGenerationService(),
+            syncMappingRepository: mappingRepository,
+            providerAdapters: [new GoogleSyncProviderAdapter(storagePaths)],
+            exportGroupBuilder: new ExportGroupBuilder());
     }
 
     private static string SelectLiveGoogleClassName(ImportedScheduleSnapshot snapshot)
@@ -1137,6 +2730,32 @@ public sealed class ManualGoogleWorkflowTests
     }
 
     private static string FormatSelectedClassText(string className) => "\u5df2\u9009\u62e9\u73ed\u7ea7\uff1a" + className;
+
+    private static string CreatePayloadKey(
+        string title,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        string? location) =>
+        string.Join(
+            "|",
+            title,
+            start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            end.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            location ?? string.Empty);
+
+    private static bool MatchesRemotePayload(ResolvedOccurrence occurrence, ProviderRemoteCalendarEvent remoteEvent) =>
+        string.Equals(occurrence.Metadata.CourseTitle, remoteEvent.Title, StringComparison.Ordinal)
+        && occurrence.Start.ToUniversalTime() == remoteEvent.Start.ToUniversalTime()
+        && occurrence.End.ToUniversalTime() == remoteEvent.End.ToUniversalTime()
+        && string.Equals(occurrence.Metadata.Location ?? string.Empty, remoteEvent.Location ?? string.Empty, StringComparison.Ordinal);
+
+    private static bool Overlaps(PreviewDateWindow window, DateTimeOffset start, DateTimeOffset end)
+    {
+        var normalizedStart = start.ToUniversalTime();
+        var normalizedEnd = end.ToUniversalTime();
+        return normalizedEnd > window.Start.ToUniversalTime()
+            && normalizedStart < window.End.ToUniversalTime();
+    }
 
     private static SelectedClassState ParseSelectedClassState(string? payload)
     {
@@ -1196,12 +2815,46 @@ public sealed class ManualGoogleWorkflowTests
                 occurrence?["sourceHash"]?.GetValue<string>() ?? string.Empty))
             .ToArray()
             ?? Array.Empty<PreviewOccurrenceState>();
+        var unresolvedItems = node["unresolvedItems"]?.AsArray()
+            ?.Select(item => new PreviewUnresolvedItemState(
+                item?["className"]?.GetValue<string>(),
+                item?["code"]?.GetValue<string>(),
+                item?["summary"]?.GetValue<string>() ?? string.Empty,
+                item?["reason"]?.GetValue<string>() ?? string.Empty,
+                item?["sourceKind"]?.GetValue<string>() ?? string.Empty,
+                item?["sourceHash"]?.GetValue<string>() ?? string.Empty))
+            .ToArray()
+            ?? Array.Empty<PreviewUnresolvedItemState>();
 
         return new PreviewOccurrenceStatePayload(
             node["selectedParsedClassName"]?.GetValue<string>(),
             node["effectiveSelectedClassName"]?.GetValue<string>(),
             node["deletionWindowStart"] is null ? null : DateTimeOffset.Parse(node["deletionWindowStart"]!.GetValue<string>(), CultureInfo.InvariantCulture),
             node["deletionWindowEnd"] is null ? null : DateTimeOffset.Parse(node["deletionWindowEnd"]!.GetValue<string>(), CultureInfo.InvariantCulture),
+            occurrences,
+            unresolvedItems);
+    }
+
+    private static HomeSelectedDayState ParseHomeSelectedDayState(string? payload)
+    {
+        var node = JsonNode.Parse(payload ?? "{}")?.AsObject()
+            ?? throw new InvalidOperationException("The home-selected-day state payload was invalid.");
+        var occurrences = node["occurrences"]?.AsArray()
+            ?.Select(item => new HomeSelectedDayOccurrenceState(
+                item?["title"]?.GetValue<string>() ?? string.Empty,
+                item?["timeRange"]?.GetValue<string>() ?? string.Empty,
+                item?["status"]?.GetValue<string>() ?? string.Empty,
+                item?["source"]?.GetValue<string>() ?? string.Empty,
+                item?["origin"]?.GetValue<string>() ?? string.Empty,
+                item?["colorDotHex"]?.GetValue<string>() ?? string.Empty,
+                item?["borderBrushHex"]?.GetValue<string>() ?? string.Empty,
+                item?["location"]?.GetValue<string>()))
+            .ToArray()
+            ?? Array.Empty<HomeSelectedDayOccurrenceState>();
+
+        return new HomeSelectedDayState(
+            node["selectedDayTitle"]?.GetValue<string>(),
+            node["selectedDaySummary"]?.GetValue<string>(),
             occurrences);
     }
 
@@ -1252,7 +2905,23 @@ public sealed class ManualGoogleWorkflowTests
         string? EffectiveSelectedClassName,
         DateTimeOffset? DeletionWindowStart,
         DateTimeOffset? DeletionWindowEnd,
-        IReadOnlyList<PreviewOccurrenceState> Occurrences);
+        IReadOnlyList<PreviewOccurrenceState> Occurrences,
+        IReadOnlyList<PreviewUnresolvedItemState> UnresolvedItems);
+
+    private sealed record HomeSelectedDayState(
+        string? SelectedDayTitle,
+        string? SelectedDaySummary,
+        IReadOnlyList<HomeSelectedDayOccurrenceState> Occurrences);
+
+    private sealed record HomeSelectedDayOccurrenceState(
+        string Title,
+        string TimeRange,
+        string Status,
+        string Source,
+        string Origin,
+        string ColorDotHex,
+        string BorderBrushHex,
+        string? Location);
 
     private sealed record PreviewOccurrenceState(
         string LocalStableId,
@@ -1274,6 +2943,14 @@ public sealed class ManualGoogleWorkflowTests
         string WeekExpressionRaw,
         int PeriodStart,
         int PeriodEnd,
+        string SourceKind,
+        string SourceHash);
+
+    private sealed record PreviewUnresolvedItemState(
+        string? ClassName,
+        string? Code,
+        string Summary,
+        string Reason,
         string SourceKind,
         string SourceHash);
 
@@ -1430,6 +3107,22 @@ public sealed class ManualGoogleWorkflowTests
             $"Timed out waiting for Google mappings to add '{addedLocalSyncId}' and remove '{deletedLocalSyncId}'. Last mappings={string.Join(';', lastMappings.Select(static mapping => mapping.LocalSyncId))}");
     }
 
+    private static PreviewDateWindow CreateOccurrenceWindow(ResolvedOccurrence occurrence) =>
+        new(
+            occurrence.Start.AddHours(-2),
+            occurrence.End.AddHours(2));
+
+    private static bool IsMatchingManagedRemoteEvent(
+        ProviderRemoteCalendarEvent remoteEvent,
+        ResolvedOccurrence occurrence,
+        string? localSyncId) =>
+        remoteEvent.IsManagedByApp
+        && string.Equals(remoteEvent.LocalSyncId, localSyncId, StringComparison.Ordinal)
+        && string.Equals(remoteEvent.Title, occurrence.Metadata.CourseTitle, StringComparison.Ordinal)
+        && remoteEvent.Start.ToUniversalTime() == occurrence.Start.ToUniversalTime()
+        && remoteEvent.End.ToUniversalTime() == occurrence.End.ToUniversalTime()
+        && string.Equals(remoteEvent.Location ?? string.Empty, occurrence.Metadata.Location ?? string.Empty, StringComparison.Ordinal);
+
     private static async Task<ProviderRemoteCalendarEvent> WaitForGoogleEventAsync(
         GoogleSyncProviderAdapter adapter,
         ProviderConnectionContext connectionContext,
@@ -1503,6 +3196,149 @@ public sealed class ManualGoogleWorkflowTests
         }
 
         throw new TimeoutException($"Timed out waiting for Google preview list to observe the seeded drift. Last observation: {lastObservation ?? "<none>"}");
+    }
+
+    private static async Task WaitForGoogleClassAlignmentAsync(
+        JsonSyncMappingRepository mappingRepository,
+        GoogleSyncProviderAdapter adapter,
+        ProviderConnectionContext connectionContext,
+        string calendarId,
+        IReadOnlyList<ResolvedOccurrence> expectedOccurrences,
+        PreviewDateWindow previewWindow,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddMinutes(3);
+        var expectedByLocalId = expectedOccurrences.ToDictionary(SyncIdentity.CreateOccurrenceId, StringComparer.Ordinal);
+        string? lastObservation = null;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            var mappings = await mappingRepository.LoadAsync(ProviderKind.Google, cancellationToken);
+            var expectedMappings = expectedByLocalId
+                .Select(pair => new
+                {
+                    pair.Key,
+                    Occurrence = pair.Value,
+                    Mapping = mappings.FirstOrDefault(mapping =>
+                        mapping.TargetKind == SyncTargetKind.CalendarEvent
+                        && string.Equals(mapping.LocalSyncId, pair.Key, StringComparison.Ordinal)),
+                })
+                .ToArray();
+            if (expectedMappings.Any(static pair => pair.Mapping is null))
+            {
+                lastObservation = "missing-local-mappings";
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+                continue;
+            }
+
+            var remoteEvents = await adapter.ListCalendarPreviewEventsAsync(
+                connectionContext,
+                calendarId,
+                previewWindow,
+                cancellationToken);
+            var matchedRemoteEvents = new List<ProviderRemoteCalendarEvent>(expectedMappings.Length);
+            var mismatch = false;
+
+            foreach (var pair in expectedMappings)
+            {
+                var remoteEvent = remoteEvents.FirstOrDefault(remote => MatchesMapping(remote, pair.Mapping!));
+                if (remoteEvent is null)
+                {
+                    lastObservation = $"missing-remote-event:{pair.Key}";
+                    mismatch = true;
+                    break;
+                }
+
+                if (!remoteEvent.IsManagedByApp
+                    || !string.Equals(remoteEvent.LocalSyncId, pair.Key, StringComparison.Ordinal)
+                    || !string.Equals(remoteEvent.SourceKind, pair.Occurrence.SourceFingerprint.SourceKind, StringComparison.Ordinal)
+                    || !string.Equals(remoteEvent.SourceFingerprintHash, pair.Occurrence.SourceFingerprint.Hash, StringComparison.Ordinal)
+                    || !string.Equals(remoteEvent.Title, pair.Occurrence.Metadata.CourseTitle, StringComparison.Ordinal)
+                    || remoteEvent.Start.ToUniversalTime() != pair.Occurrence.Start.ToUniversalTime()
+                    || remoteEvent.End.ToUniversalTime() != pair.Occurrence.End.ToUniversalTime()
+                    || !string.Equals(remoteEvent.Location, pair.Occurrence.Metadata.Location, StringComparison.Ordinal))
+                {
+                    lastObservation =
+                        $"mismatch:{pair.Key}:remote={remoteEvent.Title}|{remoteEvent.Start:O}|{remoteEvent.End:O}|{remoteEvent.Location ?? "<null>"}";
+                    mismatch = true;
+                    break;
+                }
+
+                matchedRemoteEvents.Add(remoteEvent);
+            }
+
+            if (mismatch)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+                continue;
+            }
+
+            var duplicateLocalIds = matchedRemoteEvents
+                .GroupBy(static remoteEvent => remoteEvent.LocalSyncId, StringComparer.Ordinal)
+                .Where(static group => group.Count() > 1)
+                .Select(static group => group.Key)
+                .ToArray();
+            if (duplicateLocalIds.Length > 0)
+            {
+                lastObservation = $"duplicate-local-sync-ids:{string.Join(',', duplicateLocalIds)}";
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+                continue;
+            }
+
+            return;
+        }
+
+        throw new TimeoutException(
+            $"Timed out waiting for Google Calendar to align exactly with the selected class occurrences. Last observation: {lastObservation ?? "<none>"}");
+    }
+
+    private static async Task WaitForGoogleOccurrencesAsync(
+        GoogleSyncProviderAdapter adapter,
+        ProviderConnectionContext connectionContext,
+        string calendarId,
+        IReadOnlyList<ResolvedOccurrence> expectedOccurrences,
+        PreviewDateWindow previewWindow,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddMinutes(3);
+        string? lastObservation = null;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            var remoteEvents = await adapter.ListCalendarPreviewEventsAsync(
+                connectionContext,
+                calendarId,
+                previewWindow,
+                cancellationToken);
+
+            var missing = expectedOccurrences
+                .Where(occurrence => !remoteEvents.Any(remoteEvent =>
+                    remoteEvent.IsManagedByApp
+                    && MatchesRemotePayload(occurrence, remoteEvent)))
+                .Select(occurrence => $"{occurrence.Metadata.CourseTitle}@{occurrence.Start:O}")
+                .ToArray();
+
+            if (missing.Length == 0)
+            {
+                return;
+            }
+
+            var relevantRemoteEvents = remoteEvents
+                .Where(remoteEvent =>
+                    expectedOccurrences.Any(occurrence =>
+                        string.Equals(occurrence.Metadata.CourseTitle, remoteEvent.Title, StringComparison.Ordinal)
+                        || occurrence.OccurrenceDate == DateOnly.FromDateTime(remoteEvent.Start.LocalDateTime.Date)))
+                .OrderBy(static remoteEvent => remoteEvent.Start)
+                .ThenBy(static remoteEvent => remoteEvent.Title, StringComparer.Ordinal)
+                .Select(remoteEvent =>
+                    $"{remoteEvent.Title}@{remoteEvent.Start:O}->{remoteEvent.End:O}|managed={remoteEvent.IsManagedByApp}|local={remoteEvent.LocalSyncId ?? "<null>"}|parent={remoteEvent.ParentRemoteItemId ?? "<null>"}|orig={remoteEvent.OriginalStartTimeUtc?.ToString("O") ?? "<null>"}|location={remoteEvent.Location ?? "<null>"}")
+                .ToArray();
+            lastObservation = $"{string.Join(", ", missing)}; remote=[{string.Join("; ", relevantRemoteEvents)}]";
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+        }
+
+        throw new TimeoutException(
+            $"Timed out waiting for Google Calendar to contain the expected occurrences. Last observation: {lastObservation ?? "<none>"}");
     }
 
     private static bool MatchesMapping(ProviderRemoteCalendarEvent remoteEvent, SyncMapping mapping) =>

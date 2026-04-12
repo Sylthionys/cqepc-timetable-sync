@@ -23,8 +23,8 @@ public sealed class HomePageViewModel : ObservableObject
     private string currentMonthTitle = string.Empty;
     private string calendarContextSummary = string.Empty;
     private bool showEmptyState = true;
-    private readonly IAsyncRelayCommand importSchedulesCommand;
-    private readonly IAsyncRelayCommand syncCalendarCommand;
+    private readonly AsyncRelayCommand importSchedulesCommand;
+    private readonly AsyncRelayCommand syncCalendarCommand;
 
     public HomePageViewModel(
         WorkspaceSessionViewModel workspace,
@@ -43,6 +43,7 @@ public sealed class HomePageViewModel : ObservableObject
 
         CalendarDays = new ObservableCollection<CalendarDayCellViewModel>();
         SelectedDayOccurrences = new ObservableCollection<AgendaOccurrenceViewModel>();
+        HomeUnresolvedItems = new ObservableCollection<UnresolvedItemCardViewModel>();
         PreviousMonthCommand = new RelayCommand(() => ChangeMonth(-1));
         NextMonthCommand = new RelayCommand(() => ChangeMonth(1));
         TodayCommand = new RelayCommand(GoToToday);
@@ -90,8 +91,6 @@ public sealed class HomePageViewModel : ObservableObject
         get => showEmptyState;
         private set => SetProperty(ref showEmptyState, value);
     }
-
-    public bool ShowCalendar => true;
 
     public string SelectedDayTitle
     {
@@ -144,6 +143,10 @@ public sealed class HomePageViewModel : ObservableObject
     public ObservableCollection<CalendarDayCellViewModel> CalendarDays { get; }
 
     public ObservableCollection<AgendaOccurrenceViewModel> SelectedDayOccurrences { get; }
+
+    public ObservableCollection<UnresolvedItemCardViewModel> HomeUnresolvedItems { get; }
+
+    public bool HasUnresolvedItems => HomeUnresolvedItems.Count > 0;
 
     public CourseEditorViewModel CourseEditor => workspace.CourseEditor;
 
@@ -229,16 +232,16 @@ public sealed class HomePageViewModel : ObservableObject
             EmptyStateSummary = workspace.WorkspaceStatus;
             RebuildCalendarDays([]);
             SelectedDayOccurrences.Clear();
+            HomeUnresolvedItems.Clear();
+            OnPropertyChanged(nameof(HasUnresolvedItems));
             SelectedDayTitle = selectedDate.ToDateTime(TimeOnly.MinValue).ToString("dddd, MMMM d", CultureInfo.CurrentCulture);
             SelectedDaySummary = UiText.HomeSelectedDayPlaceholderSummary;
             CalendarContextSummary = BuildCalendarContextSummary();
             OnPropertyChanged(nameof(HasCalendarContextSummary));
-            OnPropertyChanged(nameof(ShowCalendar));
             return;
         }
 
         ShowEmptyState = false;
-        OnPropertyChanged(nameof(ShowCalendar));
         var dayItems = workspace.HomeScheduleItems
             .GroupBy(static item => item.OccurrenceDate)
             .ToDictionary(static group => group.Key, static group => group.OrderBy(item => item.TimeRange, StringComparer.Ordinal).ToArray());
@@ -310,8 +313,22 @@ public sealed class HomePageViewModel : ObservableObject
         SelectedDaySummary = dayOccurrences.Length == 0
             ? UiText.HomeNoClassesOnSelectedDay
             : UiText.FormatSelectedDaySummary(dayOccurrences.Length);
+        RebuildHomeUnresolvedItems();
         CalendarContextSummary = BuildCalendarContextSummary();
         OnPropertyChanged(nameof(HasCalendarContextSummary));
+    }
+
+    private void RebuildHomeUnresolvedItems()
+    {
+        HomeUnresolvedItems.Clear();
+        foreach (var item in workspace.CurrentUnresolvedItems
+                     .OrderBy(static unresolved => unresolved.ClassName, StringComparer.Ordinal)
+                     .ThenBy(static unresolved => unresolved.Summary, StringComparer.Ordinal))
+        {
+            HomeUnresolvedItems.Add(new UnresolvedItemCardViewModel(item));
+        }
+
+        OnPropertyChanged(nameof(HasUnresolvedItems));
     }
 
     private void UpdateSelectedDateState()

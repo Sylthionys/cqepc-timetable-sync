@@ -21,6 +21,8 @@ public sealed class CourseEditorViewModel : ObservableObject
     private string? currentCampus;
     private string? currentTeacher;
     private string? currentTeachingClassComposition;
+    private GoogleTimeZoneOptionViewModel? selectedTimeZoneOption;
+    private GoogleCalendarColorOptionViewModel? selectedColorOption;
     private bool isOpen;
     private string title = string.Empty;
     private string summary = string.Empty;
@@ -48,6 +50,8 @@ public sealed class CourseEditorViewModel : ObservableObject
             new CourseScheduleRepeatOptionViewModel(CourseScheduleRepeatKind.Weekly, UiText.CourseEditorRepeatWeekly),
             new CourseScheduleRepeatOptionViewModel(CourseScheduleRepeatKind.Biweekly, UiText.CourseEditorRepeatBiweekly),
         ]);
+        TimeZoneOptions = new ObservableCollection<GoogleTimeZoneOptionViewModel>();
+        ColorOptions = new ObservableCollection<GoogleCalendarColorOptionViewModel>();
 
         CancelCommand = new RelayCommand(Close);
         SaveCommand = new AsyncRelayCommand(SaveInternalAsync, () => IsOpen);
@@ -59,6 +63,10 @@ public sealed class CourseEditorViewModel : ObservableObject
     }
 
     public ObservableCollection<CourseScheduleRepeatOptionViewModel> RepeatOptions { get; }
+
+    public ObservableCollection<GoogleTimeZoneOptionViewModel> TimeZoneOptions { get; }
+
+    public ObservableCollection<GoogleCalendarColorOptionViewModel> ColorOptions { get; }
 
     public bool IsOpen
     {
@@ -161,6 +169,18 @@ public sealed class CourseEditorViewModel : ObservableObject
     {
         get => notes;
         set => SetProperty(ref notes, value);
+    }
+
+    public GoogleTimeZoneOptionViewModel? SelectedTimeZoneOption
+    {
+        get => selectedTimeZoneOption;
+        set => SetProperty(ref selectedTimeZoneOption, value);
+    }
+
+    public GoogleCalendarColorOptionViewModel? SelectedColorOption
+    {
+        get => selectedColorOption;
+        set => SetProperty(ref selectedColorOption, value);
     }
 
     public CourseScheduleRepeatOptionViewModel? SelectedRepeatOption
@@ -303,6 +323,12 @@ public sealed class CourseEditorViewModel : ObservableObject
         EndTimeText = request.EndTime.ToString("HH\\:mm", CultureInfo.InvariantCulture);
         Location = request.Location;
         Notes = request.Notes;
+        ReplaceOptions(TimeZoneOptions, request.TimeZoneOptions ?? Array.Empty<GoogleTimeZoneOptionViewModel>());
+        ReplaceOptions(ColorOptions, request.ColorOptions ?? Array.Empty<GoogleCalendarColorOptionViewModel>());
+        SelectedTimeZoneOption = TimeZoneOptions.FirstOrDefault(option => string.Equals(option.TimeZoneId, request.SelectedTimeZoneId, StringComparison.Ordinal))
+            ?? TimeZoneOptions.FirstOrDefault();
+        SelectedColorOption = ColorOptions.FirstOrDefault(option => string.Equals(option.ColorId, request.SelectedColorId, StringComparison.Ordinal))
+            ?? ColorOptions.FirstOrDefault();
         SelectedRepeatOption = RepeatOptions.FirstOrDefault(option => option.RepeatKind == request.RepeatKind) ?? RepeatOptions[0];
         ValidationMessage = string.Empty;
         CanReset = request.CanReset;
@@ -366,7 +392,9 @@ public sealed class CourseEditorViewModel : ObservableObject
                 currentCampus,
                 Location,
                 currentTeacher,
-                currentTeachingClassComposition));
+                currentTeachingClassComposition,
+                SelectedTimeZoneOption?.TimeZoneId,
+                SelectedColorOption?.ColorId));
             Close();
         }
         catch (ArgumentException exception)
@@ -423,6 +451,15 @@ public sealed class CourseEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(LocationSummary));
         OnPropertyChanged(nameof(OccurrenceCountSummary));
     }
+
+    private static void ReplaceOptions<TOption>(ObservableCollection<TOption> target, IReadOnlyList<TOption> source)
+    {
+        target.Clear();
+        foreach (var item in source)
+        {
+            target.Add(item);
+        }
+    }
 }
 
 public sealed record CourseEditorOpenRequest(
@@ -444,6 +481,10 @@ public sealed record CourseEditorOpenRequest(
     string? Teacher = null,
     string? TeachingClassComposition = null,
     string? Notes = null,
+    IReadOnlyList<GoogleTimeZoneOptionViewModel>? TimeZoneOptions = null,
+    IReadOnlyList<GoogleCalendarColorOptionViewModel>? ColorOptions = null,
+    string? SelectedTimeZoneId = null,
+    string? SelectedColorId = null,
     bool CanReset = false);
 
 public sealed record CourseEditorSaveRequest(
@@ -462,6 +503,8 @@ public sealed record CourseEditorSaveRequest(
     string? Campus,
     string? Location,
     string? Teacher,
-    string? TeachingClassComposition);
+    string? TeachingClassComposition,
+    string? CalendarTimeZoneId,
+    string? GoogleCalendarColorId);
 
 public sealed record CourseEditorResetRequest(string ClassName, SourceFingerprint SourceFingerprint);

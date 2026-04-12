@@ -106,6 +106,19 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
                 case "close-about":
                     await ExecuteUiActionAsync(CloseAboutOverlay, cancellationToken).ConfigureAwait(false);
                     break;
+                case "open-first-home-course-editor":
+                    await ExecuteUiActionAsync(OpenFirstHomeCourseEditor, cancellationToken).ConfigureAwait(false);
+                    break;
+                case "open-date-picker-dropdown":
+                    if (string.IsNullOrWhiteSpace(request.AutomationId))
+                    {
+                        return new UiAutomationBridgeResponse(false, "The date-picker dropdown request was incomplete.");
+                    }
+
+                    await ExecuteUiActionAsync(
+                        () => OpenDatePickerDropdown(request.AutomationId),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
                 case "select-combo-index":
                     if (string.IsNullOrWhiteSpace(request.AutomationId)
                         || !request.Index.HasValue)
@@ -135,8 +148,22 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
                     return await ExecuteUiFuncAsync(GetPlannedChangeState, cancellationToken).ConfigureAwait(false);
                 case "get-preview-occurrence-state":
                     return await ExecuteUiFuncAsync(GetPreviewOccurrenceState, cancellationToken).ConfigureAwait(false);
+                case "get-home-selected-day-state":
+                    return await ExecuteUiFuncAsync(GetHomeSelectedDayState, cancellationToken).ConfigureAwait(false);
                 case "get-workspace-status":
                     return await ExecuteUiFuncAsync(GetWorkspaceStatus, cancellationToken).ConfigureAwait(false);
+                case "get-localization-state":
+                    return await ExecuteUiFuncAsync(GetLocalizationState, cancellationToken).ConfigureAwait(false);
+                case "select-home-date":
+                    if (string.IsNullOrWhiteSpace(request.Value))
+                    {
+                        return new UiAutomationBridgeResponse(false, "The select-home-date request was incomplete.");
+                    }
+
+                    await ExecuteUiActionAsync(
+                        () => SelectHomeDate(request.Value),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
                 case "apply-selected-import-changes":
                     return await ApplySelectedImportChangesAsync(cancellationToken).ConfigureAwait(false);
                 case "set-selected-import-change-ids":
@@ -206,6 +233,33 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
         shellViewModel.Settings.About.CloseCommand.Execute(null);
     }
 
+    private void OpenFirstHomeCourseEditor()
+    {
+        if (window.DataContext is not ShellViewModel shellViewModel)
+        {
+            throw new InvalidOperationException("The automation bridge could not access the shell view model.");
+        }
+
+        var occurrence = shellViewModel.Home.SelectedDayOccurrences.FirstOrDefault();
+        if (occurrence is null)
+        {
+            throw new InvalidOperationException("The selected day does not expose any course occurrences.");
+        }
+
+        occurrence.OpenEditorCommand.Execute(null);
+    }
+
+    private void OpenDatePickerDropdown(string automationId)
+    {
+        if (FindElementByAutomationId(window, automationId) is not DatePicker datePicker)
+        {
+            throw new InvalidOperationException($"The automation bridge could not find date-picker '{automationId}'.");
+        }
+
+        datePicker.IsDropDownOpen = true;
+        datePicker.UpdateLayout();
+    }
+
     private void SelectComboBoxItemByIndex(string automationId, int index)
     {
         if (window.DataContext is not ShellViewModel shellViewModel)
@@ -239,6 +293,22 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
                 }
 
                 workspace.SelectedParsedClassName = workspace.AvailableClasses[index];
+                return;
+            case "ProgramSettings.LocalizationCombo":
+                if (index < 0 || index >= workspace.LocalizationOptions.Count)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(index), index, $"Combo-box '{automationId}' does not contain item index {index}.");
+                }
+
+                workspace.SelectedLocalizationOption = workspace.LocalizationOptions[index];
+                return;
+            case "Settings.DefaultCalendarColorCombo":
+                if (index < 0 || index >= workspace.GoogleCalendarColorOptions.Count)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(index), index, $"Combo-box '{automationId}' does not contain item index {index}.");
+                }
+
+                workspace.SelectedDefaultCalendarColorId = workspace.GoogleCalendarColorOptions[index].ColorId;
                 return;
         }
 
@@ -297,6 +367,26 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
             {
                 workspace.SelectedParsedClassName,
                 workspace.EffectiveSelectedClassName,
+            },
+            JsonOptions);
+        return new UiAutomationBridgeResponse(true, null, payload);
+    }
+
+    private UiAutomationBridgeResponse GetLocalizationState()
+    {
+        if (window.DataContext is not ShellViewModel shellViewModel)
+        {
+            throw new InvalidOperationException("The automation bridge could not access the shell view model.");
+        }
+
+        var workspace = shellViewModel.Settings.Workspace;
+        var payload = JsonSerializer.Serialize(
+            new
+            {
+                workspace.SelectedPreferredCultureName,
+                SelectedLocalizationOptionKey = workspace.SelectedLocalizationOption?.SelectionKey,
+                ProgramSettingsTitle = System.Windows.Application.Current.TryFindResource("SettingsProgramSettingsTitle")?.ToString(),
+                CloseButton = System.Windows.Application.Current.TryFindResource("AboutCloseButton")?.ToString(),
             },
             JsonOptions);
         return new UiAutomationBridgeResponse(true, null, payload);
@@ -370,9 +460,69 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
                         SourceKind = occurrence.SourceFingerprint.SourceKind,
                         SourceHash = occurrence.SourceFingerprint.Hash,
                     }),
+                UnresolvedItems = workspace.CurrentUnresolvedItems.Select(
+                    static item => new
+                    {
+                        item.ClassName,
+                        item.Code,
+                        item.Summary,
+                        item.Reason,
+                        SourceKind = item.SourceFingerprint.SourceKind,
+                        SourceHash = item.SourceFingerprint.Hash,
+                    }),
             },
             JsonOptions);
         return new UiAutomationBridgeResponse(true, null, payload);
+    }
+
+    private UiAutomationBridgeResponse GetHomeSelectedDayState()
+    {
+        if (window.DataContext is not ShellViewModel shellViewModel)
+        {
+            throw new InvalidOperationException("The automation bridge could not access the shell view model.");
+        }
+
+        var payload = JsonSerializer.Serialize(
+            new
+            {
+                shellViewModel.Home.SelectedDayTitle,
+                shellViewModel.Home.SelectedDaySummary,
+                Occurrences = shellViewModel.Home.SelectedDayOccurrences.Select(
+                    static occurrence => new
+                    {
+                        occurrence.Title,
+                        occurrence.TimeRange,
+                        Status = occurrence.Status.ToString(),
+                        Source = occurrence.Source.ToString(),
+                        Origin = occurrence.Origin.ToString(),
+                        occurrence.ColorDotHex,
+                        occurrence.BorderBrushHex,
+                        occurrence.Location,
+                    }),
+            },
+            JsonOptions);
+        return new UiAutomationBridgeResponse(true, null, payload);
+    }
+
+    private void SelectHomeDate(string value)
+    {
+        if (window.DataContext is not ShellViewModel shellViewModel)
+        {
+            throw new InvalidOperationException("The automation bridge could not access the shell view model.");
+        }
+
+        if (!DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            throw new InvalidOperationException($"The select-home-date request used an invalid date '{value}'.");
+        }
+
+        var targetDay = shellViewModel.Home.CalendarDays.FirstOrDefault(day => day.Date == date);
+        if (targetDay is null)
+        {
+            throw new InvalidOperationException($"The Home calendar did not contain date '{value}'.");
+        }
+
+        shellViewModel.Home.SelectDayCommand.Execute(targetDay);
     }
 
     private UiAutomationBridgeResponse GetWorkspaceStatus()

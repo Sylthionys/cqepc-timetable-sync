@@ -37,6 +37,7 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -142,8 +143,7 @@
 
                     <ContentControl x:Name="CalendarRegion"
                                     Grid.Column="0"
-                                    AutomationProperties.AutomationId="Home.CalendarSection"
-                                    Visibility="{Binding ShowCalendar, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    AutomationProperties.AutomationId="Home.CalendarSection">
                         <Border Style="{StaticResource HomeSectionStyle}">
                             <Grid>
                             <Grid.RowDefinitions>
@@ -288,15 +288,17 @@
                                                             <DataTemplate>
                                                                 <Border Margin="0,0,0,4"
                                                                         Padding="6,4"
-                                                                        Background="{Binding BackgroundHex}"
+                                                                        Background="{DynamicResource SurfaceBrush}"
                                                                         BorderBrush="{Binding BorderBrushHex}"
                                                                         BorderThickness="1"
                                                                         CornerRadius="10">
                                                                     <StackPanel>
                                                                         <TextBlock FontSize="11"
                                                                                    FontWeight="SemiBold"
+                                                                                   Foreground="{DynamicResource TextBrush}"
                                                                                    Text="{Binding TimeRange}" />
                                                                         <TextBlock FontSize="11"
+                                                                                   Foreground="{DynamicResource TextBrush}"
                                                                                    Text="{Binding Title}"
                                                                                    TextTrimming="CharacterEllipsis">
                                                                             <TextBlock.Style>
@@ -365,11 +367,11 @@
 
                     <ContentControl x:Name="AgendaRegion"
                                     Grid.Column="2"
-                                    AutomationProperties.AutomationId="Home.AgendaSection"
-                                    Visibility="{Binding ShowCalendar, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    AutomationProperties.AutomationId="Home.AgendaSection">
                         <Border Style="{StaticResource HomeSectionStyle}">
                             <Grid>
                             <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
@@ -387,7 +389,67 @@
                                            Text="{Binding SelectedDayTitle}" />
                             </StackPanel>
 
-                            <Grid Grid.Row="1"
+                            <ContentControl Grid.Row="1"
+                                            Margin="0,16,0,0"
+                                            AutomationProperties.AutomationId="Home.UnresolvedSection"
+                                            Visibility="{Binding HasUnresolvedItems, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Border Padding="14"
+                                        Background="{DynamicResource SurfaceAltBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="18">
+                                    <StackPanel>
+                                        <DockPanel LastChildFill="False">
+                                            <TextBlock Style="{StaticResource HomeLabelStyle}"
+                                                       Text="{DynamicResource ImportUnresolvedTitle}" />
+                                            <Border Margin="10,0,0,0"
+                                                    Padding="8,3"
+                                                    Background="{DynamicResource WarningSurfaceBrush}"
+                                                    BorderBrush="{DynamicResource WarningBorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="999"
+                                                    DockPanel.Dock="Right">
+                                                <TextBlock Style="{StaticResource HomeMetaStyle}"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource WarningTextBrush}"
+                                                           Text="{Binding HomeUnresolvedItems.Count}" />
+                                            </Border>
+                                        </DockPanel>
+
+                                        <ItemsControl Margin="0,12,0,0"
+                                                      AutomationProperties.AutomationId="Home.UnresolvedList"
+                                                      ItemsSource="{Binding HomeUnresolvedItems}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Margin="0,0,0,10"
+                                                            Padding="12"
+                                                            Background="{DynamicResource SurfaceBrush}"
+                                                            BorderBrush="{DynamicResource WarningBorderBrush}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="14">
+                                                        <StackPanel>
+                                                            <TextBlock Style="{StaticResource CardTitleTextStyle}"
+                                                                       FontSize="15"
+                                                                       Text="{Binding Summary}"
+                                                                       TextWrapping="Wrap" />
+                                                            <TextBlock Margin="0,8,0,0"
+                                                                       Style="{StaticResource HomeMutedStyle}"
+                                                                       Text="{Binding Reason}"
+                                                                       TextWrapping="Wrap" />
+                                                            <TextBlock Margin="0,8,0,0"
+                                                                       Style="{StaticResource HomeMetaStyle}"
+                                                                       Foreground="{DynamicResource SubtleTextBrush}"
+                                                                       Text="{Binding ClassName}" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+                            </ContentControl>
+
+                            <Grid Grid.Row="2"
                                   Margin="0,16,0,0">
                                 <Border Padding="18"
                                         Background="{DynamicResource SurfaceAltBrush}"
@@ -421,7 +483,7 @@
                                                     Command="{Binding OpenEditorCommand}"
                                                     Style="{StaticResource HomeDayButtonStyle}">
                                                 <Border Padding="14"
-                                                        Background="{Binding BackgroundHex}"
+                                                        Background="{DynamicResource PanelBrush}"
                                                         BorderBrush="{Binding BorderBrushHex}"
                                                         BorderThickness="1"
                                                         CornerRadius="18">
@@ -432,8 +494,8 @@
                                                             <ColumnDefinition Width="*" />
                                                         </Grid.ColumnDefinitions>
 
-                                                        <Border Background="{Binding SurfaceBackgroundHex}"
-                                                                BorderBrush="{Binding SurfaceBorderBrushHex}"
+                                                        <Border Background="{DynamicResource SurfaceAltBrush}"
+                                                                BorderBrush="{DynamicResource DividerBrush}"
                                                                 BorderThickness="1"
                                                                 CornerRadius="16"
                                                                 Padding="10"
@@ -452,14 +514,14 @@
 
                                                         <StackPanel Grid.Column="2">
                                                             <DockPanel LastChildFill="True">
-                                                                <Border DockPanel.Dock="Right"
-                                                                        Style="{StaticResource CompactChipBorderStyle}"
-                                                                        Background="{Binding SurfaceBackgroundHex}"
-                                                                        BorderBrush="{Binding SurfaceBorderBrushHex}">
-                                                                    <TextBlock Style="{StaticResource HomeLabelStyle}"
-                                                                               Text="{Binding CourseType}" />
-                                                                </Border>
-                                                                <TextBlock Text="{Binding Title}">
+                                                                <Ellipse DockPanel.Dock="Right"
+                                                                         Width="10"
+                                                                         Height="10"
+                                                                         Margin="10,6,0,0"
+                                                                         VerticalAlignment="Top"
+                                                                         Fill="{Binding ColorDotHex}" />
+                                                                <TextBlock Foreground="{DynamicResource TextBrush}"
+                                                                           Text="{Binding Title}">
                                                                     <TextBlock.Style>
                                                                         <Style TargetType="TextBlock"
                                                                                BasedOn="{StaticResource CardTitleTextStyle}">
@@ -475,25 +537,28 @@
                                                             </DockPanel>
                                                             <WrapPanel Margin="0,8,0,0">
                                                                 <Border Style="{StaticResource HomePillStyle}"
-                                                                        Background="{Binding SurfaceBackgroundHex}"
-                                                                        BorderBrush="{Binding SurfaceBorderBrushHex}">
+                                                                        Background="{DynamicResource SurfaceAltBrush}"
+                                                                        BorderBrush="{DynamicResource DividerBrush}">
                                                                     <TextBlock Style="{StaticResource HomeMetaStyle}"
+                                                                               Foreground="{DynamicResource TextBrush}"
                                                                                Text="{Binding Location}" />
                                                                 </Border>
                                                                 <Border Style="{StaticResource HomePillStyle}"
-                                                                        Background="{Binding SurfaceBackgroundHex}"
-                                                                        BorderBrush="{Binding SurfaceBorderBrushHex}">
+                                                                        Background="{DynamicResource SurfaceAltBrush}"
+                                                                        BorderBrush="{DynamicResource DividerBrush}">
                                                                     <TextBlock Style="{StaticResource HomeMetaStyle}"
+                                                                               Foreground="{DynamicResource TextBrush}"
                                                                                Text="{Binding Teacher}" />
                                                                 </Border>
                                                             </WrapPanel>
                                                             <Border Margin="0,4,0,0"
                                                                     Padding="10,9"
-                                                                    Background="{Binding SurfaceBackgroundHex}"
-                                                                    BorderBrush="{Binding SurfaceBorderBrushHex}"
+                                                                    Background="{DynamicResource SurfaceAltBrush}"
+                                                                    BorderBrush="{DynamicResource DividerBrush}"
                                                                     BorderThickness="1"
                                                                     CornerRadius="14">
                                                                 <TextBlock Style="{StaticResource HomeMutedStyle}"
+                                                                           Foreground="{DynamicResource TextBrush}"
                                                                            Text="{Binding Details}" />
                                                             </Border>
                                                         </StackPanel>
@@ -504,6 +569,7 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                             </Grid>
+
                             </Grid>
                         </Border>
                     </ContentControl>

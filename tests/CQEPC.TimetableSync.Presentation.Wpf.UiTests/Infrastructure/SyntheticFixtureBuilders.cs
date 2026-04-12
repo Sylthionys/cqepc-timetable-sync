@@ -35,7 +35,7 @@ internal static class SyntheticFixtureBuilders
             foreach (var block in courseBlocks)
             {
                 var column = Columns.Single(item => item.Weekday == block.Weekday);
-                for (var index = 0; index < block.Lines.Count; index++)
+                for (var index = 0; index < block.Lines.Length; index++)
                 {
                     page.AddText(block.Lines[index], 8, new PdfPoint(column.Left + 5, block.TopY - (index * 13)), font);
                 }
@@ -227,6 +227,6 @@ internal static class SyntheticFixtureBuilders
 
     private sealed record FixtureCourseBlock(DayOfWeek Weekday, int TopY, params string[] lineItems)
     {
-        public IReadOnlyList<string> Lines { get; } = lineItems;
+        public string[] Lines { get; } = lineItems;
     }
 }

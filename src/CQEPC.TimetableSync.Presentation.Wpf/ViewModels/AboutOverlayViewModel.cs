@@ -6,9 +6,10 @@ namespace CQEPC.TimetableSync.Presentation.Wpf.ViewModels;
 
 public sealed class AboutOverlayViewModel : ObservableObject
 {
+    private const string ReleaseStage = "Pre-Alpha";
     private bool isOpen;
     private string title = UiText.ApplicationTitle;
-    private string version = UiText.FormatVersion(typeof(AboutOverlayViewModel).Assembly.GetName().Version?.ToString(3) ?? "1.0.0");
+    private string version = UiText.FormatVersion(ReleaseStage);
     private string summary = UiText.AboutSummary;
     private string philosophy = UiText.AboutPhilosophy;
     private string providers = UiText.AboutProviders;
@@ -67,7 +68,7 @@ public sealed class AboutOverlayViewModel : ObservableObject
     private void HandleWorkspaceStateChanged(object? sender, EventArgs e)
     {
         Title = UiText.ApplicationTitle;
-        Version = UiText.FormatVersion(typeof(AboutOverlayViewModel).Assembly.GetName().Version?.ToString(3) ?? "1.0.0");
+        Version = UiText.FormatVersion(ReleaseStage);
         Summary = UiText.AboutSummary;
         Philosophy = UiText.AboutPhilosophy;
         Providers = UiText.AboutProviders;

@@ -74,7 +74,9 @@ public sealed record ResolvedOccurrence
         CourseMetadata metadata,
         SourceFingerprint sourceFingerprint,
         SyncTargetKind targetKind = SyncTargetKind.CalendarEvent,
-        string? courseType = null)
+        string? courseType = null,
+        string? calendarTimeZoneId = null,
+        string? googleCalendarColorId = null)
     {
         if (string.IsNullOrWhiteSpace(className))
         {
@@ -107,6 +109,8 @@ public sealed record ResolvedOccurrence
         SourceFingerprint = sourceFingerprint ?? throw new ArgumentNullException(nameof(sourceFingerprint));
         TargetKind = targetKind;
         CourseType = Normalize(courseType);
+        CalendarTimeZoneId = Normalize(calendarTimeZoneId);
+        GoogleCalendarColorId = Normalize(googleCalendarColorId);
     }
 
     public string ClassName { get; }
@@ -130,6 +134,10 @@ public sealed record ResolvedOccurrence
     public SyncTargetKind TargetKind { get; }
 
     public string? CourseType { get; }
+
+    public string? CalendarTimeZoneId { get; }
+
+    public string? GoogleCalendarColorId { get; }
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

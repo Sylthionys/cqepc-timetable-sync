@@ -29,6 +29,7 @@ public partial class App : System.Windows.Application
     private UiAutomationBridge? uiAutomationBridge;
     private ShellViewModel? shellViewModel;
     private AppLaunchOptions? launchOptions;
+    private Task? deferredInitializationTask;
 
     public App()
     {
@@ -114,8 +115,16 @@ public partial class App : System.Windows.Application
             }
 
             MainWindow = shellWindow;
-            await shellViewModel.InitializeAsync();
             shellViewModel.CurrentPage = launchOptions.RequestedPage;
+
+            if (launchOptions.UseDeferredInteractiveInitialization)
+            {
+                shellWindow.Show();
+                deferredInitializationTask = CompleteDeferredInitializationAsync(shellViewModel);
+                return;
+            }
+
+            await shellViewModel.InitializeAsync();
 
             if (launchOptions.IsScreenshotMode && launchOptions.WindowMode == UiWindowMode.RenderOnly)
             {
@@ -172,6 +181,12 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        if (deferredInitializationTask is not null)
+        {
+            deferredInitializationTask.GetAwaiter().GetResult();
+            deferredInitializationTask = null;
+        }
+
         shellViewModel?.FlushAsync().GetAwaiter().GetResult();
 
         if (uiAutomationBridge is not null)
@@ -249,5 +264,24 @@ public partial class App : System.Windows.Application
         value is Freezable freezable
             ? freezable.Clone()
             : value;
+
+    private async Task CompleteDeferredInitializationAsync(ShellViewModel shell)
+    {
+        try
+        {
+            await shell.InitializeAsync();
+        }
+        catch (Exception exception)
+        {
+            var logPath = startupDiagnostics?.ReportStartupFailure("Deferred application startup", exception);
+            Console.Error.WriteLine(exception);
+            if (!string.IsNullOrWhiteSpace(logPath))
+            {
+                Console.Error.WriteLine($"Diagnostic log: {logPath}");
+            }
+
+            Shutdown(StartupFailureExitCode);
+        }
+    }
 
 }
