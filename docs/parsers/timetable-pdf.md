@@ -42,6 +42,7 @@ Per page, it:
 Pages that begin with metadata continuation from the previous timetable cell are treated as carryover: metadata-only fragments are consumed internally when they can be attached to the previous parsed block, mixed carryover-plus-title blocks are trimmed back to the new course title before metadata parsing, merged top-of-page metadata-prefix-plus-course blocks are split before carryover resolution, and title continuations split across a page break are reassembled before metadata parsing when the weekday-column neighbor chain is unambiguous.
 Standalone top-of-page course cells are not treated as continuation targets, even when the previous page ended with a title fragment in the same weekday column.
 Bottom-of-page blocks that already contain the period lead but stop mid-tagged-metadata are also treated as carryover candidates; if the next page starts with the missing metadata tail in the same weekday column, the parser upgrades the block instead of emitting a truncated unresolved item.
+If the CQEPC header page pushes a title-only fragment into the footer strip below the last normal grid band, that footer-strip title still has to stay inside the weekday-column extraction window so the next page's metadata-only continuation can resolve into the intended course instead of disappearing.
 If a CQEPC export visibly clips only the trailing note-style metadata and there is no continuation page, the parser may still recover that tail from another fully parsed block only when the structured identity already matches exactly enough to make the fill lossless in practice: same course title, same campus, same teacher, and same teaching-class composition. It does not borrow week expressions, weekdays, periods, locations, or class headers.
 
 For each regular timetable block, the parser extracts:
@@ -59,6 +60,7 @@ For each regular timetable block, the parser extracts:
 - `SourceFingerprint`
 
 The parser preserves the raw week-expression text exactly as extracted between the period-range lead and the first tagged metadata field.
+For regular timetable blocks, `SourceFingerprint` is intentionally block-local. It hashes the normalized block text together with the class/page anchor used during parsing, not the whole PDF file hash. This keeps unchanged lessons stable across renamed or lightly revised timetable exports while still letting genuinely changed blocks receive a new fingerprint.
 
 ## Tagged Metadata Rules
 
@@ -134,3 +136,4 @@ Fixtures are generated in code and do not depend on private school exports.
 - same-column orphan recovery is intentionally conservative; if a neighbor merge is not clearly local and lossless, the block stays unresolved
 - practical-course summaries at the page footer are ignored by design; if the school only provides a course in that footer note and not in the timetable grid, the parser will not emit it
 - some school-exported PDFs visibly clip metadata near the page edge or page bottom; those blocks are now treated as unresolved source truncation rather than silently exported with partial metadata
+- source fingerprints are designed to survive whole-file churn, not semester-spanning identity reuse; later layers still need occurrence-level sync identity plus snapshot/provider state to decide whether two exports describe the same concrete lessons

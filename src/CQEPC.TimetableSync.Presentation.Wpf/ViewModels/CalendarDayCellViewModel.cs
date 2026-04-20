@@ -8,7 +8,14 @@ namespace CQEPC.TimetableSync.Presentation.Wpf.ViewModels;
 
 public sealed class CalendarDayCellViewModel : ObservableObject
 {
+    public const int MaxVisibleEntries = 5;
+
     private bool isSelected;
+    private bool isToday;
+    private int occurrenceCount;
+    private int visibleEntryLimit;
+    private double preferredHeight;
+    private string moreEntriesLabel;
 
     public CalendarDayCellViewModel(
         DateOnly date,
@@ -16,23 +23,43 @@ public sealed class CalendarDayCellViewModel : ObservableObject
         bool isToday,
         int occurrenceCount,
         IEnumerable<HomeCalendarEntryViewModel> entries,
+        int visibleEntryLimit,
+        double preferredHeight,
         string moreEntriesLabel)
     {
         Date = date;
         IsInCurrentMonth = isInCurrentMonth;
-        IsToday = isToday;
-        OccurrenceCount = occurrenceCount;
-        Entries = new ObservableCollection<HomeCalendarEntryViewModel>((entries ?? Array.Empty<HomeCalendarEntryViewModel>()).Take(3));
-        MoreEntriesLabel = moreEntriesLabel;
+        this.isToday = isToday;
+        this.occurrenceCount = occurrenceCount;
+        this.visibleEntryLimit = Math.Clamp(visibleEntryLimit, 1, MaxVisibleEntries);
+        this.preferredHeight = preferredHeight;
+        Entries = new ObservableCollection<HomeCalendarEntryViewModel>((entries ?? Array.Empty<HomeCalendarEntryViewModel>()).Take(this.visibleEntryLimit));
+        this.moreEntriesLabel = moreEntriesLabel;
     }
 
     public DateOnly Date { get; }
 
     public bool IsInCurrentMonth { get; }
 
-    public bool IsToday { get; }
+    public bool IsToday
+    {
+        get => isToday;
+        private set => SetProperty(ref isToday, value);
+    }
 
-    public int OccurrenceCount { get; }
+    public int OccurrenceCount
+    {
+        get => occurrenceCount;
+        private set
+        {
+            if (SetProperty(ref occurrenceCount, value))
+            {
+                OnPropertyChanged(nameof(HasOccurrences));
+                OnPropertyChanged(nameof(OccurrenceCountLabel));
+                OnPropertyChanged(nameof(HasMoreEntries));
+            }
+        }
+    }
 
     public bool HasOccurrences => OccurrenceCount > 0;
 
@@ -42,9 +69,55 @@ public sealed class CalendarDayCellViewModel : ObservableObject
 
     public ObservableCollection<HomeCalendarEntryViewModel> Entries { get; }
 
+    public int VisibleEntryLimit
+    {
+        get => visibleEntryLimit;
+        private set
+        {
+            if (SetProperty(ref visibleEntryLimit, value))
+            {
+                OnPropertyChanged(nameof(HasMoreEntries));
+            }
+        }
+    }
+
+    public double PreferredHeight
+    {
+        get => preferredHeight;
+        private set => SetProperty(ref preferredHeight, value);
+    }
+
     public bool HasMoreEntries => OccurrenceCount > Entries.Count;
 
-    public string MoreEntriesLabel { get; }
+    public string MoreEntriesLabel
+    {
+        get => moreEntriesLabel;
+        private set => SetProperty(ref moreEntriesLabel, value);
+    }
+
+    public void UpdatePreview(
+        bool isToday,
+        int occurrenceCount,
+        IEnumerable<HomeCalendarEntryViewModel> entries,
+        int visibleEntryLimit,
+        double preferredHeight,
+        string moreEntriesLabel)
+    {
+        IsToday = isToday;
+        OccurrenceCount = occurrenceCount;
+        VisibleEntryLimit = Math.Clamp(visibleEntryLimit, 1, MaxVisibleEntries);
+        PreferredHeight = preferredHeight;
+        MoreEntriesLabel = moreEntriesLabel;
+
+        var nextEntries = (entries ?? Array.Empty<HomeCalendarEntryViewModel>()).Take(VisibleEntryLimit).ToArray();
+        Entries.Clear();
+        foreach (var entry in nextEntries)
+        {
+            Entries.Add(entry);
+        }
+
+        OnPropertyChanged(nameof(HasMoreEntries));
+    }
 
     public bool IsSelected
     {

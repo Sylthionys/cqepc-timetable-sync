@@ -55,16 +55,23 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     private bool suppressLocalizationPersistence;
     private bool suppressThemePersistence;
     private bool suppressWeekStartPersistence;
+    private bool suppressGoogleTimeZonePersistence;
+    private bool suppressGoogleCalendarColorPersistence;
     private bool suppressProviderPersistence;
     private bool suppressDestinationPersistence;
     private bool suppressFirstWeekStartPersistence;
     private bool suppressWorkspaceStateChanged;
+    private int activeTaskSequence;
     private HashSet<string>? selectedImportChangeIds;
+    private string? lastAppliedImportSelectionSignature;
+    private bool isApplyingImportSelection;
     private TimeProfileDefaultModeOptionViewModel? selectedTimeProfileDefaultModeOption;
     private TimeProfileOptionViewModel? selectedExplicitTimeProfileOption;
     private LocalizationOptionViewModel? selectedLocalizationOption;
     private ThemeOptionViewModel? selectedThemeOption;
     private WeekStartOptionViewModel? selectedWeekStartOption;
+    private GoogleTimeZoneOptionViewModel? selectedGoogleTimeZoneOption;
+    private GoogleCalendarColorOptionViewModel? selectedGoogleCalendarColorOption;
     private ProviderOptionViewModel? selectedProviderOption;
     private string? selectedCourseOverrideCourseTitle;
     private TimeProfileOptionViewModel? selectedCourseOverrideProfileOption;
@@ -104,14 +111,18 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         TimeProfileDefaultModes = new ObservableCollection<TimeProfileDefaultModeOptionViewModel>();
         CourseOverrideCourseTitles = new ObservableCollection<string>();
         CourseTimeProfileOverrides = new ObservableCollection<CourseTimeProfileOverrideItemViewModel>();
+        ActiveTasks = new ObservableCollection<TaskExecutionViewModel>();
         CalendarDestinations = new ObservableCollection<string>();
         TaskListDestinations = new ObservableCollection<string>();
         CourseTypeAppearances = new ObservableCollection<CourseTypeAppearanceItemViewModel>();
         LocalizationOptions = new ObservableCollection<LocalizationOptionViewModel>();
         ThemeOptions = new ObservableCollection<ThemeOptionViewModel>();
         WeekStartOptions = new ObservableCollection<WeekStartOptionViewModel>();
+        GoogleTimeZoneOptions = new ObservableCollection<GoogleTimeZoneOptionViewModel>();
+        GoogleCalendarColorOptions = new ObservableCollection<GoogleCalendarColorOptionViewModel>();
         ProviderOptions = new ObservableCollection<ProviderOptionViewModel>();
         CourseEditor = new CourseEditorViewModel(SaveCourseOverrideAsync, ResetCourseOverrideAsync);
+        CoursePresentationEditor = new CoursePresentationEditorViewModel(SaveCoursePresentationOverrideAsync, ResetCoursePresentationOverrideAsync);
         RemoteCalendarEventEditor = new RemoteCalendarEventEditorViewModel(SaveRemoteCalendarEventAsync);
 
         BrowseFilesCommand = new AsyncRelayCommand(BrowseFilesAsync);
@@ -146,6 +157,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<CourseTimeProfileOverrideItemViewModel> CourseTimeProfileOverrides { get; }
 
+    public ObservableCollection<TaskExecutionViewModel> ActiveTasks { get; }
+
     public ObservableCollection<string> CalendarDestinations { get; }
 
     public ObservableCollection<string> TaskListDestinations { get; }
@@ -158,9 +171,15 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<WeekStartOptionViewModel> WeekStartOptions { get; }
 
+    public ObservableCollection<GoogleTimeZoneOptionViewModel> GoogleTimeZoneOptions { get; }
+
+    public ObservableCollection<GoogleCalendarColorOptionViewModel> GoogleCalendarColorOptions { get; }
+
     public ObservableCollection<ProviderOptionViewModel> ProviderOptions { get; }
 
     public CourseEditorViewModel CourseEditor { get; }
+
+    public CoursePresentationEditorViewModel CoursePresentationEditor { get; }
 
     public RemoteCalendarEventEditorViewModel RemoteCalendarEventEditor { get; }
 
@@ -295,6 +314,23 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         get => plannedChangeCount;
         private set => SetProperty(ref plannedChangeCount, value);
     }
+
+    public bool HasActiveTasks => ActiveTasks.Count > 0;
+
+    public int ActiveTaskCount => ActiveTasks.Count;
+
+    public string ActiveTaskTitle =>
+        ActiveTasks.Count == 0
+            ? UiText.TaskCenterIdleTitle
+            : ActiveTasks[0].Title;
+
+    public string ActiveTaskSummary =>
+        ActiveTasks.Count switch
+        {
+            0 => UiText.TaskCenterIdleSummary,
+            1 => ActiveTasks[0].Detail,
+            _ => UiText.FormatTaskCenterRunningSummary(ActiveTasks.Count),
+        };
 
     public string? SelectedParsedClassName
     {
@@ -434,6 +470,49 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         "ThemeSettingsSummary",
         "Choose the app surface theme for the shell and workspace pages.");
 
+    public string GoogleTimeZoneSelectionTitle => GetLocalizedString(
+        "SettingsDefaultUtcTimeTitle",
+        "Default UTC Time");
+
+    public string GoogleTimeZoneSelectionSummary => GetLocalizedString(
+        "SettingsDefaultUtcTimeSummary",
+        "Default is UTC+8. Google Calendar writes use this setting and send the time zone explicitly to the Google API.");
+
+    public bool SyncGoogleCalendarOnStartup
+    {
+        get => CurrentPreferences.ProgramBehavior.SyncGoogleCalendarOnStartup;
+        set
+        {
+            if (value == CurrentPreferences.ProgramBehavior.SyncGoogleCalendarOnStartup)
+            {
+                return;
+            }
+
+            ApplyPreferences(CurrentPreferences.WithProgramBehavior(new ProgramBehaviorSettings(
+                value,
+                CurrentPreferences.ProgramBehavior.ShowStatusNotifications)));
+            _ = PersistPreferencesAsync(refreshPreview: false);
+        }
+    }
+
+    public bool ShowStatusNotifications
+    {
+        get => CurrentPreferences.ProgramBehavior.ShowStatusNotifications;
+        set
+        {
+            if (value == CurrentPreferences.ProgramBehavior.ShowStatusNotifications)
+            {
+                return;
+            }
+
+            ApplyPreferences(CurrentPreferences.WithProgramBehavior(new ProgramBehaviorSettings(
+                CurrentPreferences.ProgramBehavior.SyncGoogleCalendarOnStartup,
+                value)));
+            WorkspaceStateChanged?.Invoke(this, EventArgs.Empty);
+            _ = PersistPreferencesAsync(refreshPreview: false);
+        }
+    }
+
     public ThemeOptionViewModel? SelectedThemeOption
     {
         get => selectedThemeOption;
@@ -464,6 +543,99 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             {
                 SelectedPreferredCultureName = value?.PreferredCultureName;
             }
+        }
+    }
+
+    public string SelectedGooglePreferredTimeZoneId
+    {
+        get => CurrentPreferences.GoogleSettings.PreferredCalendarTimeZoneId
+            ?? WorkspacePreferenceDefaults.CreateGoogleSettings().PreferredCalendarTimeZoneId
+            ?? "Asia/Shanghai";
+        set
+        {
+            var normalized = Normalize(value) ?? "Asia/Shanghai";
+            if (string.Equals(normalized, CurrentPreferences.GoogleSettings.PreferredCalendarTimeZoneId, StringComparison.Ordinal)
+                && string.Equals(normalized, CurrentPreferences.GoogleSettings.RemoteReadFallbackTimeZoneId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            UpdateGoogleSettings(
+                settings => new GoogleProviderSettings(
+                    settings.OAuthClientConfigurationPath,
+                    settings.ConnectedAccountSummary,
+                    settings.SelectedCalendarId,
+                    settings.SelectedCalendarDisplayName,
+                    settings.WritableCalendars,
+                    settings.TaskRules,
+                    settings.ImportCalendarIntoHomePreviewEnabled,
+                    normalized,
+                    normalized));
+            _ = PersistPreferencesAsync(refreshPreview: true);
+        }
+    }
+
+    public GoogleTimeZoneOptionViewModel? SelectedGoogleTimeZoneOption
+    {
+        get => selectedGoogleTimeZoneOption;
+        set
+        {
+            if (value is null
+                || string.Equals(value.TimeZoneId, selectedGoogleTimeZoneOption?.TimeZoneId, StringComparison.Ordinal)
+                || !SetProperty(ref selectedGoogleTimeZoneOption, value))
+            {
+                return;
+            }
+
+            if (suppressGoogleTimeZonePersistence)
+            {
+                return;
+            }
+
+            SelectedGooglePreferredTimeZoneId = value.TimeZoneId;
+        }
+    }
+
+    public string? SelectedDefaultCalendarColorId
+    {
+        get => CurrentPreferences.GetDefaults(DefaultProvider).DefaultCalendarColorId;
+        set
+        {
+            var normalized = Normalize(value);
+            if (string.Equals(normalized, CurrentPreferences.GetDefaults(DefaultProvider).DefaultCalendarColorId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            UpdateProviderDefaults(
+                DefaultProvider,
+                defaults => new ProviderDefaults(
+                    defaults.CalendarDestination,
+                    defaults.TaskListDestination,
+                    defaults.CourseTypeAppearances,
+                    normalized));
+            _ = PersistPreferencesAsync(refreshPreview: false);
+        }
+    }
+
+    public GoogleCalendarColorOptionViewModel? SelectedGoogleCalendarColorOption
+    {
+        get => selectedGoogleCalendarColorOption;
+        set
+        {
+            if (value is null
+                || string.Equals(value.ColorId, selectedGoogleCalendarColorOption?.ColorId, StringComparison.Ordinal)
+                || !SetProperty(ref selectedGoogleCalendarColorOption, value))
+            {
+                return;
+            }
+
+            if (suppressGoogleCalendarColorPersistence)
+            {
+                return;
+            }
+
+            SelectedDefaultCalendarColorId = value.ColorId;
         }
     }
 
@@ -798,7 +970,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                 UpdateProviderDefaults(ProviderKind.Google, defaults => new ProviderDefaults(
                     matched?.DisplayName ?? normalized,
                     defaults.TaskListDestination,
-                    defaults.CourseTypeAppearances));
+                    defaults.CourseTypeAppearances,
+                    defaults.DefaultCalendarColorId));
                 _ = PersistPreferencesAsync(refreshPreview: true);
                 return;
             }
@@ -826,7 +999,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             UpdateProviderDefaults(ProviderKind.Microsoft, defaults => new ProviderDefaults(
                 matchedCalendar?.DisplayName ?? normalized,
                 defaults.TaskListDestination,
-                defaults.CourseTypeAppearances));
+                defaults.CourseTypeAppearances,
+                defaults.DefaultCalendarColorId));
             _ = PersistPreferencesAsync(refreshPreview: false);
         }
     }
@@ -874,7 +1048,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             UpdateProviderDefaults(ProviderKind.Microsoft, defaults => new ProviderDefaults(
                 defaults.CalendarDestination,
                 matched?.DisplayName ?? normalized,
-                defaults.CourseTypeAppearances));
+                defaults.CourseTypeAppearances,
+                defaults.DefaultCalendarColorId));
             _ = PersistPreferencesAsync(refreshPreview: true);
         }
     }
@@ -943,7 +1118,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             UpdateProviderDefaults(ProviderKind.Google, defaults => new ProviderDefaults(
                 matched.DisplayName,
                 defaults.TaskListDestination,
-                defaults.CourseTypeAppearances));
+                defaults.CourseTypeAppearances,
+                defaults.DefaultCalendarColorId));
             _ = PersistPreferencesAsync(refreshPreview: true);
         }
     }
@@ -982,7 +1158,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             UpdateProviderDefaults(ProviderKind.Microsoft, defaults => new ProviderDefaults(
                 matched.DisplayName,
                 defaults.TaskListDestination,
-                defaults.CourseTypeAppearances));
+                defaults.CourseTypeAppearances,
+                defaults.DefaultCalendarColorId));
             _ = PersistPreferencesAsync(refreshPreview: false);
         }
     }
@@ -1021,7 +1198,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             UpdateProviderDefaults(ProviderKind.Microsoft, defaults => new ProviderDefaults(
                 defaults.CalendarDestination,
                 matched.DisplayName,
-                defaults.CourseTypeAppearances));
+                defaults.CourseTypeAppearances,
+                defaults.DefaultCalendarColorId));
             _ = PersistPreferencesAsync(refreshPreview: false);
         }
     }
@@ -1260,6 +1438,45 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         CourseEditor.Open(CreateEditorRequest(unresolvedItem));
     }
 
+    public void OpenCoursePresentationEditor(string courseTitle)
+    {
+        if (string.IsNullOrWhiteSpace(courseTitle))
+        {
+            return;
+        }
+
+        var className = EffectiveSelectedClassName;
+        if (string.IsNullOrWhiteSpace(className))
+        {
+            return;
+        }
+
+        var matchedOccurrences = CurrentOccurrences
+            .Where(occurrence =>
+                string.Equals(occurrence.ClassName, className, StringComparison.Ordinal)
+                && string.Equals(occurrence.Metadata.CourseTitle, courseTitle, StringComparison.Ordinal))
+            .OrderBy(static occurrence => occurrence.Start)
+            .ToArray();
+        var storedOverride = CurrentPreferences.TimetableResolution.FindCoursePresentationOverride(className, courseTitle);
+        var selectedTimeZoneId = storedOverride?.CalendarTimeZoneId
+            ?? matchedOccurrences.FirstOrDefault()?.CalendarTimeZoneId
+            ?? SelectedGooglePreferredTimeZoneId;
+        var selectedColorId = storedOverride?.GoogleCalendarColorId
+            ?? matchedOccurrences.FirstOrDefault()?.GoogleCalendarColorId
+            ?? CurrentPreferences.GetDefaults(DefaultProvider).DefaultCalendarColorId;
+
+        CoursePresentationEditor.Open(
+            new CoursePresentationEditorOpenRequest(
+                className,
+                courseTitle,
+                UiText.FormatCourseEditorOccurrenceCount(Math.Max(matchedOccurrences.Length, 1)),
+                GoogleTimeZoneOptions.ToArray(),
+                GoogleCalendarColorOptions.ToArray(),
+                selectedTimeZoneId,
+                selectedColorId,
+                storedOverride is not null));
+    }
+
     public async Task OpenRemoteCalendarEventEditorAsync(ProviderRemoteCalendarEvent remoteEvent)
     {
         ArgumentNullException.ThrowIfNull(remoteEvent);
@@ -1292,18 +1509,43 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        var catalogTask = onboardingService.LoadAsync(cancellationToken);
-        var preferencesTask = preferencesRepository.LoadAsync(cancellationToken);
+        var catalogTask = RunTrackedTaskAsync(
+            UiText.TaskStartupLoadSourcesTitle,
+            UiText.TaskStartupLoadSourcesDetail,
+            _ => onboardingService.LoadAsync(cancellationToken));
+        var preferencesTask = RunTrackedTaskAsync(
+            UiText.TaskStartupLoadPreferencesTitle,
+            UiText.TaskStartupLoadPreferencesDetail,
+            _ => preferencesRepository.LoadAsync(cancellationToken));
 
         await Task.WhenAll(catalogTask, preferencesTask);
 
-        ApplyCatalogState(catalogTask.Result);
-        ApplyPreferences(preferencesTask.Result, rebuildLocalizedOptions: true);
+        ApplyCatalogState(await catalogTask);
+        ApplyPreferences(await preferencesTask, rebuildLocalizedOptions: true);
         themeService?.ApplyTheme(CurrentPreferences.Appearance.ThemeMode);
         localizationService?.ApplyPreferredCulture(CurrentPreferences.Localization.PreferredCultureName);
-        await RefreshGoogleConnectionStateAsync(clearOnDisconnect: false, cancellationToken: cancellationToken);
-        await RefreshMicrosoftConnectionStateAsync(clearOnDisconnect: false, cancellationToken: cancellationToken);
-        await RefreshPreviewAsync(cancellationToken);
+        var googleRefreshTask = RunTrackedTaskAsync(
+            UiText.TaskStartupGoogleConnectionTitle,
+            UiText.TaskStartupGoogleConnectionDetail,
+            _ => RefreshGoogleConnectionStateAsync(clearOnDisconnect: true, cancellationToken: cancellationToken));
+        var microsoftRefreshTask = RunTrackedTaskAsync(
+            UiText.TaskStartupMicrosoftConnectionTitle,
+            UiText.TaskStartupMicrosoftConnectionDetail,
+            _ => RefreshMicrosoftConnectionStateAsync(clearOnDisconnect: false, cancellationToken: cancellationToken));
+        var previewRefreshTask = RunTrackedTaskAsync(
+            UiText.TaskStartupBuildPreviewTitle,
+            UiText.TaskStartupBuildPreviewDetail,
+            task => RefreshPreviewCoreAsync(task, UiText.TaskStartupBuildPreviewDetail, includeRemoteCalendarPreview: false, cancellationToken: cancellationToken));
+        await Task.WhenAll(googleRefreshTask, microsoftRefreshTask, previewRefreshTask);
+
+        if (CurrentPreferences.ProgramBehavior.SyncGoogleCalendarOnStartup)
+        {
+            await AutoSyncGoogleCalendarPreviewAsync(
+                UiText.TaskStartupGoogleSyncTitle,
+                BuildGoogleCalendarSyncDetail(),
+                ensureCalendarsLoaded: true,
+                cancellationToken);
+        }
     }
 
     public async Task ApplyAcceptedChangesAsync(IReadOnlyCollection<string> acceptedChangeIds)
@@ -1313,19 +1555,104 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (DefaultProvider == ProviderKind.Google && googleProviderAdapter is not null)
+        {
+            await RefreshGoogleConnectionStateAsync(clearOnDisconnect: true, cancellationToken: CancellationToken.None);
+            if (!IsGoogleConnected)
+            {
+                WorkspaceStatus = UiText.WorkspaceGoogleNotConnected;
+                if (!suppressWorkspaceStateChanged)
+                {
+                    WorkspaceStateChanged?.Invoke(this, EventArgs.Empty);
+                }
+
+                return;
+            }
+
+            if (!HasSelectedGoogleCalendar)
+            {
+                WorkspaceStatus = UiText.WorkspaceNoGoogleCalendarSelected;
+                if (!suppressWorkspaceStateChanged)
+                {
+                    WorkspaceStateChanged?.Invoke(this, EventArgs.Empty);
+                }
+
+                return;
+            }
+        }
+
+        var acceptedGoogleCalendarDeleteIds = GetAcceptedGoogleCalendarDeleteIds(CurrentPreviewResult, acceptedChangeIds);
+
+        await RunTrackedTaskAsync(
+            UiText.TaskApplyGoogleCalendarTitle,
+            UiText.TaskApplyGoogleCalendarDetail,
+            async task =>
+            {
+                try
+                {
+                    task.Update(UiText.TaskApplyGoogleCalendarSavingDetail);
+                    var result = await previewService.ApplyAcceptedChangesAsync(
+                        CurrentPreviewResult,
+                        acceptedChangeIds,
+                        CancellationToken.None);
+
+                    await RefreshPreviewCoreAsync(task, UiText.TaskApplyGoogleCalendarRefreshingDetail, cancellationToken: CancellationToken.None);
+
+                    var googleApplyVerified = true;
+                    if (DefaultProvider == ProviderKind.Google)
+                    {
+                        googleApplyVerified = await WaitForAcceptedGoogleCalendarChangesToSettleAsync(
+                            acceptedGoogleCalendarDeleteIds,
+                            task,
+                            CancellationToken.None);
+                    }
+
+                    WorkspaceStatus = googleApplyVerified
+                        ? UiFormatter.FormatWorkspaceApplyStatus(result)
+                        : UiText.FormatWorkspaceGoogleApplyVerificationPending(
+                            CountPendingAcceptedGoogleCalendarChanges(acceptedGoogleCalendarDeleteIds));
+                }
+                catch (Exception exception)
+                {
+                    WorkspaceStatus = exception.Message;
+                }
+            });
+
+        if (!suppressWorkspaceStateChanged)
+        {
+            WorkspaceStateChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public async Task ApplyAcceptedChangesLocallyAsync(IReadOnlyCollection<string> acceptedChangeIds)
+    {
+        if (CurrentPreviewResult is null)
+        {
+            return;
+        }
+
         try
         {
-            var result = await previewService.ApplyAcceptedChangesAsync(
+            isApplyingImportSelection = true;
+            var result = await previewService.ApplyAcceptedChangesLocallyAsync(
                 CurrentPreviewResult,
                 acceptedChangeIds,
                 CancellationToken.None);
 
-            await RefreshPreviewAsync();
-            WorkspaceStatus = UiFormatter.FormatWorkspaceApplyStatus(result);
+            await RefreshPreviewCoreAsync();
+            lastAppliedImportSelectionSignature = CreateImportSelectionSignature(acceptedChangeIds);
+            WorkspaceStatus = string.Concat(
+                UiFormatter.FormatWorkspaceApplyStatus(result),
+                " ",
+                UiText.WorkspaceImportApplyLocalOnly);
         }
         catch (Exception exception)
         {
             WorkspaceStatus = exception.Message;
+        }
+        finally
+        {
+            isApplyingImportSelection = false;
         }
 
         if (!suppressWorkspaceStateChanged)
@@ -1349,33 +1676,27 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         return ApplyAcceptedChangesAsync(acceptedIds.ToArray());
     }
 
+    public Task ApplySelectedImportChangesLocallyAsync()
+    {
+        if (CurrentPreviewResult?.SyncPlan is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var acceptedIds = selectedImportChangeIds
+            ?? CurrentPreviewResult.SyncPlan.PlannedChanges
+                .Select(static change => change.LocalStableId)
+                .ToHashSet(StringComparer.Ordinal);
+
+        return ApplyAcceptedChangesLocallyAsync(acceptedIds.ToArray());
+    }
+
     public async Task SyncGoogleCalendarPreviewAsync()
     {
-        if (DefaultProvider != ProviderKind.Google)
-        {
-            await RefreshPreviewAsync();
-            return;
-        }
-
-        if (googleProviderAdapter is null)
-        {
-            WorkspaceStatus = UiText.WorkspaceProviderUnavailable;
-            return;
-        }
-
-        if (!IsGoogleConnected)
-        {
-            WorkspaceStatus = UiText.WorkspaceGoogleNotConnected;
-            return;
-        }
-
-        if (!HasGoogleWritableCalendars || !HasSelectedGoogleCalendar)
-        {
-            await RefreshGoogleCalendarsAsync();
-            return;
-        }
-
-        await RefreshPreviewAsync();
+        await RunTrackedTaskAsync(
+            UiText.TaskSyncGoogleExistingEventsTitle,
+            UiText.TaskSyncGoogleExistingEventsDetail,
+            task => SyncGoogleCalendarPreviewCoreAsync(ensureCalendarsLoaded: true, CancellationToken.None, task));
     }
 
     public async Task HandleDroppedFilesAsync(string[]? filePaths)
@@ -1387,7 +1708,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
         var state = await onboardingService.ImportFilesAsync(filePaths, CancellationToken.None);
         ApplyCatalogState(state);
-        await RefreshPreviewAsync();
+        await RefreshPreviewCoreAsync();
     }
 
     private async Task BrowseFilesAsync()
@@ -1400,7 +1721,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
         var state = await onboardingService.ImportFilesAsync(selectedFiles, CancellationToken.None);
         ApplyCatalogState(state);
-        await RefreshPreviewAsync();
+        await RefreshPreviewCoreAsync();
     }
 
     private async Task BrowseSlotAsync(LocalSourceFileKind kind)
@@ -1413,14 +1734,14 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
         var state = await onboardingService.ReplaceFileAsync(kind, selectedFile, CancellationToken.None);
         ApplyCatalogState(state);
-        await RefreshPreviewAsync();
+        await RefreshPreviewCoreAsync();
     }
 
     private async Task RemoveSlotAsync(LocalSourceFileKind kind)
     {
         var state = await onboardingService.RemoveFileAsync(kind, CancellationToken.None);
         ApplyCatalogState(state);
-        await RefreshPreviewAsync();
+        await RefreshPreviewCoreAsync();
     }
 
     private Task BrowseGoogleOAuthClientAsync()
@@ -1444,33 +1765,45 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             return;
         }
 
-        try
-        {
-            IsBusy = true;
-            var state = await googleProviderAdapter.ConnectAsync(
-                new ProviderConnectionRequest(CreateGoogleConnectionContext(), GetParentWindowHandle()),
-                CancellationToken.None);
+        await RunTrackedTaskAsync(
+            UiText.TaskConnectGoogleTitle,
+            UiText.TaskConnectGoogleDetail,
+            async task =>
+            {
+                try
+                {
+                    IsBusy = true;
+                    task.Update(UiText.TaskConnectGoogleAuthorizingDetail);
+                    var state = await googleProviderAdapter.ConnectAsync(
+                        new ProviderConnectionRequest(CreateGoogleConnectionContext(), GetParentWindowHandle()),
+                        CancellationToken.None);
 
-            UpdateGoogleSettings(settings => new GoogleProviderSettings(
-                settings.OAuthClientConfigurationPath,
-                state.ConnectedAccountSummary,
-                settings.SelectedCalendarId,
-                settings.SelectedCalendarDisplayName,
-                settings.WritableCalendars,
-                settings.TaskRules,
-                settings.ImportCalendarIntoHomePreviewEnabled));
-            await PersistPreferencesAsync(refreshPreview: true);
-            await RefreshGoogleCalendarsAsync();
-            WorkspaceStatus = UiFormatter.FormatGoogleConnectionStatus(state.ConnectedAccountSummary);
-        }
-        catch (Exception exception)
-        {
-            WorkspaceStatus = UiText.FormatGoogleConnectionFailed(exception.Message);
-        }
-        finally
-        {
-            IsBusy = false;
-        }
+                    UpdateGoogleSettings(settings => new GoogleProviderSettings(
+                        settings.OAuthClientConfigurationPath,
+                        state.ConnectedAccountSummary,
+                        settings.SelectedCalendarId,
+                        settings.SelectedCalendarDisplayName,
+                        settings.WritableCalendars,
+                        settings.TaskRules,
+                        settings.ImportCalendarIntoHomePreviewEnabled));
+                    await PersistPreferencesAsync(refreshPreview: true);
+                    await RefreshGoogleCalendarsCoreAsync(CancellationToken.None, task);
+                    WorkspaceStatus = UiFormatter.FormatGoogleConnectionStatus(state.ConnectedAccountSummary);
+                    await AutoSyncGoogleCalendarPreviewAsync(
+                        UiText.TaskPostConnectGoogleSyncTitle,
+                        BuildGoogleCalendarSyncDetail(),
+                        ensureCalendarsLoaded: true,
+                        CancellationToken.None);
+                }
+                catch (Exception exception)
+                {
+                    WorkspaceStatus = UiText.FormatGoogleConnectionFailed(exception.Message);
+                }
+                finally
+                {
+                    IsBusy = false;
+                }
+            });
     }
 
     private async Task DisconnectGoogleAsync()
@@ -1508,18 +1841,36 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     private async Task RefreshGoogleCalendarsAsync()
     {
+        await RunTrackedTaskAsync(
+            UiText.TaskRefreshGoogleCalendarsTitle,
+            UiText.TaskRefreshGoogleCalendarsDetail,
+            task => RefreshGoogleCalendarsCoreAsync(CancellationToken.None, task));
+    }
+
+    private async Task RefreshGoogleCalendarsCoreAsync(
+        CancellationToken cancellationToken,
+        TrackedTaskContext? task = null)
+    {
         if (googleProviderAdapter is null)
         {
             WorkspaceStatus = UiText.WorkspaceProviderUnavailable;
             return;
         }
 
+        await RefreshGoogleConnectionStateAsync(clearOnDisconnect: true, cancellationToken);
+        if (!IsGoogleConnected)
+        {
+            WorkspaceStatus = UiText.WorkspaceGoogleNotConnected;
+            return;
+        }
+
         try
         {
             IsBusy = true;
+            task?.Update(UiText.TaskRefreshGoogleCalendarsLoadingDetail);
             var calendars = await googleProviderAdapter.ListWritableCalendarsAsync(
                     CreateGoogleConnectionContext(),
-                    CancellationToken.None);
+                    cancellationToken);
 
             var selectedCalendar = calendars.FirstOrDefault(
                                        calendar => string.Equals(calendar.Id, CurrentPreferences.GoogleSettings.SelectedCalendarId, StringComparison.Ordinal))
@@ -1540,7 +1891,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                 UpdateProviderDefaults(ProviderKind.Google, defaults => new ProviderDefaults(
                     selectedCalendar.DisplayName,
                     defaults.TaskListDestination,
-                    defaults.CourseTypeAppearances));
+                    defaults.CourseTypeAppearances,
+                    defaults.DefaultCalendarColorId));
             }
 
             await PersistPreferencesAsync(refreshPreview: true);
@@ -1678,14 +2030,16 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                 UpdateProviderDefaults(ProviderKind.Microsoft, defaults => new ProviderDefaults(
                     selectedCalendar.DisplayName,
                     selectedTaskList?.DisplayName ?? defaults.TaskListDestination,
-                    defaults.CourseTypeAppearances));
+                    defaults.CourseTypeAppearances,
+                    defaults.DefaultCalendarColorId));
             }
             else if (selectedTaskList is not null)
             {
                 UpdateProviderDefaults(ProviderKind.Microsoft, defaults => new ProviderDefaults(
                     defaults.CalendarDestination,
                     selectedTaskList.DisplayName,
-                    defaults.CourseTypeAppearances));
+                    defaults.CourseTypeAppearances,
+                    defaults.DefaultCalendarColorId));
             }
 
             await PersistPreferencesAsync(refreshPreview: false);
@@ -1703,18 +2057,31 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task RefreshPreviewAsync(CancellationToken cancellationToken = default)
+    private async Task RefreshPreviewAsync(CancellationToken cancellationToken = default) =>
+        await RefreshPreviewCoreAsync(cancellationToken: cancellationToken);
+
+    private async Task RefreshPreviewCoreAsync(
+        TrackedTaskContext? task = null,
+        string? taskDetail = null,
+        bool includeRemoteCalendarPreview = true,
+        CancellationToken cancellationToken = default)
     {
         await refreshGate.WaitAsync(cancellationToken);
         try
         {
             IsBusy = true;
+            if (!string.IsNullOrWhiteSpace(taskDetail))
+            {
+                task?.Update(taskDetail);
+            }
+
             var preview = await previewService.BuildPreviewAsync(
                 new WorkspacePreviewRequest(
                     CurrentCatalogState,
                     CurrentPreferences,
                     SelectedParsedClassName,
-                    IncludeRuleBasedTasks: CurrentPreferences.GetEnabledTaskGenerationRules(CurrentPreferences.DefaultProvider).Count > 0),
+                    IncludeRuleBasedTasks: CurrentPreferences.GetEnabledTaskGenerationRules(CurrentPreferences.DefaultProvider).Count > 0,
+                    IncludeRemoteCalendarPreview: includeRemoteCalendarPreview),
                 cancellationToken);
 
             var previousPreview = CurrentPreviewResult;
@@ -1741,6 +2108,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var connectionStateChanged = false;
         try
         {
             var state = await googleProviderAdapter.GetConnectionStateAsync(cancellationToken);
@@ -1758,9 +2126,10 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                         settings.TaskRules,
                         settings.ImportCalendarIntoHomePreviewEnabled));
                     await PersistPreferencesAsync(refreshPreview: false);
+                    connectionStateChanged = true;
                 }
             }
-            else if (clearOnDisconnect && IsGoogleConnected)
+            else if (clearOnDisconnect && HasPersistedGoogleConnectionState())
             {
                 UpdateGoogleSettings(settings => new GoogleProviderSettings(
                     settings.OAuthClientConfigurationPath,
@@ -1771,11 +2140,17 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                     taskRules: settings.TaskRules,
                     importCalendarIntoHomePreviewEnabled: settings.ImportCalendarIntoHomePreviewEnabled));
                 await PersistPreferencesAsync(refreshPreview: false);
+                connectionStateChanged = true;
             }
         }
         catch (Exception)
         {
             // Ignore connection-state refresh failures on startup.
+        }
+
+        if (connectionStateChanged && !suppressWorkspaceStateChanged)
+        {
+            WorkspaceStateChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -1852,6 +2227,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     private void ApplyPreferences(UserPreferences preferences, bool rebuildLocalizedOptions = false)
     {
         var previousPreferences = CurrentPreferences;
+        var providerChanged = previousPreferences.DefaultProvider != preferences.DefaultProvider;
         var googleCalendarsChanged = !AreCalendarDescriptorsEqual(
             previousPreferences.GoogleSettings.WritableCalendars,
             preferences.GoogleSettings.WritableCalendars);
@@ -1868,16 +2244,28 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             || ProviderOptions.Count == 0
             || TimeProfileDefaultModes.Count == 0
             || LocalizationOptions.Count == 0
-            || ThemeOptions.Count == 0)
+            || ThemeOptions.Count == 0
+            || GoogleTimeZoneOptions.Count == 0
+            || GoogleCalendarColorOptions.Count == 0)
         {
             RebuildWeekStartOptions();
             RebuildProviderOptions();
             RebuildTimeProfileDefaultModes();
             RebuildLocalizationOptions();
             RebuildThemeOptions();
+            RebuildGoogleTimeZoneOptions();
+            RebuildGoogleCalendarColorOptions();
         }
 
         RebuildDestinationOptions();
+        if (providerChanged)
+        {
+            RebuildGoogleCalendarColorOptions();
+        }
+        else
+        {
+            SyncGoogleCalendarColorSelectionFromPreferences();
+        }
         RebuildCourseTypeAppearances();
         SyncTimeProfileSelectionsFromPreferences();
         RefreshCourseTimeProfileOverrides();
@@ -1905,6 +2293,10 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ThemeMode));
         OnPropertyChanged(nameof(IsDarkTheme));
         OnPropertyChanged(nameof(SelectedThemeOption));
+        OnPropertyChanged(nameof(SelectedGooglePreferredTimeZoneId));
+        OnPropertyChanged(nameof(SelectedGoogleTimeZoneOption));
+        OnPropertyChanged(nameof(SelectedDefaultCalendarColorId));
+        OnPropertyChanged(nameof(SelectedGoogleCalendarColorOption));
         OnPropertyChanged(nameof(SelectedTimeProfileId));
         OnPropertyChanged(nameof(SelectedExplicitTimeProfileId));
         OnPropertyChanged(nameof(SelectedTimeProfileDefaultModeOption));
@@ -1945,6 +2337,9 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(GoogleSelectedCalendarId));
         OnPropertyChanged(nameof(GoogleTaskListSummary));
         OnPropertyChanged(nameof(IsGoogleCalendarImportEnabled));
+        OnPropertyChanged(nameof(GoogleTimeZoneSelectionTitle));
+        OnPropertyChanged(nameof(GoogleTimeZoneSelectionSummary));
+        OnPropertyChanged(nameof(GoogleCalendarColorOptions));
         OnPropertyChanged(nameof(ShowGoogleHomePreviewToggle));
         OnPropertyChanged(nameof(IsGoogleMorningTaskRuleEnabled));
         OnPropertyChanged(nameof(IsGoogleAfternoonTaskRuleEnabled));
@@ -1965,6 +2360,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(HomeScheduleItems));
         OnPropertyChanged(nameof(ThemeSelectionTitle));
         OnPropertyChanged(nameof(ThemeSelectionSummary));
+        OnPropertyChanged(nameof(SyncGoogleCalendarOnStartup));
+        OnPropertyChanged(nameof(ShowStatusNotifications));
         OnPropertyChanged(nameof(CanEditCourseTimeProfileOverrides));
         OnPropertyChanged(nameof(HasCourseTimeProfileOverrides));
         OnPropertyChanged(nameof(CourseTimeProfileOverrideSummary));
@@ -1975,6 +2372,11 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     private void ApplyPreviewResult(WorkspacePreviewResult? previousPreview, WorkspacePreviewResult preview)
     {
+        if (!isApplyingImportSelection)
+        {
+            lastAppliedImportSelectionSignature = null;
+        }
+
         selectedImportChangeIds = BuildSelectedImportChangeIds(previousPreview, preview, selectedImportChangeIds);
 
         ReplaceAvailableClasses(preview.ParsedClassSchedules.Select(static schedule => schedule.ClassName));
@@ -2209,23 +2611,40 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     private void RebuildLocalizationOptions()
     {
         var selectedCultureName = NormalizePreferredCultureName(CurrentPreferences.Localization.PreferredCultureName);
-        LocalizationOptionViewModel[] options =
+        (string? CultureName, string DisplayName)[] localizedOptions =
         [
-            new LocalizationOptionViewModel(
-                preferredCultureName: null,
-                GetLocalizedString("LocalizationOptionFollowSystem", "Follow System")),
-            new LocalizationOptionViewModel(
-                preferredCultureName: "zh-CN",
-                GetLocalizedString("LocalizationOptionZhCn", "Simplified Chinese (zh-CN)")),
-            new LocalizationOptionViewModel(
-                preferredCultureName: "en-US",
-                GetLocalizedString("LocalizationOptionEnUs", "English")),
+            (
+                CultureName: null,
+                DisplayName: GetLocalizedString("LocalizationOptionFollowSystem", "Follow System")),
+            (
+                CultureName: "zh-CN",
+                DisplayName: GetLocalizedString("LocalizationOptionZhCn", "Simplified Chinese (zh-CN)")),
+            (
+                CultureName: "en-US",
+                DisplayName: GetLocalizedString("LocalizationOptionEnUs", "English")),
         ];
 
-        LocalizationOptions.Clear();
-        foreach (var option in options)
+        var shouldReplaceOptions = LocalizationOptions.Count != localizedOptions.Length
+            || LocalizationOptions
+                .Select(option => option.SelectionKey)
+                .SequenceEqual(
+                    localizedOptions.Select(static option => string.IsNullOrWhiteSpace(option.CultureName) ? string.Empty : option.CultureName),
+                    StringComparer.OrdinalIgnoreCase) is false;
+
+        if (shouldReplaceOptions)
         {
-            LocalizationOptions.Add(option);
+            LocalizationOptions.Clear();
+            foreach (var option in localizedOptions)
+            {
+                LocalizationOptions.Add(new LocalizationOptionViewModel(option.CultureName, option.DisplayName));
+            }
+        }
+        else
+        {
+            for (var index = 0; index < localizedOptions.Length; index++)
+            {
+                LocalizationOptions[index].UpdateDisplayName(localizedOptions[index].DisplayName);
+            }
         }
 
         suppressLocalizationPersistence = true;
@@ -2282,6 +2701,85 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ThemeMode));
         OnPropertyChanged(nameof(ThemeSelectionTitle));
         OnPropertyChanged(nameof(ThemeSelectionSummary));
+    }
+
+    private void RebuildGoogleTimeZoneOptions()
+    {
+        var selectedTimeZoneId = Normalize(CurrentPreferences.GoogleSettings.PreferredCalendarTimeZoneId)
+            ?? "Asia/Shanghai";
+        var options = BuildGoogleTimeZoneOptions().ToList();
+        if (options.All(option => !string.Equals(option.TimeZoneId, selectedTimeZoneId, StringComparison.Ordinal)))
+        {
+            options.Add(new GoogleTimeZoneOptionViewModel(selectedTimeZoneId, selectedTimeZoneId));
+        }
+
+        GoogleTimeZoneOptions.Clear();
+        foreach (var option in options)
+        {
+            GoogleTimeZoneOptions.Add(option);
+        }
+
+        suppressGoogleTimeZonePersistence = true;
+        try
+        {
+            selectedGoogleTimeZoneOption = GoogleTimeZoneOptions.FirstOrDefault(
+                    option => string.Equals(option.TimeZoneId, selectedTimeZoneId, StringComparison.Ordinal))
+                ?? GoogleTimeZoneOptions.FirstOrDefault();
+        }
+        finally
+        {
+            suppressGoogleTimeZonePersistence = false;
+        }
+
+        OnPropertyChanged(nameof(SelectedGoogleTimeZoneOption));
+        OnPropertyChanged(nameof(SelectedGooglePreferredTimeZoneId));
+        OnPropertyChanged(nameof(GoogleTimeZoneSelectionTitle));
+        OnPropertyChanged(nameof(GoogleTimeZoneSelectionSummary));
+    }
+
+    private void RebuildGoogleCalendarColorOptions()
+    {
+        var selectedColorId = Normalize(CurrentPreferences.GetDefaults(DefaultProvider).DefaultCalendarColorId);
+        var options = BuildGoogleCalendarColorOptions().ToList();
+        GoogleCalendarColorOptions.Clear();
+        foreach (var option in options)
+        {
+            GoogleCalendarColorOptions.Add(option);
+        }
+
+        suppressGoogleCalendarColorPersistence = true;
+        try
+        {
+            selectedGoogleCalendarColorOption = GoogleCalendarColorOptions.FirstOrDefault(
+                    option => string.Equals(option.ColorId, selectedColorId, StringComparison.Ordinal))
+                ?? GoogleCalendarColorOptions.FirstOrDefault();
+        }
+        finally
+        {
+            suppressGoogleCalendarColorPersistence = false;
+        }
+
+        OnPropertyChanged(nameof(SelectedDefaultCalendarColorId));
+        OnPropertyChanged(nameof(SelectedGoogleCalendarColorOption));
+    }
+
+    private void SyncGoogleCalendarColorSelectionFromPreferences()
+    {
+        var selectedColorId = Normalize(CurrentPreferences.GetDefaults(DefaultProvider).DefaultCalendarColorId);
+        suppressGoogleCalendarColorPersistence = true;
+        try
+        {
+            selectedGoogleCalendarColorOption = GoogleCalendarColorOptions.FirstOrDefault(
+                    option => string.Equals(option.ColorId, selectedColorId, StringComparison.Ordinal))
+                ?? GoogleCalendarColorOptions.FirstOrDefault();
+        }
+        finally
+        {
+            suppressGoogleCalendarColorPersistence = false;
+        }
+
+        OnPropertyChanged(nameof(SelectedDefaultCalendarColorId));
+        OnPropertyChanged(nameof(SelectedGoogleCalendarColorOption));
     }
 
     private void SyncTimeProfileSelectionsFromPreferences()
@@ -2372,10 +2870,26 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             request.Campus,
             request.Location,
             request.Teacher,
-            request.TeachingClassComposition);
+            request.TeachingClassComposition,
+            request.CalendarTimeZoneId,
+            request.GoogleCalendarColorId);
 
         ApplyPreferences(CurrentPreferences.WithTimetableResolution(
             CurrentPreferences.TimetableResolution.UpsertCourseScheduleOverride(scheduleOverride)));
+        await PersistPreferencesAsync(refreshPreview: true);
+    }
+
+    private async Task SaveCoursePresentationOverrideAsync(CoursePresentationEditorSaveRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        ApplyPreferences(CurrentPreferences.WithTimetableResolution(
+            CurrentPreferences.TimetableResolution.UpsertCoursePresentationOverride(
+                new CoursePresentationOverride(
+                    request.ClassName,
+                    request.CourseTitle,
+                    request.CalendarTimeZoneId,
+                    request.GoogleCalendarColorId))));
         await PersistPreferencesAsync(refreshPreview: true);
     }
 
@@ -2426,6 +2940,15 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         await PersistPreferencesAsync(refreshPreview: true);
     }
 
+    private async Task ResetCoursePresentationOverrideAsync(CoursePresentationEditorResetRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        ApplyPreferences(CurrentPreferences.WithTimetableResolution(
+            CurrentPreferences.TimetableResolution.RemoveCoursePresentationOverride(request.ClassName, request.CourseTitle)));
+        await PersistPreferencesAsync(refreshPreview: true);
+    }
+
     private CourseEditorOpenRequest CreateEditorRequest(ResolvedOccurrence occurrence)
     {
         var linkedOccurrences = GetLinkedOccurrences(occurrence);
@@ -2441,8 +2964,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             first.Metadata.CourseTitle,
             first.OccurrenceDate,
             last.OccurrenceDate,
-            TimeOnly.FromDateTime(first.Start.LocalDateTime),
-            TimeOnly.FromDateTime(first.End.LocalDateTime),
+            TimeOnly.FromDateTime(first.Start.DateTime),
+            TimeOnly.FromDateTime(first.End.DateTime),
             InferRepeatKind(linkedOccurrences),
             first.TimeProfileId,
             first.TargetKind,
@@ -2452,6 +2975,10 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             first.Metadata.Teacher,
             first.Metadata.TeachingClassComposition,
             first.Metadata.Notes,
+            GoogleTimeZoneOptions.ToArray(),
+            GoogleCalendarColorOptions.ToArray(),
+            storedOverride?.CalendarTimeZoneId ?? first.CalendarTimeZoneId,
+            storedOverride?.GoogleCalendarColorId ?? first.GoogleCalendarColorId,
             storedOverride is not null);
     }
 
@@ -2497,6 +3024,10 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                 storedOverride.Teacher,
                 storedOverride.TeachingClassComposition,
                 storedOverride.Notes,
+                GoogleTimeZoneOptions.ToArray(),
+                GoogleCalendarColorOptions.ToArray(),
+                storedOverride.CalendarTimeZoneId,
+                storedOverride.GoogleCalendarColorId,
                 CanReset: true);
         }
 
@@ -2525,6 +3056,10 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             metadata.TryGetValue("Teacher", out var teacher) ? teacher : null,
             metadata.TryGetValue("TeachingClassComposition", out var teachingClassComposition) ? teachingClassComposition : null,
             metadata.TryGetValue("Notes", out var notes) ? notes : unresolvedItem.RawSourceText,
+            GoogleTimeZoneOptions.ToArray(),
+            GoogleCalendarColorOptions.ToArray(),
+            SelectedGooglePreferredTimeZoneId,
+            CurrentPreferences.GetDefaults(DefaultProvider).DefaultCalendarColorId,
             CanReset: false);
     }
 
@@ -3229,7 +3764,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                 defaults.CourseTypeAppearances.Select(
                     appearance => string.Equals(appearance.CourseTypeKey, courseTypeKey, StringComparison.Ordinal)
                         ? new CourseTypeAppearanceSetting(courseTypeKey, appearance.DisplayName, categoryName, colorHex)
-                        : appearance).ToArray()));
+                        : appearance).ToArray(),
+                defaults.DefaultCalendarColorId));
 
         _ = PersistPreferencesAsync(refreshPreview: false);
     }
@@ -3289,6 +3825,28 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     internal bool IsImportChangeSelected(string localStableId) =>
         !string.IsNullOrWhiteSpace(localStableId)
         && selectedImportChangeIds?.Contains(localStableId) == true;
+
+    internal bool IsCurrentImportSelectionApplied(IReadOnlyCollection<string> selectedChangeIds) =>
+        string.Equals(
+            CreateImportSelectionSignature(selectedChangeIds),
+            lastAppliedImportSelectionSignature,
+            StringComparison.Ordinal);
+
+    private static string? CreateImportSelectionSignature(IReadOnlyCollection<string> selectedChangeIds)
+    {
+        if (selectedChangeIds.Count == 0)
+        {
+            return null;
+        }
+
+        var normalized = selectedChangeIds
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Select(static id => id.Trim())
+            .OrderBy(static id => id, StringComparer.Ordinal)
+            .ToArray();
+
+        return normalized.Length == 0 ? null : string.Join("\n", normalized);
+    }
 
     private bool IsGoogleTaskRuleEnabled(string ruleId) =>
         CurrentPreferences.GoogleSettings.TaskRules.Any(
@@ -3353,7 +3911,57 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     }
 
     private ProviderConnectionContext CreateGoogleConnectionContext() =>
-        new(ClientConfigurationPath: CurrentPreferences.GoogleSettings.OAuthClientConfigurationPath);
+        new(
+            ClientConfigurationPath: CurrentPreferences.GoogleSettings.OAuthClientConfigurationPath,
+            PreferredCalendarTimeZoneId: CurrentPreferences.GoogleSettings.PreferredCalendarTimeZoneId,
+            RemoteReadFallbackTimeZoneId: CurrentPreferences.GoogleSettings.RemoteReadFallbackTimeZoneId);
+
+    private static IReadOnlyList<GoogleTimeZoneOptionViewModel> BuildGoogleTimeZoneOptions() =>
+    [
+        new GoogleTimeZoneOptionViewModel("Etc/GMT+12", "UTC-12"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT+11", "UTC-11"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT+10", "UTC-10"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT+9", "UTC-9"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT+8", "UTC-8"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT+7", "UTC-7"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT+6", "UTC-6"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT+5", "UTC-5"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT+4", "UTC-4"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT+3", "UTC-3"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT+2", "UTC-2"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT+1", "UTC-1"),
+        new GoogleTimeZoneOptionViewModel("UTC", "UTC"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT-1", "UTC+1"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT-2", "UTC+2"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT-3", "UTC+3"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT-4", "UTC+4"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT-5", "UTC+5"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT-6", "UTC+6"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT-7", "UTC+7"),
+        new GoogleTimeZoneOptionViewModel("Asia/Shanghai", "UTC+8"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT-9", "UTC+9"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT-10", "UTC+10"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT-11", "UTC+11"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT-12", "UTC+12"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT-13", "UTC+13"),
+        new GoogleTimeZoneOptionViewModel("Etc/GMT-14", "UTC+14"),
+    ];
+
+    private IReadOnlyList<GoogleCalendarColorOptionViewModel> BuildGoogleCalendarColorOptions() =>
+    [
+        new GoogleCalendarColorOptionViewModel(null, GetLocalizedString("GoogleCalendarColorDefault", "Preset color"), "#8AB4F8"),
+        new GoogleCalendarColorOptionViewModel("11", GetLocalizedString("GoogleCalendarColorTomato", "Tomato"), "#DC2127"),
+        new GoogleCalendarColorOptionViewModel("6", GetLocalizedString("GoogleCalendarColorTangerine", "Tangerine"), "#FFB878"),
+        new GoogleCalendarColorOptionViewModel("5", GetLocalizedString("GoogleCalendarColorBanana", "Banana"), "#FBD75B"),
+        new GoogleCalendarColorOptionViewModel("10", GetLocalizedString("GoogleCalendarColorBasil", "Basil"), "#51B749"),
+        new GoogleCalendarColorOptionViewModel("2", GetLocalizedString("GoogleCalendarColorSage", "Sage"), "#7AE7BF"),
+        new GoogleCalendarColorOptionViewModel("7", GetLocalizedString("GoogleCalendarColorPeacock", "Peacock"), "#46D6DB"),
+        new GoogleCalendarColorOptionViewModel("9", GetLocalizedString("GoogleCalendarColorBlueberry", "Blueberry"), "#5484ED"),
+        new GoogleCalendarColorOptionViewModel("1", GetLocalizedString("GoogleCalendarColorLavender", "Lavender"), "#A4BDFC"),
+        new GoogleCalendarColorOptionViewModel("3", GetLocalizedString("GoogleCalendarColorGrape", "Grape"), "#DBADFF"),
+        new GoogleCalendarColorOptionViewModel("4", GetLocalizedString("GoogleCalendarColorFlamingo", "Flamingo"), "#FF887C"),
+        new GoogleCalendarColorOptionViewModel("8", GetLocalizedString("GoogleCalendarColorGraphite", "Graphite"), "#E1E1E1"),
+    ];
 
     private ProviderConnectionContext CreateMicrosoftConnectionContext() =>
         new(
@@ -3642,6 +4250,123 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
+    private async Task AutoSyncGoogleCalendarPreviewAsync(
+        string title,
+        string detail,
+        bool ensureCalendarsLoaded,
+        CancellationToken cancellationToken)
+    {
+        if (DefaultProvider != ProviderKind.Google || !IsGoogleConnected)
+        {
+            return;
+        }
+
+        await RunTrackedTaskAsync(
+            title,
+            detail,
+            task => SyncGoogleCalendarPreviewCoreAsync(ensureCalendarsLoaded, cancellationToken, task));
+    }
+
+    private async Task SyncGoogleCalendarPreviewCoreAsync(
+        bool ensureCalendarsLoaded,
+        CancellationToken cancellationToken,
+        TrackedTaskContext? task = null)
+    {
+        if (DefaultProvider != ProviderKind.Google)
+        {
+            await RefreshPreviewCoreAsync(task, UiText.TaskSyncGoogleExistingEventsRefreshingDetail, cancellationToken: cancellationToken);
+            return;
+        }
+
+        if (googleProviderAdapter is null)
+        {
+            WorkspaceStatus = UiText.WorkspaceProviderUnavailable;
+            return;
+        }
+
+        await RefreshGoogleConnectionStateAsync(clearOnDisconnect: true, cancellationToken);
+        if (!IsGoogleConnected)
+        {
+            WorkspaceStatus = UiText.WorkspaceGoogleNotConnected;
+            return;
+        }
+
+        if (ensureCalendarsLoaded && (!HasGoogleWritableCalendars || !HasSelectedGoogleCalendar))
+        {
+            await RefreshGoogleCalendarsCoreAsync(cancellationToken, task);
+        }
+
+        if (!HasSelectedGoogleCalendar)
+        {
+            WorkspaceStatus = UiText.WorkspaceNoGoogleCalendarSelected;
+            return;
+        }
+
+        await RefreshPreviewCoreAsync(task, UiText.TaskSyncGoogleExistingEventsRefreshingDetail, cancellationToken: cancellationToken);
+    }
+
+    private async Task RunTrackedTaskAsync(
+        string title,
+        string detail,
+        Func<TrackedTaskContext, Task> action)
+    {
+        var task = BeginTrackedTask(title, detail);
+        try
+        {
+            await action(task);
+        }
+        finally
+        {
+            EndTrackedTask(task.Item);
+        }
+    }
+
+    private async Task<T> RunTrackedTaskAsync<T>(
+        string title,
+        string detail,
+        Func<TrackedTaskContext, Task<T>> action)
+    {
+        var task = BeginTrackedTask(title, detail);
+        try
+        {
+            return await action(task);
+        }
+        finally
+        {
+            EndTrackedTask(task.Item);
+        }
+    }
+
+    private TrackedTaskContext BeginTrackedTask(string title, string detail)
+    {
+        var taskItem = new TaskExecutionViewModel(Interlocked.Increment(ref activeTaskSequence), title, detail);
+        ActiveTasks.Insert(0, taskItem);
+        NotifyTaskCenterChanged();
+        return new TrackedTaskContext(taskItem);
+    }
+
+    private void EndTrackedTask(TaskExecutionViewModel taskItem)
+    {
+        _ = ActiveTasks.Remove(taskItem);
+        NotifyTaskCenterChanged();
+    }
+
+    private void NotifyTaskCenterChanged()
+    {
+        OnPropertyChanged(nameof(HasActiveTasks));
+        OnPropertyChanged(nameof(ActiveTaskCount));
+        OnPropertyChanged(nameof(ActiveTaskTitle));
+        OnPropertyChanged(nameof(ActiveTaskSummary));
+    }
+
+    private string BuildGoogleCalendarSyncDetail()
+    {
+        var calendarName = string.IsNullOrWhiteSpace(CurrentPreferences.GoogleSettings.SelectedCalendarDisplayName)
+            ? UiText.TaskGoogleCalendarUnknown
+            : CurrentPreferences.GoogleSettings.SelectedCalendarDisplayName!;
+        return UiText.FormatTaskGoogleCalendarSyncDetail(calendarName);
+    }
+
     private int FindCourseTimeProfileOverrideIndex(CourseTimeProfileOverrideKey key)
     {
         for (var index = 0; index < CourseTimeProfileOverrides.Count; index++)
@@ -3665,10 +4390,10 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         && pendingFallbackFingerprints.Contains(change.After.SourceFingerprint);
 
     private static bool AreTimeProfileOptionsEqual(
-        IReadOnlyList<TimeProfileOptionViewModel> current,
-        IReadOnlyList<TimeProfileOptionViewModel> desired)
+        ObservableCollection<TimeProfileOptionViewModel> current,
+        TimeProfileOptionViewModel[] desired)
     {
-        if (current.Count != desired.Count)
+        if (current.Count != desired.Length)
         {
             return false;
         }
@@ -3685,6 +4410,175 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
         return true;
     }
+
+    private static HashSet<string> GetAcceptedGoogleCalendarDeleteIds(
+        WorkspacePreviewResult preview,
+        IReadOnlyCollection<string> acceptedChangeIds)
+    {
+        ArgumentNullException.ThrowIfNull(preview);
+        ArgumentNullException.ThrowIfNull(acceptedChangeIds);
+
+        if (preview.SyncPlan is null || acceptedChangeIds.Count == 0)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        var acceptedIds = acceptedChangeIds.ToHashSet(StringComparer.Ordinal);
+        return preview.SyncPlan.PlannedChanges
+            .Where(change =>
+                change.TargetKind == SyncTargetKind.CalendarEvent
+                && change.ChangeKind == SyncChangeKind.Deleted
+                && acceptedIds.Contains(change.LocalStableId))
+            .Select(static change => change.LocalStableId)
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private async Task<bool> WaitForAcceptedGoogleCalendarChangesToSettleAsync(
+        IReadOnlySet<string> acceptedGoogleCalendarChangeIds,
+        TrackedTaskContext task,
+        CancellationToken cancellationToken)
+    {
+        if (DefaultProvider != ProviderKind.Google)
+        {
+            return true;
+        }
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(45);
+        var attemptedDuplicateCleanupIds = new HashSet<string>(StringComparer.Ordinal);
+        do
+        {
+            var duplicateCleanupIds = GetAutoRemovableGoogleDuplicateDeleteIds(CurrentPreviewResult)
+                .Where(id => attemptedDuplicateCleanupIds.Add(id))
+                .ToArray();
+            if (duplicateCleanupIds.Length > 0)
+            {
+                task.Update(UiText.TaskPostApplyGoogleSyncDetail);
+                await previewService.ApplyAcceptedChangesAsync(
+                    CurrentPreviewResult!,
+                    duplicateCleanupIds,
+                    cancellationToken);
+                await SyncGoogleCalendarPreviewCoreAsync(
+                    ensureCalendarsLoaded: false,
+                    cancellationToken,
+                    task);
+                continue;
+            }
+
+            if (CountPendingAcceptedGoogleCalendarChanges(acceptedGoogleCalendarChangeIds) == 0)
+            {
+                return true;
+            }
+
+            if (DateTimeOffset.UtcNow >= deadline)
+            {
+                break;
+            }
+
+            await SyncGoogleCalendarPreviewCoreAsync(
+                ensureCalendarsLoaded: false,
+                cancellationToken,
+                task);
+
+            task.Update(UiText.TaskPostApplyGoogleSyncDetail);
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+        }
+        while (true);
+
+        return GetAutoRemovableGoogleDuplicateDeleteIds(CurrentPreviewResult).Length == 0
+            && CountPendingAcceptedGoogleCalendarChanges(acceptedGoogleCalendarChangeIds) == 0;
+    }
+
+    private static string[] GetAutoRemovableGoogleDuplicateDeleteIds(WorkspacePreviewResult? preview)
+    {
+        var syncPlan = preview?.SyncPlan;
+        if (syncPlan is null || syncPlan.RemotePreviewEvents.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var currentCalendarCountsByKey = syncPlan.Occurrences
+            .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
+            .GroupBy(
+                static occurrence => CreateGoogleDuplicatePayloadKey(
+                    occurrence.Metadata.CourseTitle,
+                    occurrence.Start,
+                    occurrence.End,
+                    occurrence.Metadata.Location),
+                StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
+        var deletionWindow = syncPlan.DeletionWindow;
+        var deleteChanges = syncPlan.PlannedChanges
+            .Where(static change =>
+                change.ChangeKind == SyncChangeKind.Deleted
+                && change.ChangeSource == SyncChangeSource.RemoteManaged
+                && change.RemoteEvent is not null)
+            .ToArray();
+
+        return syncPlan.RemotePreviewEvents
+            .Where(static remoteEvent => remoteEvent.IsManagedByApp)
+            .Where(remoteEvent => deletionWindow is null || OverlapsGoogleDuplicateWindow(deletionWindow, remoteEvent.Start, remoteEvent.End))
+            .GroupBy(
+                static remoteEvent => CreateGoogleDuplicatePayloadKey(
+                    remoteEvent.Title,
+                    remoteEvent.Start,
+                    remoteEvent.End,
+                    remoteEvent.Location),
+                StringComparer.Ordinal)
+            .Select(
+                group => new
+                {
+                    RemoteEvents = group.ToArray(),
+                    CurrentCount = currentCalendarCountsByKey.TryGetValue(group.Key, out var count) ? count : 0,
+                })
+            .Where(group => group.RemoteEvents.Length > group.CurrentCount && group.CurrentCount > 0)
+            .SelectMany(group =>
+                deleteChanges.Where(change =>
+                    group.RemoteEvents.Any(remoteEvent =>
+                        string.Equals(remoteEvent.RemoteItemId, change.RemoteEvent!.RemoteItemId, StringComparison.Ordinal))))
+            .Select(static change => change.LocalStableId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static string CreateGoogleDuplicatePayloadKey(
+        string title,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        string? location) =>
+        string.Join(
+            "|",
+            title,
+            start.ToUniversalTime().ToString("O"),
+            end.ToUniversalTime().ToString("O"),
+            location ?? string.Empty);
+
+    private static bool OverlapsGoogleDuplicateWindow(PreviewDateWindow window, DateTimeOffset start, DateTimeOffset end)
+    {
+        var normalizedStart = start.ToUniversalTime();
+        var normalizedEnd = end.ToUniversalTime();
+        return normalizedEnd > window.Start.ToUniversalTime()
+            && normalizedStart < window.End.ToUniversalTime();
+    }
+
+    private int CountPendingAcceptedGoogleCalendarChanges(IReadOnlySet<string> acceptedGoogleCalendarChangeIds)
+    {
+        ArgumentNullException.ThrowIfNull(acceptedGoogleCalendarChangeIds);
+
+        var syncPlan = CurrentPreviewResult?.SyncPlan;
+        if (syncPlan is null || acceptedGoogleCalendarChangeIds.Count == 0)
+        {
+            return 0;
+        }
+
+        return syncPlan.PlannedChanges.Count(change =>
+            change.TargetKind == SyncTargetKind.CalendarEvent
+            && acceptedGoogleCalendarChangeIds.Contains(change.LocalStableId));
+    }
+
+    private bool HasPersistedGoogleConnectionState() =>
+        !string.IsNullOrWhiteSpace(CurrentPreferences.GoogleSettings.ConnectedAccountSummary)
+        || !string.IsNullOrWhiteSpace(CurrentPreferences.GoogleSettings.SelectedCalendarId)
+        || CurrentPreferences.GoogleSettings.WritableCalendars.Count > 0;
 
     private static string? NormalizePreferredCultureName(string? preferredCultureName) =>
         string.IsNullOrWhiteSpace(preferredCultureName) ? null : preferredCultureName.Trim();
@@ -3753,7 +4647,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             .ToArray();
     }
 
-    private IReadOnlyList<AgendaOccurrenceViewModel> BuildHomeScheduleItems()
+    private AgendaOccurrenceViewModel[] BuildHomeScheduleItems()
     {
         var preview = CurrentPreviewResult;
         if (preview?.SyncPlan is null)
@@ -3768,13 +4662,14 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             ?? preview.SyncPlan.PlannedChanges
                 .Select(static change => change.LocalStableId)
                 .ToHashSet(StringComparer.Ordinal);
+        var displayChanges = NormalizeHomeDisplayChanges(preview.SyncPlan.PlannedChanges);
         var exactMatchOccurrenceIds = preview.ExactMatchOccurrenceIds.ToHashSet(StringComparer.Ordinal);
         var exactMatchRemoteEventIds = preview.ExactMatchRemoteEventIds.ToHashSet(StringComparer.Ordinal);
         var changedOccurrenceIds = new HashSet<string>(StringComparer.Ordinal);
         var representedRemoteEventIds = new HashSet<string>(StringComparer.Ordinal);
         var items = new List<AgendaOccurrenceViewModel>();
 
-        foreach (var change in preview.SyncPlan.PlannedChanges)
+        foreach (var change in displayChanges)
         {
             var isSelected = selectedIds.Contains(change.LocalStableId);
             if (change.Before is not null)
@@ -3815,7 +4710,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                             HomeScheduleEntryOrigin.LocalSchedule));
                     }
 
-                    if (change.Before is not null && isSelected)
+                    if (change.Before is not null && isSelected && !ShouldCollapseUpdatedAgendaPair(change))
                     {
                         items.Add(CreateAgendaItem(
                             change.Before,
@@ -3880,7 +4775,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             items.Add(CreateRemoteAgendaItem(remoteEvent));
         }
 
-        return items
+        return NormalizeHomeScheduleItems(items)
             .OrderBy(static item => item.OccurrenceDate)
             .ThenBy(static item => item.TimeRange, StringComparer.Ordinal)
             .ThenBy(static item => item.Title, StringComparer.CurrentCulture)
@@ -3906,9 +4801,6 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         var teacher = string.IsNullOrWhiteSpace(occurrence.Metadata.Teacher)
             ? UiText.HomeTeacherNotListed
             : occurrence.Metadata.Teacher;
-        var courseType = string.IsNullOrWhiteSpace(occurrence.CourseType)
-            ? UiText.HomeStandardCourseType
-            : occurrence.CourseType;
         var details = UiText.FormatHomeDetails(
             occurrence.Metadata.Notes,
             occurrence.SchoolWeekNumber,
@@ -3928,11 +4820,12 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
         return new AgendaOccurrenceViewModel(
             occurrence.OccurrenceDate,
+            occurrence.SchoolWeekNumber,
             occurrence.Metadata.CourseTitle,
             $"{occurrence.Start:HH:mm}-{occurrence.End:HH:mm}",
             location,
             teacher,
-            courseType,
+            ResolveAgendaColorHex(occurrence.GoogleCalendarColorId),
             details,
             status,
             source,
@@ -3953,11 +4846,12 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
         return new AgendaOccurrenceViewModel(
             remoteEvent.OccurrenceDate,
+            null,
             remoteEvent.Title,
             $"{remoteEvent.Start:HH:mm}-{remoteEvent.End:HH:mm}",
             location,
             UiText.HomeTeacherNotListed,
-            UiText.HomeStandardCourseType,
+            ResolveAgendaColorHex(remoteEvent.GoogleCalendarColorId),
             details,
             HomeScheduleEntryStatus.Unchanged,
             SyncChangeSource.RemoteCalendarOnly,
@@ -3980,6 +4874,125 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                 HomeScheduleEntryStatus.Deleted => HomeCalendarVisualStyle.Deleted,
                 _ => HomeCalendarVisualStyle.Neutral,
             };
+
+    private static bool ShouldCollapseUpdatedAgendaPair(PlannedSyncChange change)
+    {
+        var before = change.Before;
+        var after = change.After;
+        if (before is null || after is null)
+        {
+            return false;
+        }
+
+        // When the visible lesson identity did not change, keep Home to a single
+        // orange update row instead of a red+green pair. This covers color-only
+        // and other metadata-only edits from either local snapshot diffing or
+        // Google managed-event reconciliation.
+        return before.OccurrenceDate == after.OccurrenceDate
+            && before.Start == after.Start
+            && before.End == after.End
+            && string.Equals(before.Metadata.CourseTitle, after.Metadata.CourseTitle, StringComparison.Ordinal)
+            && string.Equals(before.Metadata.Location ?? string.Empty, after.Metadata.Location ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    private static PlannedSyncChange[] NormalizeHomeDisplayChanges(IReadOnlyList<PlannedSyncChange> changes)
+    {
+        var canonical = new Dictionary<string, PlannedSyncChange>(StringComparer.Ordinal);
+        foreach (var change in changes)
+        {
+            var key = string.Concat((int)change.TargetKind, "|", change.LocalStableId);
+            if (!canonical.TryGetValue(key, out var existing) || CompareHomeDisplayPreference(change, existing) < 0)
+            {
+                canonical[key] = change;
+            }
+        }
+
+        return canonical.Values
+            .OrderBy(static change => change.After?.Start ?? change.Before?.Start ?? DateTimeOffset.MaxValue)
+            .ThenBy(static change => (change.After ?? change.Before)?.Metadata.CourseTitle ?? change.RemoteEvent?.Title, StringComparer.CurrentCulture)
+            .ToArray();
+    }
+
+    private static AgendaOccurrenceViewModel[] NormalizeHomeScheduleItems(IReadOnlyList<AgendaOccurrenceViewModel> items)
+    {
+        var canonical = new Dictionary<string, AgendaOccurrenceViewModel>(StringComparer.Ordinal);
+        foreach (var item in items)
+        {
+            var key = string.Join(
+                "|",
+                item.OccurrenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                item.TimeRange,
+                item.Title,
+                item.Location);
+            if (!canonical.TryGetValue(key, out var existing) || CompareHomeScheduleItemPreference(item, existing) < 0)
+            {
+                canonical[key] = item;
+            }
+        }
+
+        return canonical.Values.ToArray();
+    }
+
+    private static int CompareHomeDisplayPreference(PlannedSyncChange candidate, PlannedSyncChange existing) =>
+        GetHomeDisplayPreferenceScore(candidate).CompareTo(GetHomeDisplayPreferenceScore(existing));
+
+    private static int GetHomeDisplayPreferenceScore(PlannedSyncChange change)
+    {
+        var sourceScore = change.ChangeSource switch
+        {
+            SyncChangeSource.RemoteManaged => 0,
+            SyncChangeSource.RemoteTitleConflict => 1,
+            _ => 2,
+        };
+        var kindScore = change.ChangeKind switch
+        {
+            SyncChangeKind.Updated => 0,
+            SyncChangeKind.Added => 1,
+            _ => 2,
+        };
+        var remoteScore = change.RemoteEvent is not null ? 0 : 1;
+        return (sourceScore * 100) + (kindScore * 10) + remoteScore;
+    }
+
+    private static int CompareHomeScheduleItemPreference(AgendaOccurrenceViewModel candidate, AgendaOccurrenceViewModel existing) =>
+        GetHomeScheduleItemPreferenceScore(candidate).CompareTo(GetHomeScheduleItemPreferenceScore(existing));
+
+    private static int GetHomeScheduleItemPreferenceScore(AgendaOccurrenceViewModel item)
+    {
+        var statusScore = item.Status switch
+        {
+            HomeScheduleEntryStatus.UpdatedAfter => 0,
+            HomeScheduleEntryStatus.Added => 1,
+            HomeScheduleEntryStatus.Unchanged => 2,
+            HomeScheduleEntryStatus.Deleted => 3,
+            HomeScheduleEntryStatus.UpdatedBefore => 4,
+            _ => 5,
+        };
+        var originScore = item.Origin switch
+        {
+            HomeScheduleEntryOrigin.LocalSchedule => 0,
+            HomeScheduleEntryOrigin.RemoteExactMatch => 1,
+            HomeScheduleEntryOrigin.RemotePendingDeletion => 2,
+            _ => 3,
+        };
+        var sourceScore = item.Source switch
+        {
+            SyncChangeSource.RemoteManaged => 0,
+            SyncChangeSource.LocalSnapshot => 1,
+            SyncChangeSource.RemoteExactMatch => 2,
+            _ => 3,
+        };
+        var remoteEditorScore = item.CanOpenRemoteEditor ? 1 : 0;
+        return (statusScore * 1000) + (originScore * 100) + (sourceScore * 10) + remoteEditorScore;
+    }
+
+    private string ResolveAgendaColorHex(string? colorId)
+    {
+        var normalizedColorId = Normalize(colorId) ?? Normalize(CurrentPreferences.GetDefaults(DefaultProvider).DefaultCalendarColorId);
+        return GoogleCalendarColorOptions.FirstOrDefault(option => string.Equals(option.ColorId, normalizedColorId, StringComparison.Ordinal))?.ColorHex
+            ?? GoogleCalendarColorOptions.FirstOrDefault(option => option.ColorId is null)?.ColorHex
+            ?? "#8AB4F8";
+    }
 
     public void Dispose()
     {
@@ -4008,5 +5021,17 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                 StatusText,
                 IsMatched,
                 remove);
+    }
+
+    private sealed class TrackedTaskContext
+    {
+        public TrackedTaskContext(TaskExecutionViewModel item)
+        {
+            Item = item;
+        }
+
+        public TaskExecutionViewModel Item { get; }
+
+        public void Update(string detail) => Item.Detail = detail;
     }
 }

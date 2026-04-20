@@ -66,12 +66,45 @@ public sealed class GooglePayloadBuildersTests
         var payload = GooglePayloadBuilders.BuildRecurringEvent(exportGroup);
 
         payload.Recurrence.Should().ContainSingle()
-            .Which.Should().Be("RRULE:FREQ=WEEKLY;INTERVAL=2;COUNT=2");
+            .Which.Should().Be("RRULE:FREQ=WEEKLY;INTERVAL=2;UNTIL=20260318T100000Z");
         payload.ExtendedProperties.Should().NotBeNull();
         payload.ExtendedProperties!.Private__.Should().Contain(
             new KeyValuePair<string, string>(GoogleSyncConstants.LocalGroupSyncIdKey, SyncIdentity.CreateExportGroupId(exportGroup)));
         payload.Start!.TimeZone.Should().Be(GooglePayloadBuilders.ResolveGoogleTimeZoneId());
         payload.End!.TimeZone.Should().Be(GooglePayloadBuilders.ResolveGoogleTimeZoneId());
+    }
+
+    [Fact]
+    public void BuildRecurringEventAddsExDateWhenRecurringGroupContainsSkippedOccurrence()
+    {
+        var firstOccurrence = CreateOccurrence(
+            new DateOnly(2026, 3, 4),
+            new TimeOnly(10, 0),
+            new TimeOnly(11, 40),
+            SyncTargetKind.CalendarEvent,
+            courseTitle: "Circuits",
+            sourceHash: "circuits");
+        var secondOccurrence = CreateOccurrence(
+            new DateOnly(2026, 3, 18),
+            new TimeOnly(10, 0),
+            new TimeOnly(11, 40),
+            SyncTargetKind.CalendarEvent,
+            courseTitle: "Circuits",
+            sourceHash: "circuits");
+        var thirdOccurrence = CreateOccurrence(
+            new DateOnly(2026, 4, 1),
+            new TimeOnly(10, 0),
+            new TimeOnly(11, 40),
+            SyncTargetKind.CalendarEvent,
+            courseTitle: "Circuits",
+            sourceHash: "circuits");
+        var exportGroup = new ExportGroup(ExportGroupKind.Recurring, [firstOccurrence, secondOccurrence, thirdOccurrence], recurrenceIntervalDays: 7);
+
+        var payload = GooglePayloadBuilders.BuildRecurringEvent(exportGroup);
+
+        payload.Recurrence.Should().HaveCount(2);
+        payload.Recurrence.Should().Contain("RRULE:FREQ=WEEKLY;INTERVAL=1;UNTIL=20260401T100000Z");
+        payload.Recurrence.Should().Contain($"EXDATE;TZID={GooglePayloadBuilders.ResolveGoogleTimeZoneId()}:20260311T100000,20260325T100000");
     }
 
     [Fact]
@@ -90,6 +123,52 @@ public sealed class GooglePayloadBuildersTests
         payload.ExtendedProperties.Should().NotBeNull();
         payload.ExtendedProperties!.Private__.Should().Contain(
             new KeyValuePair<string, string>(GoogleSyncConstants.LocalGroupSyncIdKey, "grp-123"));
+    }
+
+    [Fact]
+    public void BuildSingleEventUsesExplicitPreferredTimeZoneWhenProvided()
+    {
+        var occurrence = CreateOccurrence(
+            new DateOnly(2026, 3, 25),
+            new TimeOnly(10, 0),
+            new TimeOnly(11, 40),
+            SyncTargetKind.CalendarEvent,
+            courseTitle: "Circuits",
+            sourceHash: "circuits");
+
+        var payload = GooglePayloadBuilders.BuildSingleEvent(occurrence, preferredTimeZoneId: "UTC");
+
+        payload.Start!.TimeZone.Should().Be(GooglePayloadBuilders.ResolveGoogleTimeZoneId("UTC"));
+        payload.End!.TimeZone.Should().Be(GooglePayloadBuilders.ResolveGoogleTimeZoneId("UTC"));
+    }
+
+    [Fact]
+    public void BuildSingleEventPrefersOccurrenceSpecificTimeZoneAndColorOverDefaults()
+    {
+        var occurrence = new ResolvedOccurrence(
+            className: "Class A",
+            schoolWeekNumber: 1,
+            occurrenceDate: new DateOnly(2026, 3, 25),
+            start: new DateTimeOffset(new DateTime(2026, 3, 25, 10, 0, 0), TimeSpan.FromHours(9)),
+            end: new DateTimeOffset(new DateTime(2026, 3, 25, 11, 40, 0), TimeSpan.FromHours(9)),
+            timeProfileId: "main-campus",
+            weekday: DayOfWeek.Wednesday,
+            metadata: new CourseMetadata(
+                "Circuits",
+                new WeekExpression("1-16"),
+                new PeriodRange(1, 2),
+                location: "Room 301"),
+            sourceFingerprint: new SourceFingerprint("pdf", "circuits-color"),
+            targetKind: SyncTargetKind.CalendarEvent,
+            courseType: "Theory",
+            calendarTimeZoneId: "Asia/Tokyo",
+            googleCalendarColorId: "9");
+
+        var payload = GooglePayloadBuilders.BuildSingleEvent(occurrence, preferredTimeZoneId: "UTC", defaultCalendarColorId: "11");
+
+        payload.Start!.TimeZone.Should().Be("Asia/Tokyo");
+        payload.End!.TimeZone.Should().Be("Asia/Tokyo");
+        payload.ColorId.Should().Be("9");
     }
 
     [Fact]

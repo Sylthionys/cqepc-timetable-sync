@@ -7,11 +7,12 @@ public sealed class AgendaOccurrenceViewModel
 {
     public AgendaOccurrenceViewModel(
         DateOnly occurrenceDate,
+        int? schoolWeekNumber,
         string title,
         string timeRange,
         string location,
         string teacher,
-        string courseType,
+        string colorDotHex,
         string details,
         HomeScheduleEntryStatus status,
         SyncChangeSource source,
@@ -21,11 +22,12 @@ public sealed class AgendaOccurrenceViewModel
         Action? openEditor = null)
     {
         OccurrenceDate = occurrenceDate;
+        SchoolWeekNumber = schoolWeekNumber;
         Title = title;
         TimeRange = timeRange;
         Location = location;
         Teacher = teacher;
-        CourseType = courseType;
+        ColorDotHex = colorDotHex;
         Details = details;
         Status = status;
         Source = source;
@@ -37,6 +39,8 @@ public sealed class AgendaOccurrenceViewModel
 
     public DateOnly OccurrenceDate { get; }
 
+    public int? SchoolWeekNumber { get; }
+
     public string Title { get; }
 
     public string TimeRange { get; }
@@ -45,7 +49,7 @@ public sealed class AgendaOccurrenceViewModel
 
     public string Teacher { get; }
 
-    public string CourseType { get; }
+    public string ColorDotHex { get; }
 
     public string Details { get; }
 

@@ -33,6 +33,24 @@ public sealed class SyncIdentityTests
     }
 
     [Fact]
+    public void CreateOccurrenceIdIgnoresSourceFingerprintDriftForSameOccurrence()
+    {
+        var baseline = CreateOccurrence("Signals", SyncTargetKind.CalendarEvent);
+        var driftedFingerprint = CreateOccurrence("Signals", SyncTargetKind.CalendarEvent, sourceHash: "other-fingerprint");
+
+        SyncIdentity.CreateOccurrenceId(driftedFingerprint).Should().Be(SyncIdentity.CreateOccurrenceId(baseline));
+    }
+
+    [Fact]
+    public void CreateOccurrenceIdIgnoresLocationDriftForSameOccurrence()
+    {
+        var baseline = CreateOccurrence("Signals", SyncTargetKind.CalendarEvent);
+        var relocated = CreateOccurrence("Signals", SyncTargetKind.CalendarEvent, location: "Room 305");
+
+        SyncIdentity.CreateOccurrenceId(relocated).Should().Be(SyncIdentity.CreateOccurrenceId(baseline));
+    }
+
+    [Fact]
     public void CreateExportGroupIdIsStableForEquivalentGroups()
     {
         var firstOccurrence = CreateOccurrence("Signals", SyncTargetKind.CalendarEvent);
@@ -65,7 +83,12 @@ public sealed class SyncIdentityTests
         SyncIdentity.CreateExportGroupId(exportGroup).Should().Be(baselineGroupId);
     }
 
-    private static ResolvedOccurrence CreateOccurrence(string courseTitle, SyncTargetKind targetKind, int weekNumber = 1)
+    private static ResolvedOccurrence CreateOccurrence(
+        string courseTitle,
+        SyncTargetKind targetKind,
+        int weekNumber = 1,
+        string location = "Room 301",
+        string? sourceHash = null)
     {
         var date = new DateOnly(2026, 3, 1).AddDays((weekNumber - 1) * 7);
         return new ResolvedOccurrence(
@@ -76,8 +99,8 @@ public sealed class SyncIdentityTests
             new DateTimeOffset(date.ToDateTime(new TimeOnly(9, 40)), TimeSpan.FromHours(8)),
             "main-campus",
             date.DayOfWeek,
-            new CourseMetadata(courseTitle, new WeekExpression($"{weekNumber}"), new PeriodRange(1, 2), location: "Room 301", teacher: "Teacher A"),
-            new SourceFingerprint("pdf", $"{courseTitle}-{weekNumber}"),
+            new CourseMetadata(courseTitle, new WeekExpression($"{weekNumber}"), new PeriodRange(1, 2), location: location, teacher: "Teacher A"),
+            new SourceFingerprint("pdf", sourceHash ?? $"{courseTitle}-{weekNumber}"),
             targetKind,
             courseType: "theory");
     }

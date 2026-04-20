@@ -178,6 +178,43 @@ public sealed class PresentationFormattingTests
     }
 
     [Fact]
+    public void SelectedDaySummaryIncludesWeekNumberWhenAvailable()
+    {
+        UiText.FormatSelectedDaySummary(3, schoolWeekNumber: 5).Should().Be("3 item(s) | Week 5");
+        UiText.FormatSelectedDaySummary(0, schoolWeekNumber: 5).Should().Be("No schedule | Week 5");
+        UiText.FormatSelectedDaySummary(0, schoolWeekNumber: null).Should().Be("No schedule");
+    }
+
+    [Fact]
+    public void CalendarDayCellShowsConfiguredPreviewEntriesBeforeOverflow()
+    {
+        var entries = Enumerable.Range(1, 7)
+            .Select(index => new HomeCalendarEntryViewModel(
+                $"Course {index}",
+                $"08:{index:00}-09:{index:00}",
+                HomeScheduleEntryStatus.Unchanged,
+                SyncChangeSource.LocalSnapshot,
+                HomeScheduleEntryOrigin.LocalSchedule,
+                HomeCalendarVisualStyle.Neutral,
+                isSelectedForApply: true))
+            .ToArray();
+
+        var viewModel = new CalendarDayCellViewModel(
+            new DateOnly(2026, 4, 18),
+            isInCurrentMonth: true,
+            isToday: false,
+            occurrenceCount: entries.Length,
+            entries,
+            visibleEntryLimit: 3,
+            preferredHeight: 214,
+            UiText.FormatHomeCalendarPreviewCount(entries.Length - 3));
+
+        viewModel.Entries.Should().HaveCount(3);
+        viewModel.HasMoreEntries.Should().BeTrue();
+        viewModel.MoreEntriesLabel.Should().Be(UiText.FormatHomeCalendarPreviewCount(entries.Length - 3));
+    }
+
+    [Fact]
     public void SettingsPageRunBindingsUseOneWayModeForReadOnlyViewModelText()
     {
         var repositoryRoot = Path.GetFullPath(Path.Combine(
@@ -328,6 +365,12 @@ public sealed class PresentationFormattingTests
             Task.FromResult(previewResult);
 
         public Task<WorkspaceApplyResult> ApplyAcceptedChangesAsync(
+            WorkspacePreviewResult preview,
+            IReadOnlyCollection<string> acceptedChangeIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(applyResult);
+
+        public Task<WorkspaceApplyResult> ApplyAcceptedChangesLocallyAsync(
             WorkspacePreviewResult preview,
             IReadOnlyCollection<string> acceptedChangeIds,
             CancellationToken cancellationToken) =>

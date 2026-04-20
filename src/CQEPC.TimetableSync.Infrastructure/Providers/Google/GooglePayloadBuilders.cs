@@ -7,33 +7,32 @@ namespace CQEPC.TimetableSync.Infrastructure.Providers.Google;
 
 internal static class GooglePayloadBuilders
 {
-    public static Event BuildSingleEvent(ResolvedOccurrence occurrence)
+    public static Event BuildSingleEvent(ResolvedOccurrence occurrence, string? preferredTimeZoneId = null, string? defaultCalendarColorId = null)
     {
         ArgumentNullException.ThrowIfNull(occurrence);
-        return BuildBaseEvent(occurrence, SyncIdentity.CreateOccurrenceId(occurrence), localGroupSyncId: null);
+        return BuildBaseEvent(occurrence, SyncIdentity.CreateOccurrenceId(occurrence), localGroupSyncId: null, preferredTimeZoneId, defaultCalendarColorId);
     }
 
-    public static Event BuildRecurringEvent(ExportGroup exportGroup)
+    public static Event BuildRecurringEvent(ExportGroup exportGroup, string? preferredTimeZoneId = null, string? defaultCalendarColorId = null)
     {
         ArgumentNullException.ThrowIfNull(exportGroup);
 
         var firstOccurrence = exportGroup.Occurrences[0];
-        var interval = Math.Max(1, (exportGroup.RecurrenceIntervalDays ?? 7) / 7);
+        var timeZoneId = ResolveGoogleTimeZoneId(firstOccurrence.CalendarTimeZoneId ?? preferredTimeZoneId);
         var recurringEvent = BuildBaseEvent(
             firstOccurrence,
             SyncIdentity.CreateOccurrenceId(firstOccurrence),
-            SyncIdentity.CreateExportGroupId(exportGroup));
-        recurringEvent.Recurrence =
-        [
-            $"RRULE:FREQ=WEEKLY;INTERVAL={interval};COUNT={exportGroup.Occurrences.Count}",
-        ];
+            SyncIdentity.CreateExportGroupId(exportGroup),
+            preferredTimeZoneId,
+            defaultCalendarColorId);
+        recurringEvent.Recurrence = BuildRecurringRules(exportGroup, timeZoneId);
         return recurringEvent;
     }
 
-    public static Event BuildRecurringInstanceUpdate(ResolvedOccurrence occurrence, string? localGroupSyncId)
+    public static Event BuildRecurringInstanceUpdate(ResolvedOccurrence occurrence, string? localGroupSyncId, string? preferredTimeZoneId = null, string? defaultCalendarColorId = null)
     {
         ArgumentNullException.ThrowIfNull(occurrence);
-        return BuildBaseEvent(occurrence, SyncIdentity.CreateOccurrenceId(occurrence), localGroupSyncId);
+        return BuildBaseEvent(occurrence, SyncIdentity.CreateOccurrenceId(occurrence), localGroupSyncId, preferredTimeZoneId, defaultCalendarColorId);
     }
 
     public static GoogleTask BuildTask(ResolvedOccurrence occurrence)
@@ -54,9 +53,11 @@ internal static class GooglePayloadBuilders
     private static Event BuildBaseEvent(
         ResolvedOccurrence occurrence,
         string localSyncId,
-        string? localGroupSyncId)
+        string? localGroupSyncId,
+        string? preferredTimeZoneId,
+        string? defaultCalendarColorId)
     {
-        var timeZoneId = ResolveGoogleTimeZoneId();
+        var timeZoneId = ResolveGoogleTimeZoneId(occurrence.CalendarTimeZoneId ?? preferredTimeZoneId);
         var privateProperties = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [GoogleSyncConstants.ManagedByKey] = GoogleSyncConstants.ManagedByValue,
@@ -91,26 +92,15 @@ internal static class GooglePayloadBuilders
             {
                 Private__ = privateProperties,
             },
+            ColorId = occurrence.GoogleCalendarColorId ?? NormalizeGoogleCalendarColorId(defaultCalendarColorId),
         };
     }
 
-    internal static string ResolveGoogleTimeZoneId()
-    {
-        var localId = TimeZoneInfo.Local.Id;
-        if (string.IsNullOrWhiteSpace(localId))
-        {
-            return "UTC";
-        }
+    internal static string ResolveGoogleTimeZoneId(string? preferredTimeZoneId = null) =>
+        GoogleTimeZoneResolver.ResolveGoogleWriteTimeZoneId(preferredTimeZoneId);
 
-        if (localId.Contains('/', StringComparison.Ordinal))
-        {
-            return localId;
-        }
-
-        return TimeZoneInfo.TryConvertWindowsIdToIanaId(localId, out var ianaId) && !string.IsNullOrWhiteSpace(ianaId)
-            ? ianaId
-            : "UTC";
-    }
+    internal static string? NormalizeGoogleCalendarColorId(string? colorId) =>
+        string.IsNullOrWhiteSpace(colorId) ? null : colorId.Trim();
 
     private static void AddIfValue(Dictionary<string, string> dictionary, string key, string? value)
     {
@@ -119,6 +109,47 @@ internal static class GooglePayloadBuilders
             dictionary[key] = value.Trim();
         }
     }
+
+    private static List<string> BuildRecurringRules(ExportGroup exportGroup, string timeZoneId)
+    {
+        var firstOccurrence = exportGroup.Occurrences[0];
+        var lastOccurrence = exportGroup.Occurrences[^1];
+        var recurrenceIntervalDays = Math.Max(1, exportGroup.RecurrenceIntervalDays ?? 7);
+        var intervalWeeks = Math.Max(1, recurrenceIntervalDays / 7);
+        var recurrenceRules = new List<string>
+        {
+            $"RRULE:FREQ=WEEKLY;INTERVAL={intervalWeeks};UNTIL={FormatUtcDateTime(lastOccurrence.Start.ToUniversalTime())}",
+        };
+
+        var occurrenceDates = exportGroup.Occurrences
+            .Select(static occurrence => occurrence.OccurrenceDate)
+            .ToHashSet();
+        var missingOccurrenceStarts = new List<string>();
+        var startTime = TimeOnly.FromDateTime(firstOccurrence.Start.DateTime);
+
+        for (var date = firstOccurrence.OccurrenceDate.AddDays(recurrenceIntervalDays);
+             date < lastOccurrence.OccurrenceDate;
+             date = date.AddDays(recurrenceIntervalDays))
+        {
+            if (!occurrenceDates.Contains(date))
+            {
+                missingOccurrenceStarts.Add(FormatLocalDateTime(date, startTime));
+            }
+        }
+
+        if (missingOccurrenceStarts.Count > 0)
+        {
+            recurrenceRules.Add($"EXDATE;TZID={timeZoneId}:{string.Join(",", missingOccurrenceStarts)}");
+        }
+
+        return recurrenceRules;
+    }
+
+    private static string FormatUtcDateTime(DateTimeOffset value) =>
+        value.ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture);
+
+    private static string FormatLocalDateTime(DateOnly date, TimeOnly time) =>
+        date.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + "T" + time.ToString("HHmmss", CultureInfo.InvariantCulture);
 }
 
 internal static class GoogleSyncConstants

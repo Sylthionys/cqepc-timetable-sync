@@ -4,7 +4,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <RootNamespace>CQEPC.TimetableSync.Presentation.Wpf</RootNamespace>
-    <ApplicationIcon>Assets\cqepc-logo.ico</ApplicationIcon>
+    <ApplicationIcon>Assets\Brand\app-icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,9 +19,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="Assets\cqepc-logo.ico" />
-    <Resource Include="Assets\cqepc-logo.png" />
-    <Content Include="Assets\cqepc-logo.svg">
+    <Resource Include="Assets\Brand\app-icon.ico" />
+    <Resource Include="Assets\Brand\app-logo.png" />
+    <Content Include="Assets\Brand\app-logo.svg">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Page Remove="Resources\Localization\Strings.en-US.xaml" />

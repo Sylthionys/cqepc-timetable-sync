@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -13,9 +14,21 @@ public partial class ShellWindow : System.Windows.Window
     private const double CollapsedSidebarWidth = 72d;
     private const double ExpandedSidebarGap = 10d;
     private const double CollapsedSidebarGap = 8d;
+    private const double PreferredWindowAspectRatio = 1380d / 900d;
+    private const int WmSizing = 0x0214;
+    private const int WmszLeft = 1;
+    private const int WmszRight = 2;
+    private const int WmszTop = 3;
+    private const int WmszTopLeft = 4;
+    private const int WmszTopRight = 5;
+    private const int WmszBottom = 6;
+    private const int WmszBottomLeft = 7;
+    private const int WmszBottomRight = 8;
+
     private ShellViewModel? subscribedViewModel;
     private Testing.UiWindowMode appliedWindowMode;
     private bool backgroundWindowConfigured;
+    private HwndSource? windowSource;
 
     public ShellWindow(ShellViewModel viewModel)
     {
@@ -25,6 +38,7 @@ public partial class ShellWindow : System.Windows.Window
         DataContextChanged += HandleDataContextChanged;
         DataContext = viewModel;
         Loaded += (_, _) => UpdateSidebarWidth(animate: false);
+        SourceInitialized += HandleWindowSourceInitialized;
         Closed += (_, _) => DetachFromViewModel();
     }
 
@@ -33,24 +47,9 @@ public partial class ShellWindow : System.Windows.Window
         appliedWindowMode = windowMode;
         Testing.UiWindowModeConfigurator.ApplyPresentation(this, width, height, windowMode);
 
-        switch (windowMode)
+        if (windowMode == Testing.UiWindowMode.Background && PresentationSource.FromVisual(this) is not null)
         {
-            case Testing.UiWindowMode.Background:
-                if (PresentationSource.FromVisual(this) is not null)
-                {
-                    ApplyBackgroundWindowHandleStyles();
-                }
-                else
-                {
-                    SourceInitialized -= HandleBackgroundUiSourceInitialized;
-                    SourceInitialized += HandleBackgroundUiSourceInitialized;
-                }
-                break;
-            case Testing.UiWindowMode.RenderOnly:
-                break;
-            case Testing.UiWindowMode.Normal:
-            default:
-                break;
+            ApplyBackgroundWindowHandleStyles();
         }
     }
 
@@ -110,9 +109,92 @@ public partial class ShellWindow : System.Windows.Window
         subscribedViewModel = null;
     }
 
-    private void HandleBackgroundUiSourceInitialized(object? sender, EventArgs e)
+    private void HandleWindowSourceInitialized(object? sender, EventArgs e)
     {
-        ApplyBackgroundWindowHandleStyles();
+        windowSource = PresentationSource.FromVisual(this) as HwndSource;
+        windowSource?.AddHook(WindowProc);
+
+        if (appliedWindowMode == Testing.UiWindowMode.Background)
+        {
+            ApplyBackgroundWindowHandleStyles();
+        }
+    }
+
+    private IntPtr WindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == WmSizing
+            && appliedWindowMode == Testing.UiWindowMode.Normal
+            && WindowState == WindowState.Normal
+            && lParam != IntPtr.Zero)
+        {
+            var rect = Marshal.PtrToStructure<RectNative>(lParam);
+            ConstrainSizingRect(wParam.ToInt32(), ref rect);
+            Marshal.StructureToPtr(rect, lParam, fDeleteOld: false);
+            handled = true;
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private void ConstrainSizingRect(int edge, ref RectNative rect)
+    {
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var minWidth = Math.Max(1, (int)Math.Round(MinWidth * dpi.DpiScaleX));
+        var minHeight = Math.Max(1, (int)Math.Round(MinHeight * dpi.DpiScaleY));
+
+        var width = Math.Max(rect.Width, minWidth);
+        var height = Math.Max(rect.Height, minHeight);
+
+        switch (edge)
+        {
+            case WmszLeft:
+            case WmszRight:
+                height = Math.Max(minHeight, (int)Math.Round(width / PreferredWindowAspectRatio));
+                rect.Bottom = rect.Top + height;
+                break;
+            case WmszTop:
+            case WmszBottom:
+                width = Math.Max(minWidth, (int)Math.Round(height * PreferredWindowAspectRatio));
+                rect.Right = rect.Left + width;
+                break;
+            case WmszTopLeft:
+            case WmszTopRight:
+            case WmszBottomLeft:
+            case WmszBottomRight:
+                var widthDrivenHeight = (int)Math.Round(width / PreferredWindowAspectRatio);
+                var heightDrivenWidth = (int)Math.Round(height * PreferredWindowAspectRatio);
+
+                if (widthDrivenHeight >= height)
+                {
+                    height = Math.Max(minHeight, widthDrivenHeight);
+                }
+                else
+                {
+                    width = Math.Max(minWidth, heightDrivenWidth);
+                }
+
+                if (edge is WmszTopLeft or WmszBottomLeft)
+                {
+                    rect.Left = rect.Right - width;
+                }
+                else
+                {
+                    rect.Right = rect.Left + width;
+                }
+
+                if (edge is WmszTopLeft or WmszTopRight)
+                {
+                    rect.Top = rect.Bottom - height;
+                }
+                else
+                {
+                    rect.Bottom = rect.Top + height;
+                }
+
+                break;
+            default:
+                break;
+        }
     }
 
     internal Testing.UiWindowMode AppliedUiWindowMode => appliedWindowMode;
@@ -162,5 +244,18 @@ public partial class ShellWindow : System.Windows.Window
         ThemeTransitionScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleAnimation, HandoffBehavior.SnapshotAndReplace);
         ThemeTransitionScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleAnimation, HandoffBehavior.SnapshotAndReplace);
         ThemeTransitionOrb.BeginAnimation(OpacityProperty, opacityAnimation, HandoffBehavior.SnapshotAndReplace);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RectNative
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+
+        public int Width => Right - Left;
+
+        public int Height => Bottom - Top;
     }
 }

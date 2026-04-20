@@ -13,6 +13,7 @@ public sealed class AppLaunchOptionsTests
         var options = AppLaunchOptions.Parse(["--ui-test", "--page", "Import"]);
 
         options.IsScreenshotMode.Should().BeTrue();
+        options.UseDeferredInteractiveInitialization.Should().BeFalse();
         options.WindowMode.Should().Be(UiWindowMode.RenderOnly);
         options.RequestedPage.Should().Be(ShellPage.Import);
         options.ScreenshotPath.Should().EndWith(Path.Combine("artifacts", "ui", "import.png"));
@@ -24,6 +25,7 @@ public sealed class AppLaunchOptionsTests
         var options = AppLaunchOptions.Parse(["--ui-automation"]);
 
         options.IsAutomationMode.Should().BeTrue();
+        options.UseDeferredInteractiveInitialization.Should().BeFalse();
         options.WindowMode.Should().Be(UiWindowMode.Background);
         options.ScreenshotPath.Should().BeNull();
     }
@@ -35,5 +37,15 @@ public sealed class AppLaunchOptionsTests
 
         options.IsScreenshotMode.Should().BeTrue();
         options.WindowMode.Should().Be(UiWindowMode.Background);
+    }
+
+    [Fact]
+    public void InteractiveModeUsesDeferredInitialization()
+    {
+        var options = AppLaunchOptions.Parse([]);
+
+        options.IsUiTestMode.Should().BeFalse();
+        options.UseDeferredInteractiveInitialization.Should().BeTrue();
+        options.WindowMode.Should().Be(UiWindowMode.Normal);
     }
 }

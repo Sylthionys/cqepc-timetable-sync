@@ -125,7 +125,9 @@ public sealed record ProviderRemoteCalendarEvent
         string? sourceFingerprintHash = null,
         string? sourceKind = null,
         string? parentRemoteItemId = null,
-        DateTimeOffset? originalStartTimeUtc = null)
+        DateTimeOffset? originalStartTimeUtc = null,
+        string? googleCalendarColorId = null,
+        string? className = null)
     {
         if (string.IsNullOrWhiteSpace(remoteItemId))
         {
@@ -160,6 +162,8 @@ public sealed record ProviderRemoteCalendarEvent
         SourceKind = Normalize(sourceKind);
         ParentRemoteItemId = Normalize(parentRemoteItemId);
         OriginalStartTimeUtc = originalStartTimeUtc?.ToUniversalTime();
+        GoogleCalendarColorId = Normalize(googleCalendarColorId);
+        ClassName = Normalize(className);
     }
 
     public string RemoteItemId { get; }
@@ -188,10 +192,14 @@ public sealed record ProviderRemoteCalendarEvent
 
     public DateTimeOffset? OriginalStartTimeUtc { get; }
 
+    public string? GoogleCalendarColorId { get; }
+
+    public string? ClassName { get; }
+
     public string LocalStableId =>
         $"remote|{CalendarId}|{RemoteItemId}|{Start.ToUniversalTime():O}";
 
-    public DateOnly OccurrenceDate => DateOnly.FromDateTime(Start.LocalDateTime);
+    public DateOnly OccurrenceDate => DateOnly.FromDateTime(Start.DateTime);
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

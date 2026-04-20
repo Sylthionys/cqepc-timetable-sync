@@ -47,6 +47,7 @@ internal static class TimetablePdfChineseSamples
     public const string TransmissionMechanicsTitle = "\u8f93\u914d\u7535\u7ebf\u8def\u5de5\u7a0b\u529b\u5b66\u2605";
     public const string TransmissionMechanicsTitlePlain = "\u8f93\u914d\u7535\u7ebf\u8def\u5de5\u7a0b\u529b\u5b66";
     public const string MentalHealthEducation2Title = "\u5fc3\u7406\u5065\u5eb7\u6559\u80b22\u2605";
+    public const string MentalHealthEducation2TitlePlain = "\u5fc3\u7406\u5065\u5eb7\u6559\u80b22";
 
     public const string SharedTeacher = "\u6f14\u793a\u6559\u5e08\u5171";
     public const string TeacherWangXuejing = "\u6f14\u793a\u6559\u5e08\u7532";
@@ -86,6 +87,7 @@ internal static class TimetablePdfChineseSamples
     public const string Weeks0512 = "5-12\u5468";
     public const string Weeks1To8 = "1-8\u5468";
     public const string Weeks3To5 = "3-5\u5468";
+    public const string Week6 = "6\u5468";
     public const string Week7 = "7\u5468";
     public const string Week8 = "8\u5468";
     public const string Weeks17To18 = "17-18\u5468";

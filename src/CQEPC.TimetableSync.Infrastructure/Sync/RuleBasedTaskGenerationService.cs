@@ -63,8 +63,8 @@ public sealed class RuleBasedTaskGenerationService : ITaskGenerationService
         {
             var match = group
                 .Where(occurrence => isMorningRule
-                    ? TimeOnly.FromDateTime(occurrence.Start.LocalDateTime) < new TimeOnly(12, 0)
-                    : TimeOnly.FromDateTime(occurrence.Start.LocalDateTime) >= new TimeOnly(12, 0))
+                    ? TimeOnly.FromDateTime(occurrence.Start.DateTime) < new TimeOnly(12, 0)
+                    : TimeOnly.FromDateTime(occurrence.Start.DateTime) >= new TimeOnly(12, 0))
                 .OrderBy(static occurrence => occurrence.Start)
                 .ThenBy(static occurrence => occurrence.End)
                 .ThenBy(static occurrence => occurrence.Metadata.CourseTitle, StringComparer.Ordinal)

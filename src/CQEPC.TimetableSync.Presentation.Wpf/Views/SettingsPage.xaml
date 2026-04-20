@@ -34,6 +34,20 @@
                        Text="{Binding DisplayName}" />
         </DataTemplate>
 
+        <DataTemplate x:Key="GoogleCalendarColorOptionTemplate">
+            <StackPanel Orientation="Horizontal">
+                <Ellipse Width="12"
+                         Height="12"
+                         Margin="0,0,8,0"
+                         VerticalAlignment="Center"
+                         Fill="{Binding ColorHex}"
+                         Stroke="{DynamicResource BorderBrush}"
+                         StrokeThickness="1" />
+                <TextBlock VerticalAlignment="Center"
+                           Text="{Binding DisplayName}" />
+            </StackPanel>
+        </DataTemplate>
+
         <Style x:Key="SettingsStatusCardStyle" TargetType="Border">
             <Setter Property="Margin" Value="0,0,0,10" />
             <Setter Property="Padding" Value="16" />
@@ -140,79 +154,9 @@
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="Root" Property="Background" Value="{DynamicResource HighlightSurfaceBrush}" />
+                                <Setter TargetName="SunIcon" Property="Opacity" Value="0" />
+                                <Setter TargetName="MoonIcon" Property="Opacity" Value="1" />
                             </Trigger>
-                            <EventTrigger RoutedEvent="ToggleButton.Checked">
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="SunIcon"
-                                                         Storyboard.TargetProperty="Opacity"
-                                                         To="0"
-                                                         Duration="0:0:0.2" />
-                                        <DoubleAnimation Storyboard.TargetName="MoonIcon"
-                                                         Storyboard.TargetProperty="Opacity"
-                                                         To="1"
-                                                         Duration="0:0:0.24"
-                                                         EasingFunction="{StaticResource StrongEase}" />
-                                        <DoubleAnimation Storyboard.TargetName="SunScale"
-                                                         Storyboard.TargetProperty="ScaleX"
-                                                         To="0.78"
-                                                         Duration="0:0:0.24" />
-                                        <DoubleAnimation Storyboard.TargetName="SunScale"
-                                                         Storyboard.TargetProperty="ScaleY"
-                                                         To="0.78"
-                                                         Duration="0:0:0.24" />
-                                        <DoubleAnimation Storyboard.TargetName="MoonScale"
-                                                         Storyboard.TargetProperty="ScaleX"
-                                                         To="1"
-                                                         Duration="0:0:0.24" />
-                                        <DoubleAnimation Storyboard.TargetName="MoonScale"
-                                                         Storyboard.TargetProperty="ScaleY"
-                                                         To="1"
-                                                         Duration="0:0:0.24" />
-                                        <DoubleAnimation Storyboard.TargetName="MoonRotate"
-                                                         Storyboard.TargetProperty="Angle"
-                                                         To="0"
-                                                         Duration="0:0:0.24"
-                                                         EasingFunction="{StaticResource StrongEase}" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
-                            <EventTrigger RoutedEvent="ToggleButton.Unchecked">
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="SunIcon"
-                                                         Storyboard.TargetProperty="Opacity"
-                                                         To="1"
-                                                         Duration="0:0:0.2" />
-                                        <DoubleAnimation Storyboard.TargetName="MoonIcon"
-                                                         Storyboard.TargetProperty="Opacity"
-                                                         To="0"
-                                                         Duration="0:0:0.24"
-                                                         EasingFunction="{StaticResource StrongEase}" />
-                                        <DoubleAnimation Storyboard.TargetName="SunScale"
-                                                         Storyboard.TargetProperty="ScaleX"
-                                                         To="1"
-                                                         Duration="0:0:0.24" />
-                                        <DoubleAnimation Storyboard.TargetName="SunScale"
-                                                         Storyboard.TargetProperty="ScaleY"
-                                                         To="1"
-                                                         Duration="0:0:0.24" />
-                                        <DoubleAnimation Storyboard.TargetName="MoonScale"
-                                                         Storyboard.TargetProperty="ScaleX"
-                                                         To="0.76"
-                                                         Duration="0:0:0.24" />
-                                        <DoubleAnimation Storyboard.TargetName="MoonScale"
-                                                         Storyboard.TargetProperty="ScaleY"
-                                                         To="0.76"
-                                                         Duration="0:0:0.24" />
-                                        <DoubleAnimation Storyboard.TargetName="MoonRotate"
-                                                         Storyboard.TargetProperty="Angle"
-                                                         To="-32"
-                                                         Duration="0:0:0.24"
-                                                         EasingFunction="{StaticResource StrongEase}" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -599,89 +543,21 @@
                               ItemsSource="{Binding Workspace.TaskListDestinations}"
                               ItemTemplate="{StaticResource StringComboTemplate}"
                               SelectedItem="{Binding Workspace.SelectedTaskListDestination, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Margin="0,18,0,0"
+                               Style="{StaticResource SettingsComboLabelStyle}"
+                               Text="{DynamicResource SettingsDefaultCalendarColorTitle}" />
+                    <ComboBox Margin="0,8,0,0"
+                              AutomationProperties.AutomationId="Settings.DefaultCalendarColorCombo"
+                              ItemsSource="{Binding Workspace.GoogleCalendarColorOptions}"
+                              ItemTemplate="{StaticResource GoogleCalendarColorOptionTemplate}"
+                              SelectedValuePath="ColorId"
+                              SelectedValue="{Binding Workspace.SelectedDefaultCalendarColorId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                     </StackPanel>
                 </Border>
             </ContentControl>
 
             <ContentControl Grid.Row="4"
-                            AutomationProperties.AutomationId="Settings.CalendarDisplaySection">
-                <Border Margin="0,18,0,0"
-                        Style="{StaticResource SectionCardBorderStyle}">
-                    <StackPanel>
-                    <TextBlock Style="{StaticResource EyebrowTextStyle}"
-                               Text="{DynamicResource SettingsCalendarDisplayTitle}" />
-                    <TextBlock Margin="0,8,0,0"
-                               Style="{StaticResource SectionTitleTextStyle}"
-                               Text="{DynamicResource SettingsCalendarDisplayTitle}" />
-
-                    <Grid Margin="0,18,0,0">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="14" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Border Style="{StaticResource SettingsSurfacePanelStyle}">
-                            <StackPanel>
-                                <TextBlock FontWeight="SemiBold"
-                                           Text="{DynamicResource SettingsWeekStartsOnTitle}" />
-                                <ComboBox Margin="0,8,0,0"
-                                          AutomationProperties.AutomationId="Settings.WeekStartCombo"
-                                          ItemsSource="{Binding Workspace.WeekStartOptions}"
-                                          ItemTemplate="{StaticResource WeekStartOptionTemplate}"
-                                          SelectedItem="{Binding Workspace.SelectedWeekStartOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            </StackPanel>
-                        </Border>
-                        <Border Grid.Column="2"
-                                Style="{StaticResource SettingsSurfacePanelStyle}">
-                            <StackPanel>
-                                <TextBlock FontWeight="SemiBold"
-                                           Text="{Binding Workspace.LanguageSelectionTitle}" />
-                                <ComboBox Margin="0,8,0,0"
-                                          AutomationProperties.AutomationId="Settings.LocalizationCombo"
-                                          ItemsSource="{Binding Workspace.LocalizationOptions}"
-                                          ItemTemplate="{StaticResource LocalizationOptionTemplate}"
-                                          SelectedValuePath="PreferredCultureName"
-                                          SelectedValue="{Binding Workspace.SelectedPreferredCultureName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            </StackPanel>
-                        </Border>
-                        <StackPanel Grid.Row="1"
-                                    Grid.ColumnSpan="3"
-                                    Margin="0,18,0,0"
-                                    HorizontalAlignment="Center">
-                            <TextBlock HorizontalAlignment="Center"
-                                       FontWeight="SemiBold"
-                                       Text="{Binding Workspace.ThemeSelectionTitle}" />
-                            <TextBlock Margin="0,4,0,0"
-                                       HorizontalAlignment="Center"
-                                       Style="{StaticResource SettingsMetaTextStyle}"
-                                       Text="{Binding Workspace.ThemeSelectionSummary}" />
-                            <ToggleButton x:Name="ThemeToggleButton"
-                                          Margin="0,12,0,0"
-                                          AutomationProperties.AutomationId="Settings.ThemeToggle"
-                                          IsChecked="{Binding Workspace.IsDarkTheme, Mode=TwoWay}"
-                                          Style="{StaticResource ThemeToggleButtonStyle}"
-                                          ToolTip="{Binding Workspace.ThemeSelectionSummary}" />
-                        </StackPanel>
-
-                        <Button Grid.Row="2"
-                                Grid.ColumnSpan="3"
-                                Margin="0,20,0,0"
-                                HorizontalAlignment="Center"
-                                AutomationProperties.AutomationId="Settings.AboutButton"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Command="{Binding About.OpenCommand}"
-                                Content="{DynamicResource SettingsAboutButton}" />
-                    </Grid>
-                    </StackPanel>
-                </Border>
-            </ContentControl>
-
-            <ContentControl Grid.Row="5"
                             AutomationProperties.AutomationId="Settings.ProviderSection">
                 <Border Margin="0,18,0,0"
                         Style="{StaticResource SectionCardBorderStyle}">
@@ -794,56 +670,24 @@
                 </Border>
             </ContentControl>
 
-            <ContentControl Grid.Row="6"
-                            AutomationProperties.AutomationId="Settings.CategoryColorSection">
-                <Border Margin="0,18,0,18"
-                        Style="{StaticResource SectionCardBorderStyle}">
-                    <StackPanel>
-                    <TextBlock Style="{StaticResource EyebrowTextStyle}"
-                               Text="{DynamicResource SettingsCategoryColorTitle}" />
-                    <TextBlock Margin="0,8,0,0"
-                               Style="{StaticResource SectionTitleTextStyle}"
-                               Text="{DynamicResource SettingsCategoryColorTitle}" />
-                    <ItemsControl Margin="0,18,0,0"
-                                  ItemsSource="{Binding Workspace.CourseTypeAppearances}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Margin="0,0,0,10"
-                                        Padding="14"
-                                        Background="{DynamicResource SurfaceAltBrush}"
-                                        BorderBrush="{DynamicResource BorderBrush}"
-                                        BorderThickness="1"
-                                        CornerRadius="16">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="1.05*" />
-                                            <ColumnDefinition Width="1.25*" />
-                                            <ColumnDefinition Width="96" />
-                                            <ColumnDefinition Width="40" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock VerticalAlignment="Center"
-                                                   FontWeight="SemiBold"
-                                                   Text="{Binding DisplayName}" />
-                                        <TextBox Grid.Column="1"
-                                                 Margin="10,0,0,0"
-                                                 Text="{Binding CategoryName, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
-                                        <TextBox Grid.Column="2"
-                                                 Margin="10,0,0,0"
-                                                 Text="{Binding ColorHex, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
-                                        <Border Grid.Column="3"
-                                                Margin="10,0,0,0"
-                                                Background="{Binding ColorHex}"
-                                                BorderBrush="{DynamicResource BorderBrush}"
-                                                BorderThickness="1"
-                                                CornerRadius="8" />
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    </StackPanel>
-                </Border>
+            <ContentControl Grid.Row="5"
+                            AutomationProperties.AutomationId="Settings.ProgramSettingsSection">
+                <DockPanel Margin="0,0,0,18"
+                           LastChildFill="False">
+                    <Button Padding="14,8"
+                            HorizontalAlignment="Right"
+                            AutomationProperties.AutomationId="Settings.ProgramSettingsButton"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Command="{Binding ProgramSettings.OpenCommand}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock FontFamily="Segoe Fluent Icons"
+                                       FontSize="14"
+                                       Text="&#xE713;" />
+                            <TextBlock Margin="8,0,0,0"
+                                       Text="{DynamicResource SettingsProgramSettingsButton}" />
+                        </StackPanel>
+                    </Button>
+                </DockPanel>
             </ContentControl>
         </Grid>
     </ScrollViewer>

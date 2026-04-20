@@ -74,7 +74,9 @@ public sealed record ProviderConnectionContext(
     string? ClientConfigurationPath = null,
     string? ClientId = null,
     string? TenantId = null,
-    bool UseBroker = true);
+    bool UseBroker = true,
+    string? PreferredCalendarTimeZoneId = null,
+    string? RemoteReadFallbackTimeZoneId = null);
 
 public sealed record ProviderConnectionRequest(
     ProviderConnectionContext ConnectionContext,
@@ -110,7 +112,8 @@ public sealed record ProviderApplyRequest(
     IReadOnlyList<PlannedSyncChange> AcceptedChanges,
     IReadOnlyList<ResolvedOccurrence> CurrentOccurrences,
     IReadOnlyList<ExportGroup> CurrentExportGroups,
-    IReadOnlyList<SyncMapping> ExistingMappings);
+    IReadOnlyList<SyncMapping> ExistingMappings,
+    string? DefaultCalendarColorId = null);
 
 public sealed record ProviderAppliedChangeResult(
     string LocalStableId,
@@ -129,7 +132,8 @@ public sealed record ProviderRemoteCalendarEventUpdateRequest(
     DateTimeOffset Start,
     DateTimeOffset End,
     string? Location,
-    string? Description);
+    string? Description,
+    string? GoogleCalendarColorId = null);
 
 public sealed record ProviderRemoteCalendarEventUpdateResult(
     ProviderRemoteCalendarEvent Event);

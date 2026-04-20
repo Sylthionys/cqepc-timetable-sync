@@ -40,6 +40,11 @@ public sealed class HomeCalendarEntryViewModel
 
     public string? Details { get; }
 
+    public string CompactSummary =>
+        string.IsNullOrWhiteSpace(TimeRange)
+            ? Title
+            : $"{TimeRange} {Title}";
+
     public bool IsDeleted => Status == HomeScheduleEntryStatus.Deleted;
 
     public bool IsAdded => Status == HomeScheduleEntryStatus.Added;
@@ -81,4 +86,28 @@ public sealed class HomeCalendarEntryViewModel
         VisualStyle == HomeCalendarVisualStyle.Synced ? "#C8E0D0" :
         VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#EAC98B" :
         "#D6DFEB";
+
+    public string CompactAccentHex =>
+        VisualStyle == HomeCalendarVisualStyle.Deleted ? "#D86372" :
+        VisualStyle == HomeCalendarVisualStyle.Updated ? "#E0A641" :
+        VisualStyle == HomeCalendarVisualStyle.Added ? "#4DA86E" :
+        VisualStyle == HomeCalendarVisualStyle.Synced ? "#83C095" :
+        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#D9A43A" :
+        "#7EA8FF";
+
+    public string CalendarCellBorderBrushHex =>
+        VisualStyle == HomeCalendarVisualStyle.Deleted ? "#C8515D" :
+        VisualStyle == HomeCalendarVisualStyle.Updated ? "#D48C1F" :
+        VisualStyle == HomeCalendarVisualStyle.Added ? "#2E8B57" :
+        VisualStyle == HomeCalendarVisualStyle.Synced ? "#6D9CFF" :
+        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#D48C1F" :
+        "#7EA8FF";
+
+    public string CalendarCellBackgroundHex =>
+        VisualStyle == HomeCalendarVisualStyle.Deleted ? "#16C8515D" :
+        VisualStyle == HomeCalendarVisualStyle.Updated ? "#16D48C1F" :
+        VisualStyle == HomeCalendarVisualStyle.Added ? "#162E8B57" :
+        VisualStyle == HomeCalendarVisualStyle.Synced ? "#166D9CFF" :
+        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#16D48C1F" :
+        "#107EA8FF";
 }

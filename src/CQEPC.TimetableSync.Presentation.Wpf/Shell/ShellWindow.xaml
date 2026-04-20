@@ -8,11 +8,13 @@
         Title="{Binding ApplicationTitle}"
         Width="1380"
         Height="900"
-        MinWidth="980"
-        MinHeight="680"
+        MinWidth="1104"
+        MinHeight="720"
         WindowStartupLocation="CenterScreen"
         behaviors:FileDropBehavior.Command="{Binding HandleDroppedFilesCommand}">
     <Window.InputBindings>
+        <KeyBinding Key="Escape"
+                    Command="{Binding Settings.ProgramSettings.CloseCommand}" />
         <KeyBinding Key="Escape"
                     Command="{Binding Settings.About.CloseCommand}" />
     </Window.InputBindings>
@@ -124,7 +126,7 @@
                  Opacity="0.45"
                  IsHitTestVisible="False" />
 
-        <Grid Margin="12">
+        <Grid Margin="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="SidebarColumn" Width="168" />
                 <ColumnDefinition x:Name="SidebarGapColumn" Width="12" />
@@ -247,7 +249,7 @@
                         BorderBrush="{DynamicResource BorderBrush}"
                         BorderThickness="1"
                         CornerRadius="28"
-                        Padding="6"
+                        Padding="0"
                         Effect="{StaticResource CardShadowEffect}">
                     <Grid>
                         <ContentControl AutomationProperties.AutomationId="Shell.PageHost"
@@ -285,13 +287,80 @@
         </Grid>
 
         <Grid AutomationProperties.AutomationId="Shell.AboutOverlayHost"
+              Panel.ZIndex="12"
               Visibility="{Binding IsAboutOverlayOpen, Converter={StaticResource BooleanToVisibilityConverter}}"
               Background="{DynamicResource OverlayBackdropBrush}">
-            <views:AboutOverlay Width="620"
+            <views:AboutOverlay Width="640"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 DataContext="{Binding Settings.About}" />
         </Grid>
+
+        <Grid AutomationProperties.AutomationId="Shell.ProgramSettingsOverlayHost"
+              Panel.ZIndex="11"
+              Visibility="{Binding IsProgramSettingsOverlayVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+              Background="{DynamicResource OverlayBackdropBrush}">
+            <views:ProgramSettingsOverlay HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          DataContext="{Binding Settings.ProgramSettings}" />
+        </Grid>
+
+        <Border Panel.ZIndex="15"
+                Margin="0,0,18,18"
+                Padding="0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                MaxWidth="360"
+                Visibility="{Binding ShowTaskCenterNotification, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Expander ExpandDirection="Up"
+                      IsExpanded="{Binding IsTaskCenterExpanded, Mode=TwoWay}">
+                <Expander.Header>
+                    <Border MinWidth="56"
+                            Padding="16,12"
+                            Background="{DynamicResource SurfaceBrush}"
+                            BorderBrush="{DynamicResource AccentBrush}"
+                            BorderThickness="1"
+                            CornerRadius="20"
+                            Effect="{StaticResource CardShadowEffect}">
+                        <TextBlock HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource AccentStrongBrush}"
+                                   Text="{Binding ActiveTaskCount}" />
+                    </Border>
+                </Expander.Header>
+                <Border Margin="0,0,0,12"
+                        Padding="12"
+                        Background="{DynamicResource SurfaceBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="20"
+                        Effect="{StaticResource CardShadowEffect}">
+                    <ScrollViewer MaxHeight="280"
+                                  VerticalScrollBarVisibility="Auto">
+                        <ItemsControl AutomationProperties.AutomationId="Shell.TaskCenter.Items"
+                                      ItemsSource="{Binding ActiveTasks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,10"
+                                            Padding="12"
+                                            Background="{DynamicResource SurfaceAltBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="14">
+                                        <TextBlock FontSize="12"
+                                                   Foreground="{DynamicResource TextBrush}"
+                                                   Text="{Binding Detail}"
+                                                   TextWrapping="Wrap" />
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+            </Expander>
+        </Border>
 
         <Canvas x:Name="ThemeTransitionCanvas"
                 Panel.ZIndex="20"

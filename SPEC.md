@@ -37,18 +37,35 @@ The current codebase defines:
 - a real normalization engine that expands week expressions, resolves exact local datetimes, preserves unresolved items, and derives lossless recurring export groups
 - a preview orchestrator that parses available sources, builds normalized occurrences, optionally generates provider-aware task candidates, and compares them against the latest accepted local snapshot
 - locale-invariant sync identity generation, logical diff keys, and week-expression expansion
-- persisted workspace preferences for week-start choice, timetable-resolution settings, provider defaults, provider auth settings, selected destinations, task rules, and course-type category/color rules
+- timetable-PDF source fingerprints must be block-local rather than whole-file-local: re-exporting one PDF for the same class must keep unchanged course blocks on the same fingerprint whenever their parsed CQEPC block content and layout anchor are unchanged
+- local sync identity and local snapshot diff matching must stay stable across source-fingerprint drift and small metadata corrections, so a revised PDF for the same class is reconciled as exact/update work instead of a synthetic full delete+add batch
+- persisted workspace preferences for week-start choice, timetable-resolution settings, provider defaults, provider auth settings, selected destinations, task rules, one default Google Calendar color, and per-course time-zone/color overrides
+- persisted per-course time-zone overrides must preserve the occurrence's own wall-clock date/time in Home, Import, and editor flows; those views must not round-trip a course occurrence through the machine-local time zone before saving
 - Google desktop OAuth for a Windows local app using a user-selected installed-app JSON and system-browser loopback flow
 - Microsoft desktop auth for a Windows local app using a public-client MSAL flow with WAM preferred and browser fallback
 - explicit UTF-8-safe local JSON persistence and safe loading of provider auth inputs
 - Google writable-calendar discovery in Settings plus Google Calendar create, update, and delete for app-managed events
+- Google Calendar preview/read-back must request and honor remote event time-zone metadata and `colorId` so Home rendering, diff classification, and apply reconciliation stay aligned with the parsed timetable
+- When Google Home preview re-associates a managed recurring instance with a saved local mapping, it must preserve the remote event payload fields, including Google Calendar color id, so diff classification does not manufacture a follow-up update after a successful apply
+- Google recurring export must preserve the exact set of accepted occurrences. Series writes must not depend on a lossy `COUNT`-only weekly rule when the local export group contains skipped slots; the write payload must represent the full intended schedule shape, and the apply path must not report success while later expected Google instances are missing
 - Home preview can optionally import the selected Google calendar into the board so existing remote events are visible before apply, with added timetable items in green, delete candidates in red with strikethrough, unrelated Google items in orange, and exact same-time managed matches kept on a neutral existing-item surface
+- A previously accepted local snapshot does not prove that Google still contains the corresponding managed event. If an occurrence has neither a saved Google mapping nor a matching managed Google event during preview, Home must surface it again as an Added calendar change so the missing remote write can be repaired
+- If a local-snapshot deletion already matches a managed Google event in the preview window, that delete must carry the concrete remote event into apply. Diff generation must not consume the managed remote event so early that Home later removes it only from the local baseline and leaves the Google event behind.
+- If a managed Google event matches title/time/location but its app-managed metadata (`LocalSyncId`, `sourceFingerprint`, recurring-instance identity) has drifted, preview must surface it as an Update so apply refreshes the metadata instead of treating it as a safe exact match.
+- That metadata-rebind path must be class-aware: a managed Google event for the same class and the same payload shape can be refreshed in place, but a different class that only happens to share title/time/location must not suppress the new class add.
+- If the saved Google mapping points to a stale remote item id but preview already finds another managed Google event for the same class and the same payload shape, preview must reuse that visible managed event instead of emitting a second Add for the same lesson.
+- Google preview and apply must scope local calendar-event mappings to the currently selected Google calendar destination. A mapping saved for calendar `A` must not suppress adds, manufacture updates, or steer delete/update writes while the user is previewing or applying against calendar `B`.
+- Older app-managed Google events may lack persisted class metadata entirely. In that legacy case, preview may still reuse the managed remote event when the full timed payload matches exactly, and apply must then backfill the missing metadata so future previews can return to strict class-aware matching.
+- After a Google apply, if preview still shows app-managed duplicate events with the same title/time/location payload and the current normalized timetable only needs one of them, the convergence pass must automatically apply the represented remote delete change for the extra duplicate instead of leaving two identical lessons visible.
 - optional Google Tasks create, update, and delete for explicit rule-based items on the default Google task list
 - Microsoft writable-calendar and owned-task-list discovery in Settings plus Outlook Calendar create, update, and delete for app-managed events
 - optional Microsoft To Do create, update, and delete for explicit rule-based items, with linked-resource creation when paired Outlook events are available
 - DPAPI-protected local Google token storage and a separate Google sync-mapping store for remote IDs and fingerprints
+- persisted Google connection summaries and selected calendars must never be treated as proof of a live connection by themselves; startup, Home sync, and Home apply must re-check the DPAPI token store and clear stale Google state before deciding whether the user is still connected
 - DPAPI-protected local Microsoft token storage and a separate Microsoft sync-mapping store for remote IDs and fingerprints
-- a preview-first apply flow where Import always saves the accepted local snapshot baseline and, for configured providers, also executes the accepted remote writes
+- a preview-first apply flow where Import only saves the accepted local snapshot baseline and refreshes Home preview, while provider writes remain exclusive to the Home primary apply action
+- Import diff presentation groups must remain projection-only. The raw Added/Updated/Deleted identities stay authoritative for selection and apply, even when the UI hides unchanged child rows or regroups the changes by course and repeat rule.
+- Import diff summaries must surface meaningful hidden drift such as provider color-only changes or metadata/source-only updates so the user can see why a row is classified as Added, Updated, or Deleted even when title/time/location look identical at first glance.
 - presentation-owned localization of parser warnings, diagnostics, and unresolved-item copy by stable code, with fallback to stored parser text and preserved raw source content
 - the product behavior expected from the first real implementations
 
@@ -76,16 +93,30 @@ The current codebase does not yet include:
 ## 3.2 Appearance and Theme Behavior
 
 - Settings exposes explicit `Light` and `Dark` theme options.
-- The theme control lives at the end of Settings as a compact sun/moon toggle instead of being mixed into the calendar display selectors.
+- The theme control lives inside a `Program Settings` overlay opened from the end of Settings.
+- The Settings page should expose that entry as a compact trailing button, not as a full-width inline settings card.
 - The selected theme is persisted in workspace preferences.
 - Startup applies the persisted theme before the shell is shown.
+- Interactive startup should show the shell immediately after theme and culture are applied; heavier workspace initialization may continue after first paint so the window does not stay hidden behind preview loading.
+- While interactive startup initialization is still running, the shell should surface a bottom-right task center before Home preview is ready so the user can inspect which startup steps are still in progress.
+- The first startup Home preview must be allowed to complete from local sources alone. Provider-backed Google Home preview import should run as a follow-up refresh instead of blocking the initial timetable parse/render step.
+- Startup task messaging must keep those phases separate: the local parse/render task should not masquerade as Google sync work, and the follow-up Google refresh should clearly indicate that it is reading remote calendar state and merging it into the already-visible Home board.
 - Changing the selected theme must refresh the visible shell and page chrome immediately without requiring an app restart.
 - Theme switching applies immediately without restart.
 - Theme switching must repaint the active page immediately without requiring navigation to another shell section.
 - Theme switching must repaint through runtime `DynamicResource` brush references so shared styles, page cards, overlays, combo boxes, and settings panels all change together.
 - Settings combo boxes must open when the user clicks anywhere on the combo surface, not only the arrow glyph.
-- The Calendar Display section should keep `Week Start` and `Language` as two half-width controls, place the theme toggle on its own centered row, and keep the About action centered at the bottom instead of nesting both actions inside a third appearance card.
+- Settings should expose a single `Program Settings` button near the end of the page. Opening it should show `Week Start`, `Language`, `Startup Google Sync`, `Status Notifications`, `Theme`, and `About` in one lightweight overlay instead of keeping those controls inline on the main Settings page.
+- The `About` action should visually replace the `Program Settings` overlay rather than nesting a second dialog inside it.
+- The Google default UTC-time selector inside Program Settings should stay as a compact selector card without extra explanatory body text.
+- Theme and About should render as compact trailing actions at the bottom of Program Settings instead of large cards. The About entry point should be a circular `i` icon button.
+- The task-center chip should remain visually compact when collapsed and show only the count of running tasks.
+- Expanding the task center should show concrete task details only, without redundant generic status copy.
+- Home month cards and selected-day agenda cards must keep readable foreground contrast in dark mode.
+- Import parsed-course group titles and details must keep readable foreground contrast in dark mode.
+- Course-editor date inputs and their picker surfaces must keep readable foreground contrast in dark mode.
 - Settings combinations that change language or time-profile resolution should bind by stable persisted values so selection is not lost when preview refresh rebuilds the option objects.
+- The language selector must bind by a stable persisted culture key so runtime language rebuilds cannot introduce duplicate options and switching to English or Chinese applies immediately.
 
 ## 4. Source File Rules
 
@@ -113,6 +144,7 @@ Successful top-of-page carryover stitching should stay internal and should not c
 
 Successful cross-page carryover stitching must stay conservative: metadata-only tails and obvious split-title continuations may attach to the previous weekday cell, but a top-of-page block that already forms a standalone course must be treated as a new course rather than swallowed by the previous page residue.
 If extractor block-building accidentally merges a top-of-page metadata tail and the next standalone course into one weekday block, the parser must split that merged block before carryover resolution.
+If the CQEPC template spills a title-only fragment into the header page's footer strip, that fragment must still participate in carryover matching with the next page's top-of-page metadata tail instead of being dropped outside the last grid band.
 
 The current parser maps CQEPC course markers as:
 
@@ -178,6 +210,9 @@ Expected flow:
 12. The app stores a local snapshot and refreshes the Home page preview.
 13. The app prepares an Import / Diff view before any sync action.
 
+Locally stored course-schedule overrides and Google preview items must be displayed and edited using their own resolved wall-clock date/time.
+The app must not derive Home/Import/editor display time from `DateTimeOffset.LocalDateTime`, because doing so can shift lessons onto the wrong date when a per-course calendar time zone differs from the machine-local zone.
+
 The user must be able to replace any one source file without redoing unrelated settings.
 The user must also be able to remove any one detected source file from the unified source-files area.
 The original school files do not need to live inside the repo.
@@ -220,18 +255,29 @@ The Home page is the everyday local preview surface for normalized course occurr
 When the default provider is Google and Home preview import is enabled, Home also merges the selected Google calendar into the board with provider-aware rules:
 
 - same title + same time: show as already existing, do not generate a duplicate Add
+- same title + same time + different managed Google color: classify as an Update rather than an exact match, and repair that color on apply
 - same title + different time inside the semester window: show the remote item as a red delete candidate and the parsed timetable occurrence as the green add/update candidate
 - remote items outside the semester delete window: show in orange for awareness only, but do not create delete actions
 - the semester delete window comes from XLS first-week to last-week when available; otherwise it falls back to the parsed timetable occurrence range
+- remote timed events must be interpreted in the remote event's own time zone first, not by the local machine offset
 
 ### Required Behavior
 
 - show a calendar-style preview of concrete occurrences
 - use a dense month grid with a clear selected-day agenda rather than a loose card mosaic
+- render month-cell lessons as compact two-line entries with time above and course below, using colored outlines so compact windows still surface multiple visible lessons per day without collapsing into time-only single lines
 - remove the separate top hero card so the calendar board is the first visible surface on Home
+- keep the month workspace on a fixed design ratio that scales uniformly with the window so compact sizes preserve the same layout rather than turning the board into a taller scrolling stack
+- let the left month board scroll independently so compact window sizes can prioritize the current month's usable cell height and push the trailing overflow week below the fold
+- keep each day card visually square so the month board reads like a true calendar rather than a variable-height list
 - default to the local computer date
 - respect the week-start preference of Monday or Sunday
 - show course title, time, and location clearly
+- keep the selected-day summary compact and rectangular, focusing on occurrence count and school week instead of repeating the selected date text already visible in the calendar
+- let the selected-day agenda pane scroll independently from the month board when many items are present
+- show the selected-day agenda event color as a small dot using the effective configured event color instead of repeating the course-type label chip
+- when the selected day has no occurrences, switch the summary to `No schedule / 无安排 | Week` and leave the agenda list empty instead of showing an extra placeholder card
+- commit the Settings default Google Calendar color selector by stable color id so immediate preference refreshes cannot flip the visible choice to a neighboring palette entry
 - show the selected class context clearly
 - surface warnings and unresolved-item counts without mixing them into valid occurrences
 - allow clicking a course in the selected-day agenda to edit its local course details, including name, date span, time range, and repeat cadence
@@ -243,13 +289,16 @@ When the default provider is Google and Home preview import is enabled, Home als
 
 ### Initial Bootstrap Expectation
 
-The current implementation uses an editor-style shell with a dedicated month workspace centered on the local computer date, honors Sunday/Monday week-start preference, shows selected-day occurrence details in a dedicated agenda pane beside the scheduling board, and keeps the empty preview state to a single pending-preview title instead of duplicating that message as a second caption.
+The current implementation uses an editor-style shell with a dedicated month workspace centered on the local computer date, honors Sunday/Monday week-start preference, keeps the Home board on a fixed-ratio scaled workspace, constrains normal-window resizing through native aspect-ratio sizing rather than `SizeChanged` bounce-back, shows selected-day occurrence details in a dedicated independently scrolling agenda pane beside the scheduling board, keeps the month header compressed to one title/context row plus one action row, lets the left month board scroll independently so the current month gets larger cells before the trailing overflow week appears, uses compact two-line colored-outline month-cell lessons with time above and course below, groups the month board by week so each horizontal row scales to that week's busiest visible day instead of using one fixed card height for the whole month, applies card minimum heights plus content-sized row growth so the last visible lesson card is not clipped while the busiest day also avoids excessive blank space below its final entry, switches the right-side agenda cards to a stacked compact template in narrow windows so the time block does not leave a large unused area beneath it, and leaves the right-side agenda list visually empty on no-schedule days while the summary strip switches to `No schedule / 无安排 | Week`.
+When an accepted update changes only non-layout provider-managed fields such as Google Calendar color, the Home selected-day agenda should render one orange update card rather than two visually identical before/after rows.
+If preview also carries an extra managed-remote cleanup row for the same visible lesson slot, Home should still render only one final selected-day card for that title/time/location combination and prefer the update representation over the cleanup duplicate.
 
 ## 9. Import / Diff Page
 
 ### Purpose
 
 The Import / Diff page is the required preview-first gate before any destructive sync.
+Applying selected changes here updates only the accepted local snapshot and the Home preview. It must not write Google Calendar or other remote providers directly.
 
 ### Required Summary Area
 
@@ -261,17 +310,26 @@ The Import / Diff page is the required preview-first gate before any destructive
 - unresolved-item count
 
 The top summary/action area should stay compact: a single-row provider/context strip plus the apply/select/clear actions, without a repeated page title or verbose apply-status prose.
+The selected destination summary in that strip should use a compact rectangular status treatment instead of a large pill so the action buttons remain visible in narrower windows.
+Ready import changes should default to selected, except items that require explicit fallback confirmation.
+After Import applies the current local selection, `Import.ApplySelected` should become disabled until another preview-driving option such as class or time-profile settings rebuilds the diff.
+Grouped course changes and their child occurrence rows should use matching round selection indicators so the visible checked state is unambiguous.
 
 ### Required Diff Groups
 
 - Unresolved
-- Deleted
 - Parsed Courses
-- Added
+- Changes
 
-Auxiliary sections such as `Updated` and time-profile fallback confirmations may follow after the primary groups.
+The `Changes` surface must merge added, updated, and deleted schedule diffs by course title instead of scattering them across separate repeated section layouts.
+Each course group should summarize the change mix compactly, show repeat-logic summaries at the group level, and expand first into repeat-rule groups before exposing concrete occurrence rows.
+Repeat-rule groups should preserve the raw Added / Updated / Deleted diff identity for apply logic, while the UI consumes a derived grouped presentation model.
+Expanded delete/add rows should stay compact and omit verbose metadata dumps. Expanded update rows should show matched `Before` / `After` structures with the same compact field set.
+Default Google time-zone values should render as `Not present / 不存在`; only an explicit per-course or per-occurrence time-zone override should surface a concrete `UTC±HH:mm` value in Import.
 
-Parsed courses must appear after Deleted and before Added, and expose direct local editing.
+Auxiliary sections such as time-profile fallback confirmations may follow after the primary groups.
+
+Parsed courses must expose direct local editing.
 The Parsed Courses section must remain available even when regular add/delete/update groups are empty.
 
 It must support both:
@@ -294,6 +352,7 @@ If the previously saved snapshot belongs to a different selected class than the 
 When the user applies accepted changes for one selected class, the saved snapshot baseline must replace only that class slice and keep other class slices out of the next review for the current class.
 When Google preview resolves a managed remote event through app metadata or conflict matching but the stored Google mapping points at a stale remote item id, apply must repair the preview-resolved remote event and rebind the local mapping instead of writing to the stale id.
 When the user switches from one parsed class to another, the preview must show Adds for the newly selected class and provider-managed Deletes for the previously managed class slice only where those remote events still fall inside the deletion window.
+Same-title same-time suppression must not hide a newly parsed occurrence behind any Google event unless that remote item already matches the same managed occurrence identity.
 
 ### Visual Behavior Notes
 
@@ -316,8 +375,12 @@ When the user switches from one parsed class to another, the preview must show A
 - cancel and return
 
 No destructive remote change may bypass this page or an equivalent confirmation surface.
-`Apply` always updates the accepted local snapshot baseline. When the selected provider is configured, the accepted changes are also written to that provider's managed calendar and task surfaces. On Home, the Google sync action is responsible for refreshing existing remote events into the preview, while the Google apply action is responsible only for writing the accepted changes.
-For Google Calendar, accepted calendar writes must execute in delete -> update -> add order so class switches and drift repairs remove stale managed events before creating replacement events.
+`Apply` always updates the accepted local snapshot baseline. When the selected provider is configured, the accepted changes are also written to that provider's managed calendar and task surfaces. On Home, the Google sync action is responsible for refreshing existing remote events into the preview, while the Google apply action is responsible only for writing the accepted changes. A later preview must still repair any accepted occurrence that no longer has either a saved Google mapping or a matching managed Google event.
+When Google already contains an exact managed match for a current occurrence, apply must also backfill the local snapshot and local Google mapping state for that exact match instead of leaving it unmanaged locally.
+Preview must also repair missing local Google mappings for already-exact managed matches when the remote event can be bound confidently by managed metadata or recurring-instance identity (`parentRemoteItemId` + `originalStartTimeUtc`). A stale mapping file must not leave later Google repairs blocked until another write succeeds.
+Preview must also normalize stale Google mapping collisions. If multiple local sync ids point at the same managed Google event or recurring instance, preview must keep one binding for that remote identity, prefer the currently parsed occurrence when it still exists, and drop the stale duplicate mapping before diff classification so Home can return to white after apply.
+When the user switches the selected Google calendar and later switches back, Home must rebuild preview strictly from that selected calendar's remote events plus that calendar's scoped local mappings. A successful apply against another writable calendar must not leave orange `Updated` rows behind on the original calendar, and a no-op apply after switching back must finish promptly without repeated provider polling.
+For Google Calendar, accepted calendar writes must execute in deterministic delete -> update -> add order so class switches and drift repairs remove stale managed events before creating replacement events, and calendar writes should run serially for reliability when large batches include overlapping recurring changes. Managed Google color is part of the update payload, so a selected change that only differs by `colorId` must still repair the existing managed event instead of being treated as unchanged or recreated. The apply path should also deduplicate repeated recurring-series deletes and reuse recurring-instance lookups per series so large batch repairs do not degrade into repeated list-instance scans. When multiple managed remote events resolve to the same course occurrence, preview must keep only the expected exact-match count and leave the extra managed copies represented as deletions rather than suppressing every duplicate as exact. If Google returns an incomplete recurring-series materialization after insert, the provider must roll that series back and fall back to exact single-event writes instead of leaving the user with a partially applied schedule.
 
 ## 10. Settings Page
 
@@ -346,18 +409,20 @@ The Settings page owns configuration, source-file import, and sync defaults.
   - default time-profile mode (`Automatic` or `Specific Profile`)
   - explicit default time-profile selector when specific mode is active
   - per-course override list scoped to class + exact course title
-- Calendar Display
-  - week starts on Monday or Sunday
-- Language
-  - selector for `Follow System`, `Simplified Chinese (zh-CN)`, and `English`
-  - persisted preference with `null` representing `Follow System`
-  - immediate runtime apply without restart
-- Appearance
-  - selector for `Light` or `Dark`
-  - persisted preference
-  - immediate runtime apply without restart
-  - circular sun/moon control with animated state transition
-  - compact about/info action beside the theme control rather than a separate full-width card
+- Program Settings
+  - represented by one button near the end of Settings
+  - opens as a lightweight overlay instead of a full page
+  - includes week-start selection for Monday or Sunday
+  - includes a selector for `Follow System`, `Simplified Chinese (zh-CN)`, and `English`
+  - persists `null` for `Follow System` and applies language changes immediately without restart
+  - includes a Google default UTC-time selector that defaults to `UTC+8`
+  - the Google default UTC-time selector must drive both preferred write time zone and remote read fallback time zone
+  - Google Calendar writes must send the selected time zone explicitly in the Google API payload
+  - includes a persisted startup Google-sync toggle
+  - includes a persisted status-notification toggle for the bottom-right running-task chip
+  - includes a persisted `Light` / `Dark` appearance toggle with immediate runtime apply
+  - keeps the animated circular sun/moon theme control inside the overlay
+  - includes an About entry point inside the overlay
 - Provider Defaults
   - default provider
   - Google desktop OAuth JSON selection, explicit stream-based load for the JSON file, connect/disconnect actions, and writable-calendar refresh
@@ -365,18 +430,20 @@ The Settings page owns configuration, source-file import, and sync defaults.
   - provider-specific destination calendar selection
   - Microsoft To Do task-list selection
   - Google Tasks default-list summary for the current Google v1 flow
-  - provider-specific category or color defaults
+  - one provider default event color selector that mirrors the Google Calendar app preset list and applies to all courses unless a course-level override is saved
+  - no separate course-type color-mapping card in Settings
 - Sync Behavior
   - preview required before sync
   - deletion confirmation
 - Task Rules
   - provider-aware rule-based task generation settings
 - About
-  - small button near the end of Settings
+  - launched from Program Settings rather than a standalone Settings card
+  - shows the current release stage as `Pre-Alpha`
 
 ## 11. About Overlay
 
-The About surface is an overlay opened from the end of Settings, not a heavy separate page.
+The About surface is an overlay opened from Program Settings, not a heavy separate page.
 
 It should include:
 

@@ -18,6 +18,7 @@ public sealed class ShellViewModel : ObservableObject
     private string shellStatus = UiText.ShellInitialStatus;
     private string applicationTitle = UiText.ApplicationTitle;
     private bool isSidebarExpanded = true;
+    private bool isTaskCenterExpanded;
 
     public ShellViewModel(
         WorkspaceSessionViewModel workspace,
@@ -31,13 +32,42 @@ public sealed class ShellViewModel : ObservableObject
         ShowImportCommand = new RelayCommand(() => CurrentPage = ShellPage.Import);
         ShowSettingsCommand = new RelayCommand(() => CurrentPage = ShellPage.Settings);
         ToggleSidebarCommand = new RelayCommand(() => IsSidebarExpanded = !IsSidebarExpanded);
+        ToggleTaskCenterCommand = new RelayCommand(() => IsTaskCenterExpanded = !IsTaskCenterExpanded);
         HandleDroppedFilesCommand = new AsyncRelayCommand<string[]?>(workspace.HandleDroppedFilesAsync);
 
         Home = new HomePageViewModel(workspace, ShowSettingsCommand, ShowImportCommand, timeProvider);
         ImportDiff = new ImportDiffPageViewModel(workspace);
 
         workspace.WorkspaceStateChanged += (_, _) => ApplyWorkspaceState();
-        Settings.About.PropertyChanged += (_, _) => OnPropertyChanged(nameof(IsAboutOverlayOpen));
+        workspace.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName is nameof(WorkspaceSessionViewModel.HasActiveTasks)
+                or nameof(WorkspaceSessionViewModel.ActiveTaskCount)
+                or nameof(WorkspaceSessionViewModel.ActiveTaskTitle)
+                or nameof(WorkspaceSessionViewModel.ActiveTaskSummary)
+                or nameof(WorkspaceSessionViewModel.ShowStatusNotifications))
+            {
+                if (!ShowTaskCenterNotification && IsTaskCenterExpanded)
+                {
+                    IsTaskCenterExpanded = false;
+                }
+
+                OnPropertyChanged(nameof(ShowTaskCenterNotification));
+                OnPropertyChanged(nameof(ActiveTaskCount));
+                OnPropertyChanged(nameof(ActiveTaskTitle));
+                OnPropertyChanged(nameof(ActiveTaskSummary));
+            }
+        };
+        Settings.ProgramSettings.PropertyChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(IsProgramSettingsOverlayOpen));
+            OnPropertyChanged(nameof(IsProgramSettingsOverlayVisible));
+        };
+        Settings.About.PropertyChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(IsAboutOverlayOpen));
+            OnPropertyChanged(nameof(IsProgramSettingsOverlayVisible));
+        };
         ApplyWorkspaceState();
     }
 
@@ -63,6 +93,12 @@ public sealed class ShellViewModel : ObservableObject
                 OnPropertyChanged(nameof(SidebarToggleGlyph));
             }
         }
+    }
+
+    public bool IsTaskCenterExpanded
+    {
+        get => isTaskCenterExpanded;
+        set => SetProperty(ref isTaskCenterExpanded, value);
     }
 
     public ShellPage CurrentPage
@@ -95,7 +131,23 @@ public sealed class ShellViewModel : ObservableObject
 
     public bool IsSettingsSelected => CurrentPage == ShellPage.Settings;
 
+    public bool IsProgramSettingsOverlayOpen => Settings.ProgramSettings.IsOpen;
+
+    public bool IsProgramSettingsOverlayVisible => Settings.ProgramSettings.IsOpen && !Settings.About.IsOpen;
+
     public bool IsAboutOverlayOpen => Settings.About.IsOpen;
+
+    public bool HasActiveTasks => workspace.HasActiveTasks;
+
+    public bool ShowTaskCenterNotification => workspace.ShowStatusNotifications && workspace.HasActiveTasks;
+
+    public int ActiveTaskCount => workspace.ActiveTaskCount;
+
+    public string ActiveTaskTitle => workspace.ActiveTaskTitle;
+
+    public string ActiveTaskSummary => workspace.ActiveTaskSummary;
+
+    public IReadOnlyList<TaskExecutionViewModel> ActiveTasks => workspace.ActiveTasks;
 
     public string SidebarToggleGlyph => IsSidebarExpanded ? "<" : ">";
 
@@ -119,6 +171,8 @@ public sealed class ShellViewModel : ObservableObject
 
     public IRelayCommand ToggleSidebarCommand { get; }
 
+    public IRelayCommand ToggleTaskCenterCommand { get; }
+
     public IAsyncRelayCommand<string[]?> HandleDroppedFilesCommand { get; }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) =>
@@ -130,6 +184,18 @@ public sealed class ShellViewModel : ObservableObject
     {
         ApplicationTitle = UiText.ApplicationTitle;
         ShellStatus = workspace.WorkspaceStatus;
+        if (!ShowTaskCenterNotification && IsTaskCenterExpanded)
+        {
+            IsTaskCenterExpanded = false;
+        }
+
+        OnPropertyChanged(nameof(HasActiveTasks));
+        OnPropertyChanged(nameof(ShowTaskCenterNotification));
+        OnPropertyChanged(nameof(ActiveTaskCount));
+        OnPropertyChanged(nameof(ActiveTaskTitle));
+        OnPropertyChanged(nameof(ActiveTaskSummary));
+        OnPropertyChanged(nameof(IsProgramSettingsOverlayOpen));
+        OnPropertyChanged(nameof(IsProgramSettingsOverlayVisible));
         OnPropertyChanged(nameof(IsAboutOverlayOpen));
     }
 }

@@ -14,15 +14,9 @@ public static class SyncIdentity
             "occ",
             occurrence.TargetKind,
             occurrence.ClassName,
-            occurrence.SourceFingerprint.SourceKind,
-            occurrence.SourceFingerprint.Hash,
             occurrence.OccurrenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            occurrence.Start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-            occurrence.End.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-            occurrence.Metadata.CourseTitle,
-            occurrence.Metadata.Location ?? string.Empty,
-            occurrence.Metadata.Teacher ?? string.Empty,
-            occurrence.TimeProfileId);
+            occurrence.Metadata.PeriodRange.StartPeriod,
+            occurrence.Metadata.PeriodRange.EndPeriod);
     }
 
     public static string CreateExportGroupId(ExportGroup exportGroup)
@@ -48,11 +42,7 @@ public static class SyncIdentity
         return CreateHash(
             "task",
             ruleId.Trim(),
-            sourceOccurrence.SourceFingerprint.SourceKind,
-            sourceOccurrence.SourceFingerprint.Hash,
-            sourceOccurrence.OccurrenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            sourceOccurrence.Start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-            sourceOccurrence.End.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+            CreateOccurrenceId(sourceOccurrence));
     }
 
     private static string CreateHash(params object[] parts)
