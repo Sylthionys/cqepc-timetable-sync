@@ -64,7 +64,7 @@ public sealed class WorkspaceSessionSynchronizationTests
                 observedContexts.Add(SynchronizationContext.Current);
             };
 
-            await session.HandleDroppedFilesAsync(["S:\\Samples\\schedule.pdf"]);
+            await session.HandleDroppedFilesAsync(["C:\\Fixtures\\schedule.pdf"]);
 
             observedThreadIds.Should().NotBeEmpty();
             observedThreadIds.Should().OnlyContain(threadId => threadId == expectedThreadId);
