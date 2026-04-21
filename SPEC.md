@@ -42,7 +42,7 @@ The current codebase defines:
 - persisted workspace preferences for week-start choice, timetable-resolution settings, provider defaults, provider auth settings, selected destinations, task rules, one default Google Calendar color, and per-course time-zone/color overrides
 - persisted per-course time-zone overrides must preserve the occurrence's own wall-clock date/time in Home, Import, and editor flows; those views must not round-trip a course occurrence through the machine-local time zone before saving
 - Google desktop OAuth for a Windows local app using a user-selected installed-app JSON and system-browser loopback flow
-- Microsoft desktop auth for a Windows local app using a public-client MSAL flow with WAM preferred and browser fallback
+- Microsoft provider/auth scaffolding in Infrastructure, but the current desktop workflow still ships Google as the only supported sync target
 - explicit UTF-8-safe local JSON persistence and safe loading of provider auth inputs
 - Google writable-calendar discovery in Settings plus Google Calendar create, update, and delete for app-managed events
 - Google Calendar preview/read-back must request and honor remote event time-zone metadata and `colorId` so Home rendering, diff classification, and apply reconciliation stay aligned with the parsed timetable
@@ -58,11 +58,10 @@ The current codebase defines:
 - Older app-managed Google events may lack persisted class metadata entirely. In that legacy case, preview may still reuse the managed remote event when the full timed payload matches exactly, and apply must then backfill the missing metadata so future previews can return to strict class-aware matching.
 - After a Google apply, if preview still shows app-managed duplicate events with the same title/time/location payload and the current normalized timetable only needs one of them, the convergence pass must automatically apply the represented remote delete change for the extra duplicate instead of leaving two identical lessons visible.
 - optional Google Tasks create, update, and delete for explicit rule-based items on the default Google task list
-- Microsoft writable-calendar and owned-task-list discovery in Settings plus Outlook Calendar create, update, and delete for app-managed events
-- optional Microsoft To Do create, update, and delete for explicit rule-based items, with linked-resource creation when paired Outlook events are available
+- Microsoft writable-calendar / task-list discovery and apply flows remain planned product work instead of a released desktop capability
 - DPAPI-protected local Google token storage and a separate Google sync-mapping store for remote IDs and fingerprints
 - persisted Google connection summaries and selected calendars must never be treated as proof of a live connection by themselves; startup, Home sync, and Home apply must re-check the DPAPI token store and clear stale Google state before deciding whether the user is still connected
-- DPAPI-protected local Microsoft token storage and a separate Microsoft sync-mapping store for remote IDs and fingerprints
+- DPAPI-protected local Microsoft token storage and a separate Microsoft sync-mapping store stay reserved for the planned Microsoft rollout and are not yet part of the supported desktop flow
 - a preview-first apply flow where Import only saves the accepted local snapshot baseline and refreshes Home preview, while provider writes remain exclusive to the Home primary apply action
 - Import diff presentation groups must remain projection-only. The raw Added/Updated/Deleted identities stay authoritative for selection and apply, even when the UI hides unchanged child rows or regroups the changes by course and repeat rule.
 - Import diff summaries must surface meaningful hidden drift such as provider color-only changes or metadata/source-only updates so the user can see why a row is classified as Added, Updated, or Deleted even when title/time/location look identical at first glance.
@@ -105,6 +104,7 @@ The current codebase does not yet include:
 - Theme switching applies immediately without restart.
 - Theme switching must repaint the active page immediately without requiring navigation to another shell section.
 - Theme switching must repaint through runtime `DynamicResource` brush references so shared styles, page cards, overlays, combo boxes, and settings panels all change together.
+- The native Windows title bar must also repaint with theme-aligned colors so the minimize/maximize/close strip does not fall back to an unrelated system accent in either light or dark mode.
 - Settings combo boxes must open when the user clicks anywhere on the combo surface, not only the arrow glyph.
 - Settings should expose a single `Program Settings` button near the end of the page. Opening it should show `Week Start`, `Language`, `Startup Google Sync`, `Status Notifications`, `Theme`, and `About` in one lightweight overlay instead of keeping those controls inline on the main Settings page.
 - The `About` action should visually replace the `Program Settings` overlay rather than nesting a second dialog inside it.
@@ -439,7 +439,8 @@ The Settings page owns configuration, source-file import, and sync defaults.
   - provider-aware rule-based task generation settings
 - About
   - launched from Program Settings rather than a standalone Settings card
-  - shows the current release stage as `Pre-Alpha`
+- shows the current release stage as `Pre-Alpha`
+  - states clearly that Google Calendar is currently available while Microsoft targets remain planned
 
 ## 11. About Overlay
 
@@ -451,7 +452,7 @@ It should include:
 - version
 - short purpose statement
 - local-first and preview-first philosophy
-- supported provider families
+- current sync availability and planned targets
 - optional repository link
 
 Behavior expectations:

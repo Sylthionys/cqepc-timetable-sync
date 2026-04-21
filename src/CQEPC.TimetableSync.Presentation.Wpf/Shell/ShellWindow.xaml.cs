@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using CQEPC.TimetableSync.Application.UseCases.Workspace;
 using CQEPC.TimetableSync.Presentation.Wpf.ViewModels;
 
 namespace CQEPC.TimetableSync.Presentation.Wpf.Shell;
@@ -24,11 +25,17 @@ public partial class ShellWindow : System.Windows.Window
     private const int WmszBottom = 6;
     private const int WmszBottomLeft = 7;
     private const int WmszBottomRight = 8;
+    private const int DwmaUseImmersiveDarkMode = 20;
+    private const int DwmaUseImmersiveDarkModeLegacy = 19;
+    private const int DwmaBorderColor = 34;
+    private const int DwmaCaptionColor = 35;
+    private const int DwmaTextColor = 36;
 
     private ShellViewModel? subscribedViewModel;
     private Testing.UiWindowMode appliedWindowMode;
     private bool backgroundWindowConfigured;
     private HwndSource? windowSource;
+    private ThemeMode titleBarTheme = ThemeMode.Light;
 
     public ShellWindow(ShellViewModel viewModel)
     {
@@ -51,6 +58,8 @@ public partial class ShellWindow : System.Windows.Window
         {
             ApplyBackgroundWindowHandleStyles();
         }
+
+        ApplyNativeTitleBarTheme();
     }
 
     private void HandleDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -118,6 +127,8 @@ public partial class ShellWindow : System.Windows.Window
         {
             ApplyBackgroundWindowHandleStyles();
         }
+
+        ApplyNativeTitleBarTheme();
     }
 
     private IntPtr WindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -201,6 +212,22 @@ public partial class ShellWindow : System.Windows.Window
 
     internal bool IsBackgroundWindowConfigured => backgroundWindowConfigured;
 
+    internal void UpdateTitleBarTheme(ThemeMode themeMode)
+    {
+        titleBarTheme = themeMode;
+        ApplyNativeTitleBarTheme();
+    }
+
+    internal NativeTitleBarThemeState GetNativeTitleBarThemeState()
+    {
+        var palette = GetNativeTitleBarPalette(titleBarTheme);
+        return new NativeTitleBarThemeState(
+            titleBarTheme.ToString(),
+            ToHex(palette.CaptionColor),
+            ToHex(palette.TextColor),
+            ToHex(palette.BorderColor));
+    }
+
     private void ApplyBackgroundWindowHandleStyles()
     {
         Testing.UiWindowModeConfigurator.ApplyBackgroundHandleStyles(this);
@@ -246,6 +273,52 @@ public partial class ShellWindow : System.Windows.Window
         ThemeTransitionOrb.BeginAnimation(OpacityProperty, opacityAnimation, HandoffBehavior.SnapshotAndReplace);
     }
 
+    private void ApplyNativeTitleBarTheme()
+    {
+        if (windowSource?.Handle is not nint handle || handle == IntPtr.Zero || !OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var palette = GetNativeTitleBarPalette(titleBarTheme);
+
+        var immersiveDarkMode = palette.UseImmersiveDarkMode ? 1 : 0;
+        _ = DwmSetWindowAttribute(handle, DwmaUseImmersiveDarkMode, ref immersiveDarkMode, Marshal.SizeOf<int>());
+        _ = DwmSetWindowAttribute(handle, DwmaUseImmersiveDarkModeLegacy, ref immersiveDarkMode, Marshal.SizeOf<int>());
+
+        var captionColor = ToColorRef(palette.CaptionColor);
+        var textColor = ToColorRef(palette.TextColor);
+        var borderColor = ToColorRef(palette.BorderColor);
+        _ = DwmSetWindowAttribute(handle, DwmaCaptionColor, ref captionColor, Marshal.SizeOf<uint>());
+        _ = DwmSetWindowAttribute(handle, DwmaTextColor, ref textColor, Marshal.SizeOf<uint>());
+        _ = DwmSetWindowAttribute(handle, DwmaBorderColor, ref borderColor, Marshal.SizeOf<uint>());
+    }
+
+    private static uint ToColorRef(Color color) =>
+        (uint)(color.R | (color.G << 8) | (color.B << 16));
+
+    private static string ToHex(Color color) =>
+        $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+
+    private static NativeTitleBarPalette GetNativeTitleBarPalette(ThemeMode themeMode) =>
+        themeMode == ThemeMode.Dark
+            ? new NativeTitleBarPalette(
+                Color.FromRgb(0x12, 0x1B, 0x26),
+                Color.FromRgb(0xF4, 0xF8, 0xFC),
+                Color.FromRgb(0x35, 0x48, 0x5E),
+                true)
+            : new NativeTitleBarPalette(
+                Color.FromRgb(0xE7, 0xEF, 0xF9),
+                Color.FromRgb(0x16, 0x1C, 0x24),
+                Color.FromRgb(0xC9, 0xD7, 0xE8),
+                false);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(nint hwnd, int attribute, ref int value, int size);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(nint hwnd, int attribute, ref uint value, int size);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct RectNative
     {
@@ -258,4 +331,16 @@ public partial class ShellWindow : System.Windows.Window
 
         public int Height => Bottom - Top;
     }
+
+    private readonly record struct NativeTitleBarPalette(
+        Color CaptionColor,
+        Color TextColor,
+        Color BorderColor,
+        bool UseImmersiveDarkMode);
+
+    internal readonly record struct NativeTitleBarThemeState(
+        string ThemeMode,
+        string CaptionColorHex,
+        string TextColorHex,
+        string BorderColorHex);
 }

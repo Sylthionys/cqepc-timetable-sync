@@ -174,9 +174,9 @@
     <sys:String x:Key="WorkspaceRemoteCalendarEventLoadFailedFormat">Loading Google event failed: {0}</sys:String>
     <sys:String x:Key="WorkspaceRemoteCalendarEventSaveFailedFormat">Saving Google event failed: {0}</sys:String>
     <sys:String x:Key="WorkspaceGoogleApplyVerificationPendingFormat">Google apply verification still sees {0} calendar change(s) pending. The app kept the preview unsatisfied instead of assuming success.</sys:String>
-    <sys:String x:Key="AboutSummary">Local-first CQEPC timetable parsing, preview, diffing, and provider-aware sync preparation.</sys:String>
-    <sys:String x:Key="AboutPhilosophy">The app keeps parsing, normalization, preview, and diffing on the local machine and preserves unresolved timetable items explicitly before any sync write path is allowed.</sys:String>
-    <sys:String x:Key="AboutProviders">Supported provider families: Google Calendar / Tasks and Outlook Calendar / Microsoft To Do.</sys:String>
+    <sys:String x:Key="AboutSummary">Local-first CQEPC timetable parsing, preview, diffing, and confirmed Google Calendar sync.</sys:String>
+    <sys:String x:Key="AboutPhilosophy">Parsing, normalization, preview, and diffing all stay on the local machine, unresolved timetable items remain explicit, and remote writes are only allowed after user review and confirmation.</sys:String>
+    <sys:String x:Key="AboutProviders">Currently available: Google Calendar and optional Google Tasks. Planned next: Outlook Calendar and Microsoft To Do.</sys:String>
     <sys:String x:Key="AboutVersionFormat">Version {0}</sys:String>
     <sys:String x:Key="AboutCloseButton">Close</sys:String>
     <sys:String x:Key="AboutOperatingModelTitle">Operating Model</sys:String>
@@ -299,7 +299,7 @@
     <sys:String x:Key="SettingsProgramSettingsStatusNotifications">Status Notifications</sys:String>
     <sys:String x:Key="SettingsProgramWeekSummary">Choose whether the calendar starts on Monday or Sunday for home and preview layouts.</sys:String>
     <sys:String x:Key="SettingsProgramLanguageSummary">Control interface language, either following the system or an explicit preference.</sys:String>
-    <sys:String x:Key="SettingsProgramAboutSummary">Review version, operating model, and supported sync targets without leaving Settings.</sys:String>
+    <sys:String x:Key="SettingsProgramAboutSummary">Review the release stage, local-first workflow, and the current Google-ready versus Microsoft-planned sync status without leaving Settings.</sys:String>
     <sys:String x:Key="SettingsProgramSettingsFootnote">Except for the Google Calendar default time zone, these options mainly affect interface and preview behavior.</sys:String>
     <sys:String x:Key="SettingsDefaultUtcTimeTitle">Default UTC Time</sys:String>
     <sys:String x:Key="SettingsDefaultUtcTimeSummary">Default is UTC+8. Google Calendar writes use this setting and send the time zone explicitly to the Google API.</sys:String>

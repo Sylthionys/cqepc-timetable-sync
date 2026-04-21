@@ -359,13 +359,13 @@ public static class UiText
 
     public static string AboutSummary => GetString(
         nameof(AboutSummary),
-        "Local-first CQEPC timetable parsing, preview, diffing, and provider-aware sync preparation.");
+        "Local-first CQEPC timetable parsing, preview, diffing, and confirmed Google Calendar sync.");
     public static string AboutPhilosophy => GetString(
         nameof(AboutPhilosophy),
-        "The app keeps parsing, normalization, preview, and diffing on the local machine and preserves unresolved timetable items explicitly before any sync write path is allowed.");
+        "Parsing, normalization, preview, and diffing all stay on the local machine, unresolved timetable items remain explicit, and remote writes are only allowed after user review and confirmation.");
     public static string AboutProviders => GetString(
         nameof(AboutProviders),
-        "Supported provider families: Google Calendar / Tasks and Outlook Calendar / Microsoft To Do.");
+        "Currently available: Google Calendar and optional Google Tasks. Planned next: Outlook Calendar and Microsoft To Do.");
     public static string AboutVersionFormat => GetString(nameof(AboutVersionFormat), "Version {0}");
 
     public static string DiffTaskTargetLabel => GetString(nameof(DiffTaskTargetLabel), "Task");

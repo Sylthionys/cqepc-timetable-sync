@@ -563,6 +563,22 @@ internal sealed class UiAppSession : IAsyncDisposable
         return response.Value;
     }
 
+    public async Task<string?> GetTitleBarThemeStateAsync()
+    {
+        var response = await SendAutomationRequestAsync("get-title-bar-theme-state");
+        if (response is null)
+        {
+            throw new XunitException("The automation bridge returned no response for the title-bar-theme-state read request.");
+        }
+
+        if (!response.Success)
+        {
+            throw new XunitException($"The automation bridge failed to read title-bar-theme state: {response.Error}");
+        }
+
+        return response.Value;
+    }
+
     public async Task<string?> ApplySelectedImportChangesViaBridgeAsync(TimeSpan? timeout = null)
     {
         var response = await SendAutomationRequestAsync(

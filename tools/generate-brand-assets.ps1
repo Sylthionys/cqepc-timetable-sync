@@ -62,6 +62,7 @@ public static class SvgBrandRenderer
 
         SavePng(root, width, height, pngPath, 512);
         SaveIcon(root, width, height, icoPath, new[] { 16, 24, 32, 48, 64, 128, 256 });
+        ValidateIconFrames(icoPath, new[] { 16, 24, 32, 48, 64, 128, 256 });
     }
 
     private static void SavePng(XElement root, double viewWidth, double viewHeight, string path, int size)
@@ -110,6 +111,31 @@ public static class SvgBrandRenderer
             {
                 writer.Write(frame);
             }
+        }
+    }
+
+    private static void ValidateIconFrames(string path, int[] requiredSizes)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        ushort count = BitConverter.ToUInt16(bytes, 4);
+        HashSet<int> sizes = new HashSet<int>();
+
+        for (int index = 0; index < count; index++)
+        {
+            int entryOffset = 6 + (index * 16);
+            int width = bytes[entryOffset] == 0 ? 256 : bytes[entryOffset];
+            int height = bytes[entryOffset + 1] == 0 ? 256 : bytes[entryOffset + 1];
+            if (width == height)
+            {
+                sizes.Add(width);
+            }
+        }
+
+        int[] missingSizes = requiredSizes.Where(required => !sizes.Contains(required)).ToArray();
+        if (missingSizes.Length > 0)
+        {
+            throw new InvalidOperationException(
+                "The generated icon is missing required frames: " + string.Join(", ", missingSizes));
         }
     }
 

@@ -215,7 +215,8 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
             normalizationResult = ApplyCourseScheduleOverrides(
                 normalizationResult,
                 effectiveTimetableResolution,
-                schoolWeeks);
+                schoolWeeks,
+                timeProfiles);
             normalizationResult = ApplyDefaultCalendarColor(normalizationResult, request.Preferences.GetDefaults(request.Preferences.DefaultProvider));
 
             var taskRules = request.IncludeRuleBasedTasks
@@ -729,7 +730,7 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
         IReadOnlyList<ProviderRemoteCalendarEvent> remotePreviewEvents,
         string? calendarDestinationId)
     {
-        if (mappings.Count == 0)
+        if (mappings.Count == 0 || string.IsNullOrWhiteSpace(calendarDestinationId))
         {
             return mappings;
         }
@@ -1157,7 +1158,7 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
         }
 
         return existingMappings
-            .Where(mapping => mapping.TargetKind != SyncTargetKind.CalendarEvent || !MatchesDestination(mapping, calendarDestinationId))
+            .Where(mapping => mapping.TargetKind == SyncTargetKind.CalendarEvent && !MatchesDestination(mapping, calendarDestinationId))
             .Concat(scopedMappings)
             .OrderBy(static mapping => mapping.LocalSyncId, StringComparer.Ordinal)
             .ThenBy(static mapping => mapping.RemoteItemId, StringComparer.Ordinal)
@@ -1171,11 +1172,13 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
     private NormalizationResult ApplyCourseScheduleOverrides(
         NormalizationResult normalizationResult,
         TimetableResolutionSettings timetableResolution,
-        IReadOnlyList<SchoolWeek> schoolWeeks)
+        IReadOnlyList<SchoolWeek> schoolWeeks,
+        IReadOnlyList<TimeProfile> timeProfiles)
     {
         ArgumentNullException.ThrowIfNull(normalizationResult);
         ArgumentNullException.ThrowIfNull(timetableResolution);
         ArgumentNullException.ThrowIfNull(schoolWeeks);
+        ArgumentNullException.ThrowIfNull(timeProfiles);
 
         if (timetableResolution.CourseScheduleOverrides.Count == 0)
         {
@@ -1206,7 +1209,7 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
             .Where(item => !overrideKeys.Contains(item.SourceFingerprint))
             .ToList();
         var generatedOccurrences = activeScheduleOverrides
-            .SelectMany(scheduleOverride => ExpandCourseScheduleOverride(scheduleOverride, schoolWeeks))
+            .SelectMany(scheduleOverride => ExpandCourseScheduleOverride(scheduleOverride, schoolWeeks, timeProfiles))
             .ToArray();
         var mergedOccurrences = baseOccurrences
             .Concat(generatedOccurrences)
@@ -1319,9 +1322,11 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
 
     private static IEnumerable<ResolvedOccurrence> ExpandCourseScheduleOverride(
         CourseScheduleOverride scheduleOverride,
-        IReadOnlyList<SchoolWeek> schoolWeeks)
+        IReadOnlyList<SchoolWeek> schoolWeeks,
+        IReadOnlyList<TimeProfile> timeProfiles)
     {
         var dates = EnumerateOccurrenceDates(scheduleOverride).ToArray();
+        var resolvedPeriodRange = ResolveOverridePeriodRange(scheduleOverride, timeProfiles);
         foreach (var date in dates)
         {
             var schoolWeekNumber = ResolveSchoolWeekNumber(schoolWeeks, date);
@@ -1337,7 +1342,7 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
                 new CourseMetadata(
                     scheduleOverride.CourseTitle,
                     CreateWeekExpression(scheduleOverride, schoolWeeks),
-                    new Domain.ValueObjects.PeriodRange(1, 1),
+                    resolvedPeriodRange,
                     scheduleOverride.Notes,
                     scheduleOverride.Campus,
                     scheduleOverride.Location,
@@ -1349,6 +1354,31 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
                 scheduleOverride.CalendarTimeZoneId,
                 scheduleOverride.GoogleCalendarColorId);
         }
+    }
+
+    private static Domain.ValueObjects.PeriodRange ResolveOverridePeriodRange(
+        CourseScheduleOverride scheduleOverride,
+        IReadOnlyList<TimeProfile> timeProfiles)
+    {
+        var profile = timeProfiles.FirstOrDefault(item =>
+            string.Equals(item.ProfileId, scheduleOverride.TimeProfileId, StringComparison.Ordinal));
+        if (profile is null)
+        {
+            return new Domain.ValueObjects.PeriodRange(1, 1);
+        }
+
+        var exactMatch = profile.Entries.FirstOrDefault(entry =>
+            entry.StartTime == scheduleOverride.StartTime
+            && entry.EndTime == scheduleOverride.EndTime);
+        if (exactMatch is not null)
+        {
+            return exactMatch.PeriodRange;
+        }
+
+        var containingEntry = profile.Entries.FirstOrDefault(entry =>
+            entry.StartTime <= scheduleOverride.StartTime
+            && entry.EndTime >= scheduleOverride.EndTime);
+        return containingEntry?.PeriodRange ?? new Domain.ValueObjects.PeriodRange(1, 1);
     }
 
     private static IEnumerable<DateOnly> EnumerateOccurrenceDates(CourseScheduleOverride scheduleOverride)

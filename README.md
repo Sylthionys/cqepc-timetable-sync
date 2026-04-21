@@ -1,6 +1,6 @@
 # CQEPC Timetable Sync
 
-CQEPC Timetable Sync is a local-first Windows desktop application that turns CQEPC timetable source files into a reviewable sync workflow for Google and Microsoft productivity tools.
+CQEPC Timetable Sync is a local-first Windows desktop application that turns CQEPC timetable source files into a reviewable sync workflow for Google Calendar today, with Microsoft integration planned later.
 
 The target stack is `.NET 8`, `WPF`, and `MVVM`. The repository now includes a usable desktop workflow with a three-part shell, a compact month Home workspace, an Import diff review surface, a grouped Settings control center for source files and defaults, a program-settings overlay for calendar display, Google Calendar default time zone, and appearance options, dark/light theme support, and an in-window About overlay.
 
@@ -35,7 +35,7 @@ The current implementation establishes:
 - a workspace preview orchestration layer that parses the three source files, normalizes occurrences, optionally generates rule-based task candidates, and builds a local diff against the latest accepted snapshot
 - a provider execution seam that supports provider-specific destination discovery and preview-first apply orchestration
 - Google desktop OAuth support for a local Windows app using a user-selected installed-app client JSON, a system-browser loopback flow, and DPAPI-protected local token storage
-- Microsoft desktop auth support for a local Windows app using a user-supplied public client app ID, an MSAL WAM-first flow, browser fallback, and DPAPI-protected local token storage
+- Microsoft adapter/auth scaffolding exists in Infrastructure, but the current desktop workflow still exposes Google as the only implemented sync target
 - locale-invariant sync IDs, diff keys, and week-expression expansion so preview/apply behavior does not drift with the current UI culture
 - timetable PDF block fingerprints now hash the block's own normalized CQEPC content plus its page/anchor position instead of the whole-file hash, so re-exporting or lightly revising one PDF does not invalidate every unchanged lesson at once
 - occurrence-level local sync ids and local snapshot diff matching now stay stable across source-fingerprint drift and small metadata edits, preventing revised PDFs for the same class from degenerating into whole-calendar delete+add batches when the actual schedule shape is still the same
@@ -58,8 +58,7 @@ The current implementation establishes:
 - startup and Home Google actions now re-check the DPAPI token store before treating Google as connected; if `%LocalAppData%\\CQEPC Timetable Sync\\tokens\\google\\` no longer contains a usable token, stale saved account/calendar state is cleared and Home routes the user to Settings instead of silently refreshing on apply
 - after a Google apply, the Home convergence pass now detects app-managed duplicate calendar events with the same title/time/location payload and automatically applies the represented remote delete rows for the extras, leaving only the expected occurrence count instead of making the user manually clean up one identical copy
 - optional Google Tasks create, update, and delete support for explicit rule-based day-level follow-up items on the default Google task list
-- Outlook Calendar discovery plus create, update, and delete support for app-managed timed events, including recurring-series creation and recurring-member maintenance with immutable IDs
-- Microsoft To Do task-list discovery plus create, update, and delete support for explicit rule-based follow-up items, with linked-resource creation when a paired Outlook event exists
+- Microsoft-specific destination discovery and sync operations remain planned product work rather than a released desktop capability
 - provider-safe Google event metadata storage via `extendedProperties.private` plus a local Google sync-mapping store for remote IDs and source fingerprints
 - each Google calendar mapping entry also remains destination-scoped by `DestinationId`, and preview/apply only reconcile the mappings that belong to the currently selected writable calendar
 - provider-safe Microsoft metadata storage via Graph open extensions plus local Microsoft sync mappings for remote IDs, fingerprints, recurring-master IDs, and original-start timestamps
@@ -92,9 +91,8 @@ The current codebase does not yet establish:
 - Google workspace preferences now expose one Program Settings control that drives both `PreferredCalendarTimeZoneId` for write payloads and `RemoteReadFallbackTimeZoneId` for remote read-back fallback. The default is `UTC+8` (`Asia/Shanghai`).
 - The latest accepted local snapshot baseline is stored under `%LocalAppData%\CQEPC Timetable Sync\latest-snapshot.json`.
 - Google sync mappings are stored under `%LocalAppData%\CQEPC Timetable Sync\google-sync-mappings.json`.
-- Microsoft sync mappings are stored under `%LocalAppData%\CQEPC Timetable Sync\microsoft-sync-mappings.json`.
+- Microsoft sync mappings and token storage paths are reserved for the planned Microsoft adapter rollout and are not part of the current supported user workflow.
 - Google OAuth tokens are stored under `%LocalAppData%\CQEPC Timetable Sync\tokens\google\` using DPAPI-protected payload files.
-- Microsoft auth state and tokens are stored under `%LocalAppData%\CQEPC Timetable Sync\tokens\microsoft\` using DPAPI-protected payload files.
 - Persisted JSON and direct text writes use UTF-8 explicitly, and Chinese source metadata is preserved through parsing, local storage, UI rendering, and provider payload generation.
 - Workspace preference writes are coalesced asynchronously during editing and flushed on shutdown so the latest language, theme, and timetable-resolution selections survive restart.
 - Presentation localization assets live under `src/CQEPC.TimetableSync.Presentation.Wpf/Resources/Localization/` as UTF-8 `Strings.en-US.xaml` and `Strings.zh-CN.xaml`.
@@ -113,6 +111,7 @@ The current codebase does not yet establish:
 - Program Settings now also persists whether startup should auto-sync the Google calendar preview and whether the bottom-right running-task status notification chip is shown.
 - Changing the appearance mode reapplies theme resources immediately and repaints the live shell without restarting the app.
 - Theme switching now relies on runtime `DynamicResource` theme brushes across shared styles and page surfaces so dark mode repaints the full UI consistently instead of leaving mixed light cards behind.
+- The native Windows title bar now follows the app theme in both light and dark modes instead of inheriting an unrelated system accent strip.
 - Home month cells and selected-day agenda cards now force theme-aware text on top of their schedule surfaces so dark mode no longer leaves low-contrast course text.
 - Import parsed-course rows now pin their title and detail text to theme brushes so dark mode does not fall back to black text inside parsed-course cards.
 - Opening `About` from `Program Settings` now replaces that overlay visually instead of nesting one dialog inside another.
@@ -123,6 +122,7 @@ The current codebase does not yet establish:
 - The touched Home and Import surfaces now resolve their user-facing labels through those dedicated UTF-8 localization dictionaries instead of hardcoded mixed-language text.
 - Runtime language switching now rebuilds the merged localization dictionaries before raising presentation refresh notifications, which keeps Settings/Home/Import labels in sync after switching to English or Chinese.
 - The About overlay currently reports the release stage as `Pre-Alpha`.
+- The About overlay now states the shipped sync status clearly: Google Calendar is available now, while Google Tasks / Outlook Calendar / Microsoft To Do remain planned.
 - Parser warnings, parser diagnostics, and unresolved-item summaries/reasons are localized in Presentation by stable code first and fall back to stored parser text when no resource key exists.
 - `RawSourceText`, saved destination names, and other user/provider-entered values are not localized or rewritten.
 - `.editorconfig` requires UTF-8 for the text assets touched by this workflow.

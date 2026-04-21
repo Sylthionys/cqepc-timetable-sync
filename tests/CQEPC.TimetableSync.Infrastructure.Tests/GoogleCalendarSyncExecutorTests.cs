@@ -342,9 +342,9 @@ public sealed class GoogleCalendarSyncExecutorTests
     [Fact]
     public async Task ApplyChangeAsyncDeletesRecurringInstanceAfterRecurringMasterForRemoteManagedDeleteWhenMappingExists()
     {
+        var occurrence = CreateOccurrence(new DateOnly(2026, 3, 16), new TimeOnly(14, 30), new TimeOnly(16, 0), "Signals");
         var fakeClient = new FakeGoogleCalendarSyncClient();
         var executor = new GoogleCalendarSyncExecutor(fakeClient);
-        var occurrence = CreateOccurrence(new DateOnly(2026, 3, 16), new TimeOnly(14, 30), new TimeOnly(16, 0), "Signals");
         var localSyncId = SyncIdentity.CreateOccurrenceId(occurrence);
         var mappings = new Dictionary<string, SyncMapping>(StringComparer.Ordinal)
         {

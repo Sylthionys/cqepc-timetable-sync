@@ -126,4 +126,17 @@ public sealed class JsonSyncMappingRepositoryTests
         loaded.Should().BeEquivalentTo(mappings);
         loaded[1].SourceFingerprint.Hash.Should().Be(L051);
     }
+
+    [Fact]
+    public async Task LoadAsyncReturnsEmptyWhenMappingJsonIsCorrupt()
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        var storagePaths = new LocalStoragePaths(tempDirectory.DirectoryPath);
+        await File.WriteAllTextAsync(storagePaths.GoogleSyncMappingsFilePath, "{ not-valid-json", CancellationToken.None);
+        var repository = new JsonSyncMappingRepository(storagePaths);
+
+        var mappings = await repository.LoadAsync(ProviderKind.Google, CancellationToken.None);
+
+        mappings.Should().BeEmpty();
+    }
 }

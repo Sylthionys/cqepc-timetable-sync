@@ -32,7 +32,7 @@ public sealed class ManualGoogleWorkflowTests
     private const string RealTimetablePdfEnvVar = "CQEPC_UI_REAL_TIMETABLE_PDF";
     private const string RealTeachingProgressXlsEnvVar = "CQEPC_UI_REAL_TEACHING_PROGRESS_XLS";
     private const string RealClassTimeDocxEnvVar = "CQEPC_UI_REAL_CLASS_TIME_DOCX";
-    private const string RequestedGoogleCalendarDisplayName = "student@example.com";
+    private const string RequestedGoogleCalendarDisplayName = "2374452108@qq.com";
     private const string AlternateGoogleCalendarDisplayName = "1";
 
     [ManualUiFact]
@@ -3947,3 +3947,4 @@ public sealed class ManualGoogleWorkflowTests
         string TeachingProgressXls,
         string ClassTimeDocx);
 }
+

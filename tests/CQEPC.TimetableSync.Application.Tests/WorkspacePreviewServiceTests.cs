@@ -516,6 +516,102 @@ public sealed class WorkspacePreviewServiceTests
     }
 
     [Fact]
+    public async Task BuildPreviewAsyncPreservesGoogleCalendarMappingsWhenNoCalendarIsSelected()
+    {
+        var currentOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 16),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            new SourceFingerprint("pdf", "current-signals"));
+        var staleOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 16),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            new SourceFingerprint("pdf", "stale-signals"));
+        var currentLocalSyncId = SyncIdentity.CreateOccurrenceId(currentOccurrence);
+        var staleLocalSyncId = SyncIdentity.CreateOccurrenceId(staleOccurrence);
+        var taskMapping = new SyncMapping(
+            ProviderKind.Google,
+            SyncTargetKind.TaskItem,
+            SyncMappingKind.Task,
+            localSyncId: "task-local-1",
+            destinationId: "@default",
+            remoteItemId: "task-remote-1",
+            parentRemoteItemId: null,
+            originalStartTimeUtc: null,
+            sourceFingerprint: new SourceFingerprint("task", "task-fingerprint"),
+            lastSyncedAt: DateTimeOffset.UtcNow);
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: "client.json",
+                connectedAccountSummary: "user@example.com",
+                selectedCalendarId: null,
+                selectedCalendarDisplayName: null,
+                writableCalendars: [new ProviderCalendarDescriptor("calendar-1", "Calendar 1", true)],
+                taskRules: Array.Empty<ProviderTaskRuleSetting>(),
+                importCalendarIntoHomePreviewEnabled: true));
+        var mappingRepository = new SeededTrackingSyncMappingRepository(
+        [
+            new SyncMapping(
+                ProviderKind.Google,
+                SyncTargetKind.CalendarEvent,
+                SyncMappingKind.RecurringMember,
+                staleLocalSyncId,
+                "calendar-1",
+                "series_20260316T000000Z",
+                parentRemoteItemId: "series-id",
+                originalStartTimeUtc: currentOccurrence.Start.ToUniversalTime(),
+                staleOccurrence.SourceFingerprint,
+                DateTimeOffset.UtcNow.AddMinutes(5)),
+            new SyncMapping(
+                ProviderKind.Google,
+                SyncTargetKind.CalendarEvent,
+                SyncMappingKind.RecurringMember,
+                currentLocalSyncId,
+                "calendar-1",
+                "series_20260316T000000Z",
+                parentRemoteItemId: "series-id",
+                originalStartTimeUtc: currentOccurrence.Start.ToUniversalTime(),
+                currentOccurrence.SourceFingerprint,
+                DateTimeOffset.UtcNow),
+            taskMapping,
+        ]);
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+            [
+                new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals", currentOccurrence.SourceFingerprint)]),
+            ]),
+            new FakeAcademicCalendarParser(
+            [
+                new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8)),
+                new SchoolWeek(2, new DateOnly(2026, 3, 9), new DateOnly(2026, 3, 15)),
+                new SchoolWeek(3, new DateOnly(2026, 3, 16), new DateOnly(2026, 3, 22)),
+            ]),
+            new FakePeriodTimeProfileParser(
+            [
+                new TimeProfile(
+                    "main-campus",
+                    "Main Campus",
+                    [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))]),
+            ]),
+            new FakeNormalizer([currentOccurrence]),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository(),
+            syncMappingRepository: mappingRepository);
+
+        _ = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, "Class A"),
+            CancellationToken.None);
+
+        mappingRepository.SaveCallCount.Should().Be(0);
+        mappingRepository.SavedMappings.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task BuildPreviewAsyncPassesSelectedClassAndTimeProfileIntoNormalization()
     {
         var catalogState = CreateCatalogState();
@@ -857,6 +953,89 @@ public sealed class WorkspacePreviewServiceTests
         result.NormalizationResult.Occurrences[0].OccurrenceDate.Should().Be(new DateOnly(2026, 3, 5));
         result.NormalizationResult.ExportGroups.Should().ContainSingle();
         result.NormalizationResult.ExportGroups[0].GroupKind.Should().Be(ExportGroupKind.SingleOccurrence);
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsyncAssignsDistinctIdsToSameDayScheduleOverrides()
+    {
+        var firstFingerprint = new SourceFingerprint("pdf", "override-signals");
+        var secondFingerprint = new SourceFingerprint("pdf", "override-circuits");
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithTimetableResolution(new TimetableResolutionSettings(
+                manualFirstWeekStartOverride: null,
+                autoDerivedFirstWeekStart: null,
+                defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
+                explicitDefaultTimeProfileId: null,
+                courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
+                courseScheduleOverrides:
+                [
+                    new CourseScheduleOverride(
+                        "Class A",
+                        firstFingerprint,
+                        "Signals",
+                        new DateOnly(2026, 3, 5),
+                        new DateOnly(2026, 3, 5),
+                        new TimeOnly(8, 0),
+                        new TimeOnly(9, 40),
+                        CourseScheduleRepeatKind.None,
+                        "main-campus"),
+                    new CourseScheduleOverride(
+                        "Class A",
+                        secondFingerprint,
+                        "Circuits",
+                        new DateOnly(2026, 3, 5),
+                        new DateOnly(2026, 3, 5),
+                        new TimeOnly(10, 0),
+                        new TimeOnly(11, 40),
+                        CourseScheduleRepeatKind.None,
+                        "main-campus"),
+                ]));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule(
+                        "Class A",
+                        [
+                            CreateCourseBlock("Class A", "Signals", firstFingerprint),
+                            CreateCourseBlock("Class A", "Circuits", secondFingerprint),
+                        ]),
+                ]),
+            new FakeAcademicCalendarParser(
+                [
+                    new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8)),
+                ]),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [
+                            new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+                            new TimeProfileEntry(new PeriodRange(3, 4), new TimeOnly(10, 0), new TimeOnly(11, 40)),
+                        ]),
+                ]),
+            new FakeNormalizer(
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 5), new TimeOnly(8, 0), new TimeOnly(9, 40), firstFingerprint),
+                    CreateOccurrence("Class A", "Circuits", new DateOnly(2026, 3, 5), new TimeOnly(10, 0), new TimeOnly(11, 40), secondFingerprint),
+                ]),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository());
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        result.NormalizationResult.Should().NotBeNull();
+        result.NormalizationResult!.Occurrences.Should().HaveCount(2);
+        result.NormalizationResult.Occurrences.Select(SyncIdentity.CreateOccurrenceId).Should().OnlyHaveUniqueItems();
+        result.NormalizationResult.Occurrences.Should().ContainSingle(occurrence =>
+            occurrence.Metadata.CourseTitle == "Signals"
+            && occurrence.Metadata.PeriodRange == new PeriodRange(1, 2));
+        result.NormalizationResult.Occurrences.Should().ContainSingle(occurrence =>
+            occurrence.Metadata.CourseTitle == "Circuits"
+            && occurrence.Metadata.PeriodRange == new PeriodRange(3, 4));
     }
 
     [Fact]
@@ -2003,6 +2182,98 @@ public sealed class WorkspacePreviewServiceTests
         providerAdapter.LastRequest.CalendarDestinationDisplayName.Should().Be("Outlook Classes");
         providerAdapter.LastRequest.TaskListDestinationId.Should().Be("tasks-654");
         providerAdapter.LastRequest.TaskListDestinationDisplayName.Should().Be("Coursework");
+    }
+
+    [Fact]
+    public async Task ApplyAcceptedChangesAsyncDoesNotDuplicateNonCalendarMappingsWhenMergingScopedGoogleMappings()
+    {
+        var occurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 5), new TimeOnly(8, 0), new TimeOnly(9, 40));
+        var localSyncId = SyncIdentity.CreateOccurrenceId(occurrence);
+        var currentCalendarMapping = new SyncMapping(
+            ProviderKind.Google,
+            SyncTargetKind.CalendarEvent,
+            SyncMappingKind.SingleEvent,
+            localSyncId,
+            "calendar-1",
+            "remote-event-1",
+            parentRemoteItemId: null,
+            originalStartTimeUtc: null,
+            occurrence.SourceFingerprint,
+            DateTimeOffset.UtcNow.AddMinutes(-10));
+        var taskMapping = new SyncMapping(
+            ProviderKind.Google,
+            SyncTargetKind.TaskItem,
+            SyncMappingKind.Task,
+            localSyncId: "task-local-1",
+            destinationId: "@default",
+            remoteItemId: "task-remote-1",
+            parentRemoteItemId: null,
+            originalStartTimeUtc: null,
+            sourceFingerprint: new SourceFingerprint("task", "task-fingerprint"),
+            lastSyncedAt: DateTimeOffset.UtcNow.AddMinutes(-20));
+        var updatedCalendarMapping = new SyncMapping(
+            ProviderKind.Google,
+            SyncTargetKind.CalendarEvent,
+            SyncMappingKind.SingleEvent,
+            localSyncId,
+            "calendar-1",
+            "remote-event-1-updated",
+            parentRemoteItemId: null,
+            originalStartTimeUtc: null,
+            occurrence.SourceFingerprint,
+            DateTimeOffset.UtcNow);
+        var mappingRepository = new SeededTrackingSyncMappingRepository([currentCalendarMapping, taskMapping]);
+        var providerAdapter = new FakeProviderAdapter(
+            new ProviderApplyResult(
+                [new ProviderAppliedChangeResult(localSyncId, true)],
+                [updatedCalendarMapping, taskMapping]));
+        var repository = new InMemoryWorkspaceRepository();
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: "client.json",
+                connectedAccountSummary: "user@example.com",
+                selectedCalendarId: "calendar-1",
+                selectedCalendarDisplayName: "Calendar 1",
+                writableCalendars: [new ProviderCalendarDescriptor("calendar-1", "Calendar 1", true)],
+                taskRules: Array.Empty<ProviderTaskRuleSetting>(),
+                importCalendarIntoHomePreviewEnabled: true));
+        var preview = CreateWorkspacePreviewResult(
+            preferences,
+            occurrence,
+            new SyncPlan(
+                [occurrence],
+                [
+                    new PlannedSyncChange(
+                        SyncChangeKind.Updated,
+                        SyncTargetKind.CalendarEvent,
+                        localSyncId,
+                        SyncChangeSource.RemoteManaged,
+                        before: occurrence,
+                        after: occurrence),
+                ],
+                Array.Empty<UnresolvedItem>()));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(Array.Empty<ClassSchedule>()),
+            new FakeAcademicCalendarParser(Array.Empty<SchoolWeek>()),
+            new FakePeriodTimeProfileParser(Array.Empty<TimeProfile>()),
+            new FakeNormalizer(),
+            new FakeDiffService(),
+            repository,
+            new FixedTimeProvider(new DateTimeOffset(2026, 3, 1, 8, 0, 0, TimeSpan.Zero)),
+            syncMappingRepository: mappingRepository,
+            providerAdapters: [providerAdapter]);
+
+        var result = await service.ApplyAcceptedChangesAsync(preview, [localSyncId], CancellationToken.None);
+
+        result.SuccessfulChangeCount.Should().Be(1);
+        mappingRepository.SaveCallCount.Should().Be(1);
+        mappingRepository.SavedMappings.Should().HaveCount(2);
+        mappingRepository.SavedMappings.Should().ContainSingle(mapping =>
+            mapping.TargetKind == SyncTargetKind.CalendarEvent
+            && mapping.RemoteItemId == "remote-event-1-updated");
+        mappingRepository.SavedMappings.Should().ContainSingle(mapping =>
+            mapping.TargetKind == SyncTargetKind.TaskItem
+            && mapping.RemoteItemId == "task-remote-1");
     }
 
     [Fact]
