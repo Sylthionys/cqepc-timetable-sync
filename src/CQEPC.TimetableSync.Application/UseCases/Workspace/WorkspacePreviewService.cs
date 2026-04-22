@@ -719,8 +719,11 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
         }
 
         return mappingsByLocalId.Values
-            .Where(mapping => MatchesDestination(mapping, calendarDestinationId))
+            .Where(mapping => mapping.TargetKind != SyncTargetKind.CalendarEvent
+                || string.IsNullOrWhiteSpace(calendarDestinationId)
+                || MatchesDestination(mapping, calendarDestinationId))
             .OrderBy(static mapping => mapping.LocalSyncId, StringComparer.Ordinal)
+            .ThenBy(static mapping => mapping.RemoteItemId, StringComparer.Ordinal)
             .ToArray();
     }
 

@@ -33,21 +33,30 @@ public sealed class SyncIdentityTests
     }
 
     [Fact]
-    public void CreateOccurrenceIdIgnoresSourceFingerprintDriftForSameOccurrence()
+    public void CreateOccurrenceIdChangesWhenSourceFingerprintChanges()
     {
         var baseline = CreateOccurrence("Signals", SyncTargetKind.CalendarEvent);
         var driftedFingerprint = CreateOccurrence("Signals", SyncTargetKind.CalendarEvent, sourceHash: "other-fingerprint");
 
-        SyncIdentity.CreateOccurrenceId(driftedFingerprint).Should().Be(SyncIdentity.CreateOccurrenceId(baseline));
+        SyncIdentity.CreateOccurrenceId(driftedFingerprint).Should().NotBe(SyncIdentity.CreateOccurrenceId(baseline));
     }
 
     [Fact]
-    public void CreateOccurrenceIdIgnoresLocationDriftForSameOccurrence()
+    public void CreateOccurrenceIdChangesWhenLocationChanges()
     {
         var baseline = CreateOccurrence("Signals", SyncTargetKind.CalendarEvent);
         var relocated = CreateOccurrence("Signals", SyncTargetKind.CalendarEvent, location: "Room 305");
 
-        SyncIdentity.CreateOccurrenceId(relocated).Should().Be(SyncIdentity.CreateOccurrenceId(baseline));
+        SyncIdentity.CreateOccurrenceId(relocated).Should().NotBe(SyncIdentity.CreateOccurrenceId(baseline));
+    }
+
+    [Fact]
+    public void CreateOccurrenceIdDistinguishesSameSlotOccurrences()
+    {
+        var first = CreateOccurrence("Signals", SyncTargetKind.CalendarEvent, sourceHash: "signals-a");
+        var second = CreateOccurrence("Signals", SyncTargetKind.CalendarEvent, sourceHash: "signals-b");
+
+        SyncIdentity.CreateOccurrenceId(first).Should().NotBe(SyncIdentity.CreateOccurrenceId(second));
     }
 
     [Fact]

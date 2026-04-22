@@ -14,9 +14,15 @@ public static class SyncIdentity
             "occ",
             occurrence.TargetKind,
             occurrence.ClassName,
+            occurrence.SourceFingerprint.SourceKind,
+            occurrence.SourceFingerprint.Hash,
             occurrence.OccurrenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            occurrence.Metadata.PeriodRange.StartPeriod,
-            occurrence.Metadata.PeriodRange.EndPeriod);
+            occurrence.Start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            occurrence.End.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            occurrence.Metadata.CourseTitle,
+            occurrence.Metadata.Location ?? string.Empty,
+            occurrence.Metadata.Teacher ?? string.Empty,
+            occurrence.TimeProfileId);
     }
 
     public static string CreateExportGroupId(ExportGroup exportGroup)

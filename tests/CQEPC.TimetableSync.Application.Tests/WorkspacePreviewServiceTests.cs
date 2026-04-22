@@ -1964,6 +1964,250 @@ public sealed class WorkspacePreviewServiceTests
     }
 
     [Fact]
+    public async Task ApplyAcceptedChangesAsyncPreservesGoogleTaskMappingsWhenBackfillingExactMatches()
+    {
+        var repository = new InMemoryWorkspaceRepository();
+        var mappingRepository = new InMemorySyncMappingRepository();
+        var exactMatchOccurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 5), new TimeOnly(8, 0), new TimeOnly(9, 40));
+        var addedOccurrence = CreateOccurrence("Class A", "Circuits", new DateOnly(2026, 3, 6), new TimeOnly(10, 0), new TimeOnly(11, 40));
+        var exactMatchLocalId = SyncIdentity.CreateOccurrenceId(exactMatchOccurrence);
+        var addedLocalId = SyncIdentity.CreateOccurrenceId(addedOccurrence);
+        var taskMapping = new SyncMapping(
+            ProviderKind.Google,
+            SyncTargetKind.TaskItem,
+            SyncMappingKind.Task,
+            localSyncId: "task-local-1",
+            destinationId: "@default",
+            remoteItemId: "task-remote-1",
+            parentRemoteItemId: null,
+            originalStartTimeUtc: null,
+            sourceFingerprint: new SourceFingerprint("task-rule", "task-1"),
+            lastSyncedAt: new DateTimeOffset(2026, 3, 1, 8, 0, 0, TimeSpan.Zero));
+        var googlePreferences = new UserPreferences(
+            WeekStartPreference.Monday,
+            firstWeekStartOverride: new DateOnly(2026, 3, 2),
+            ProviderKind.Google,
+            selectedTimeProfileId: "main-campus",
+            WorkspacePreferenceDefaults.CreateProviderDefaults(ProviderKind.Google),
+            WorkspacePreferenceDefaults.CreateProviderDefaults(ProviderKind.Microsoft),
+            new GoogleProviderSettings(
+                oauthClientConfigurationPath: @"C:\oauth\google-desktop.json",
+                connectedAccountSummary: "user@example.com",
+                selectedCalendarId: "calendar-123",
+                selectedCalendarDisplayName: "CQEPC Classes"));
+        var remoteExactMatch = new ProviderRemoteCalendarEvent(
+            "remote-exact-1",
+            "calendar-123",
+            exactMatchOccurrence.Metadata.CourseTitle,
+            exactMatchOccurrence.Start,
+            exactMatchOccurrence.End,
+            exactMatchOccurrence.Metadata.Location,
+            "managed",
+            true,
+            exactMatchLocalId,
+            exactMatchOccurrence.SourceFingerprint.Hash,
+            exactMatchOccurrence.SourceFingerprint.SourceKind);
+        var preview = new WorkspacePreviewResult(
+            CreateCatalogState(),
+            googlePreferences,
+            PreviousSnapshot: null,
+            [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals"), CreateCourseBlock("Class A", "Circuits")])],
+            [new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8))],
+            [new TimeProfile("main-campus", "Main Campus", [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))])],
+            Array.Empty<ParseWarning>(),
+            Array.Empty<ParseDiagnostic>(),
+            Array.Empty<UnresolvedItem>(),
+            "Class A",
+            "main-campus",
+            Array.Empty<RuleBasedTaskGenerationRule>(),
+            GeneratedTaskCount: 0,
+            NormalizationResult: new NormalizationResult(
+                [CreateCourseBlock("Class A", "Signals"), CreateCourseBlock("Class A", "Circuits")],
+                [exactMatchOccurrence, addedOccurrence],
+                [
+                    new ExportGroup(ExportGroupKind.SingleOccurrence, [exactMatchOccurrence]),
+                    new ExportGroup(ExportGroupKind.SingleOccurrence, [addedOccurrence]),
+                ],
+                Array.Empty<UnresolvedItem>()),
+            SyncPlan: new SyncPlan(
+                [exactMatchOccurrence, addedOccurrence],
+                [
+                    new PlannedSyncChange(
+                        SyncChangeKind.Added,
+                        SyncTargetKind.CalendarEvent,
+                        addedLocalId,
+                        after: addedOccurrence),
+                ],
+                Array.Empty<UnresolvedItem>(),
+                remotePreviewEvents: [remoteExactMatch],
+                deletionWindow: new PreviewDateWindow(
+                    new DateTimeOffset(new DateTime(2026, 3, 2), TimeSpan.Zero),
+                    new DateTimeOffset(new DateTime(2026, 3, 9), TimeSpan.Zero)),
+                exactMatchRemoteEventIds: ["remote-exact-1"],
+                exactMatchOccurrenceIds: [exactMatchLocalId]),
+            Status: new WorkspacePreviewStatus(WorkspacePreviewStatusKind.ChangesPending));
+        var providerAdapter = new FakeProviderAdapter(
+            new ProviderApplyResult(
+                [new ProviderAppliedChangeResult(addedLocalId, true)],
+                [
+                    new SyncMapping(
+                        ProviderKind.Google,
+                        SyncTargetKind.CalendarEvent,
+                        SyncMappingKind.SingleEvent,
+                        localSyncId: addedLocalId,
+                        destinationId: "calendar-123",
+                        remoteItemId: "remote-added-1",
+                        parentRemoteItemId: null,
+                        originalStartTimeUtc: null,
+                        sourceFingerprint: addedOccurrence.SourceFingerprint,
+                        lastSyncedAt: new DateTimeOffset(2026, 3, 1, 8, 0, 0, TimeSpan.Zero)),
+                    taskMapping,
+                ]));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(Array.Empty<ClassSchedule>()),
+            new FakeAcademicCalendarParser(Array.Empty<SchoolWeek>()),
+            new FakePeriodTimeProfileParser(Array.Empty<TimeProfile>()),
+            new FakeNormalizer(),
+            new FakeDiffService(),
+            repository,
+            new FixedTimeProvider(new DateTimeOffset(2026, 3, 1, 8, 0, 0, TimeSpan.Zero)),
+            syncMappingRepository: mappingRepository,
+            providerAdapters: [providerAdapter]);
+
+        var result = await service.ApplyAcceptedChangesAsync(preview, [addedLocalId], CancellationToken.None);
+
+        result.SuccessfulChangeCount.Should().Be(1);
+        mappingRepository.SavedMappings.Should().Contain(mapping => mapping.LocalSyncId == exactMatchLocalId && mapping.RemoteItemId == "remote-exact-1");
+        mappingRepository.SavedMappings.Should().Contain(mapping => mapping.LocalSyncId == addedLocalId && mapping.RemoteItemId == "remote-added-1");
+        mappingRepository.SavedMappings.Should().ContainSingle(mapping =>
+            mapping.TargetKind == SyncTargetKind.TaskItem
+            && mapping.LocalSyncId == "task-local-1"
+            && mapping.RemoteItemId == "task-remote-1");
+    }
+
+    [Fact]
+    public async Task ApplyAcceptedChangesAsyncPreservesGoogleMappingsWhenBackfillingExactMatchesWithoutSelectedCalendar()
+    {
+        var repository = new InMemoryWorkspaceRepository();
+        var mappingRepository = new InMemorySyncMappingRepository();
+        var exactMatchOccurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 5), new TimeOnly(8, 0), new TimeOnly(9, 40));
+        var addedOccurrence = CreateOccurrence("Class A", "Circuits", new DateOnly(2026, 3, 6), new TimeOnly(10, 0), new TimeOnly(11, 40));
+        var exactMatchLocalId = SyncIdentity.CreateOccurrenceId(exactMatchOccurrence);
+        var addedLocalId = SyncIdentity.CreateOccurrenceId(addedOccurrence);
+        var taskMapping = new SyncMapping(
+            ProviderKind.Google,
+            SyncTargetKind.TaskItem,
+            SyncMappingKind.Task,
+            localSyncId: "task-local-1",
+            destinationId: "@default",
+            remoteItemId: "task-remote-1",
+            parentRemoteItemId: null,
+            originalStartTimeUtc: null,
+            sourceFingerprint: new SourceFingerprint("task-rule", "task-1"),
+            lastSyncedAt: new DateTimeOffset(2026, 3, 1, 8, 0, 0, TimeSpan.Zero));
+        var googlePreferences = new UserPreferences(
+            WeekStartPreference.Monday,
+            firstWeekStartOverride: new DateOnly(2026, 3, 2),
+            ProviderKind.Google,
+            selectedTimeProfileId: "main-campus",
+            WorkspacePreferenceDefaults.CreateProviderDefaults(ProviderKind.Google),
+            WorkspacePreferenceDefaults.CreateProviderDefaults(ProviderKind.Microsoft),
+            new GoogleProviderSettings(
+                oauthClientConfigurationPath: @"C:\oauth\google-desktop.json",
+                connectedAccountSummary: "user@example.com",
+                selectedCalendarId: null,
+                selectedCalendarDisplayName: null));
+        var remoteExactMatch = new ProviderRemoteCalendarEvent(
+            "remote-exact-1",
+            "calendar-123",
+            exactMatchOccurrence.Metadata.CourseTitle,
+            exactMatchOccurrence.Start,
+            exactMatchOccurrence.End,
+            exactMatchOccurrence.Metadata.Location,
+            "managed",
+            true,
+            exactMatchLocalId,
+            exactMatchOccurrence.SourceFingerprint.Hash,
+            exactMatchOccurrence.SourceFingerprint.SourceKind);
+        var preview = new WorkspacePreviewResult(
+            CreateCatalogState(),
+            googlePreferences,
+            PreviousSnapshot: null,
+            [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals"), CreateCourseBlock("Class A", "Circuits")])],
+            [new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8))],
+            [new TimeProfile("main-campus", "Main Campus", [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))])],
+            Array.Empty<ParseWarning>(),
+            Array.Empty<ParseDiagnostic>(),
+            Array.Empty<UnresolvedItem>(),
+            "Class A",
+            "main-campus",
+            Array.Empty<RuleBasedTaskGenerationRule>(),
+            GeneratedTaskCount: 0,
+            NormalizationResult: new NormalizationResult(
+                [CreateCourseBlock("Class A", "Signals"), CreateCourseBlock("Class A", "Circuits")],
+                [exactMatchOccurrence, addedOccurrence],
+                [
+                    new ExportGroup(ExportGroupKind.SingleOccurrence, [exactMatchOccurrence]),
+                    new ExportGroup(ExportGroupKind.SingleOccurrence, [addedOccurrence]),
+                ],
+                Array.Empty<UnresolvedItem>()),
+            SyncPlan: new SyncPlan(
+                [exactMatchOccurrence, addedOccurrence],
+                [
+                    new PlannedSyncChange(
+                        SyncChangeKind.Added,
+                        SyncTargetKind.CalendarEvent,
+                        addedLocalId,
+                        after: addedOccurrence),
+                ],
+                Array.Empty<UnresolvedItem>(),
+                remotePreviewEvents: [remoteExactMatch],
+                deletionWindow: new PreviewDateWindow(
+                    new DateTimeOffset(new DateTime(2026, 3, 2), TimeSpan.Zero),
+                    new DateTimeOffset(new DateTime(2026, 3, 9), TimeSpan.Zero)),
+                exactMatchRemoteEventIds: ["remote-exact-1"],
+                exactMatchOccurrenceIds: [exactMatchLocalId]),
+            Status: new WorkspacePreviewStatus(WorkspacePreviewStatusKind.ChangesPending));
+        var providerAdapter = new FakeProviderAdapter(
+            new ProviderApplyResult(
+                [new ProviderAppliedChangeResult(addedLocalId, true)],
+                [
+                    new SyncMapping(
+                        ProviderKind.Google,
+                        SyncTargetKind.CalendarEvent,
+                        SyncMappingKind.SingleEvent,
+                        localSyncId: addedLocalId,
+                        destinationId: "calendar-123",
+                        remoteItemId: "remote-added-1",
+                        parentRemoteItemId: null,
+                        originalStartTimeUtc: null,
+                        sourceFingerprint: addedOccurrence.SourceFingerprint,
+                        lastSyncedAt: new DateTimeOffset(2026, 3, 1, 8, 0, 0, TimeSpan.Zero)),
+                    taskMapping,
+                ]));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(Array.Empty<ClassSchedule>()),
+            new FakeAcademicCalendarParser(Array.Empty<SchoolWeek>()),
+            new FakePeriodTimeProfileParser(Array.Empty<TimeProfile>()),
+            new FakeNormalizer(),
+            new FakeDiffService(),
+            repository,
+            new FixedTimeProvider(new DateTimeOffset(2026, 3, 1, 8, 0, 0, TimeSpan.Zero)),
+            syncMappingRepository: mappingRepository,
+            providerAdapters: [providerAdapter]);
+
+        var result = await service.ApplyAcceptedChangesAsync(preview, [addedLocalId], CancellationToken.None);
+
+        result.SuccessfulChangeCount.Should().Be(1);
+        mappingRepository.SavedMappings.Should().Contain(mapping => mapping.LocalSyncId == exactMatchLocalId && mapping.RemoteItemId == "remote-exact-1");
+        mappingRepository.SavedMappings.Should().Contain(mapping => mapping.LocalSyncId == addedLocalId && mapping.RemoteItemId == "remote-added-1");
+        mappingRepository.SavedMappings.Should().ContainSingle(mapping =>
+            mapping.TargetKind == SyncTargetKind.TaskItem
+            && mapping.LocalSyncId == "task-local-1"
+            && mapping.RemoteItemId == "task-remote-1");
+    }
+
+    [Fact]
     public async Task ApplyAcceptedChangesAsyncScopesGoogleApplyMappingsToSelectedCalendarAndPreservesOthers()
     {
         var occurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40));
