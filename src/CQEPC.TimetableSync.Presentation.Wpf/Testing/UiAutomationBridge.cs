@@ -154,6 +154,8 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
                     return await ExecuteUiFuncAsync(GetWorkspaceStatus, cancellationToken).ConfigureAwait(false);
                 case "get-localization-state":
                     return await ExecuteUiFuncAsync(GetLocalizationState, cancellationToken).ConfigureAwait(false);
+                case "get-title-bar-theme-state":
+                    return await ExecuteUiFuncAsync(GetTitleBarThemeState, cancellationToken).ConfigureAwait(false);
                 case "select-home-date":
                     if (string.IsNullOrWhiteSpace(request.Value))
                     {
@@ -389,6 +391,17 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
                 CloseButton = System.Windows.Application.Current.TryFindResource("AboutCloseButton")?.ToString(),
             },
             JsonOptions);
+        return new UiAutomationBridgeResponse(true, null, payload);
+    }
+
+    private UiAutomationBridgeResponse GetTitleBarThemeState()
+    {
+        if (window is not Shell.ShellWindow shellWindow)
+        {
+            throw new InvalidOperationException("The automation bridge could not access the shell window.");
+        }
+
+        var payload = JsonSerializer.Serialize(shellWindow.GetNativeTitleBarThemeState(), JsonOptions);
         return new UiAutomationBridgeResponse(true, null, payload);
     }
 

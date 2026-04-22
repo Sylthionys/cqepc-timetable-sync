@@ -60,6 +60,7 @@ For each regular timetable block, the parser extracts:
 - `SourceFingerprint`
 
 The parser preserves the raw week-expression text exactly as extracted between the period-range lead and the first tagged metadata field.
+For regular timetable blocks, `SourceFingerprint` is intentionally block-local. It hashes the normalized block text together with the class/page anchor used during parsing, not the whole PDF file hash. This keeps unchanged lessons stable across renamed or lightly revised timetable exports while still letting genuinely changed blocks receive a new fingerprint.
 
 ## Tagged Metadata Rules
 
@@ -135,3 +136,4 @@ Fixtures are generated in code and do not depend on private school exports.
 - same-column orphan recovery is intentionally conservative; if a neighbor merge is not clearly local and lossless, the block stays unresolved
 - practical-course summaries at the page footer are ignored by design; if the school only provides a course in that footer note and not in the timetable grid, the parser will not emit it
 - some school-exported PDFs visibly clip metadata near the page edge or page bottom; those blocks are now treated as unresolved source truncation rather than silently exported with partial metadata
+- source fingerprints are designed to survive whole-file churn, not semester-spanning identity reuse; later layers still need occurrence-level sync identity plus snapshot/provider state to decide whether two exports describe the same concrete lessons

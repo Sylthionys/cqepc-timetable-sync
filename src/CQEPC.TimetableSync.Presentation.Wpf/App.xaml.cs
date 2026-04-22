@@ -109,6 +109,8 @@ public partial class App : System.Windows.Application
             var settingsViewModel = new SettingsPageViewModel(workspace);
             shellViewModel = new ShellViewModel(workspace, settingsViewModel, effectiveTimeProvider);
             var shellWindow = new ShellWindow(shellViewModel);
+            shellWindow.UpdateTitleBarTheme(themeService.ActiveTheme);
+            themeService.ThemeChanged += (_, _) => shellWindow.UpdateTitleBarTheme(themeService.ActiveTheme);
             if (launchOptions.IsUiTestMode)
             {
                 shellWindow.ApplyUiWindowMode(launchOptions.Width, launchOptions.Height, launchOptions.WindowMode);

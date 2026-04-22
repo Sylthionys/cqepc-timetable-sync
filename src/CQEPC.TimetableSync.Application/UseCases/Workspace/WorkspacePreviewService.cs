@@ -215,7 +215,8 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
             normalizationResult = ApplyCourseScheduleOverrides(
                 normalizationResult,
                 effectiveTimetableResolution,
-                schoolWeeks);
+                schoolWeeks,
+                timeProfiles);
             normalizationResult = ApplyDefaultCalendarColor(normalizationResult, request.Preferences.GetDefaults(request.Preferences.DefaultProvider));
 
             var taskRules = request.IncludeRuleBasedTasks
@@ -235,41 +236,81 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
             deletionWindow = ResolveDeletionWindow(schoolWeeks, syncOccurrences);
             displayWindow = ResolveDisplayWindow(request.Preferences, request.Preferences.DefaultProvider, deletionWindow);
             var existingMappingsTask = syncMappingRepository.LoadAsync(request.Preferences.DefaultProvider, cancellationToken);
-            var remotePreviewEventsTask = LoadRemotePreviewEventsAsync(
+            var rawRemotePreviewEventsTask = LoadRemotePreviewEventsAsync(
                 request.Preferences,
                 displayWindow,
                 request.IncludeRemoteCalendarPreview,
                 cancellationToken);
-            await Task.WhenAll(existingMappingsTask, remotePreviewEventsTask).ConfigureAwait(false);
+            await Task.WhenAll(existingMappingsTask, rawRemotePreviewEventsTask).ConfigureAwait(false);
             var existingMappings = await existingMappingsTask.ConfigureAwait(false);
+            var rawRemotePreviewEvents = await rawRemotePreviewEventsTask.ConfigureAwait(false);
+            var calendarDestinationId = ResolveCalendarDestinationId(request.Preferences, request.Preferences.DefaultProvider);
+            var scopedExistingMappings = FilterMappingsForDestination(
+                request.Preferences.DefaultProvider,
+                existingMappings,
+                calendarDestinationId);
+            if (request.Preferences.DefaultProvider == ProviderKind.Google)
+            {
+                var normalizedMappings = NormalizeGoogleCalendarMappings(
+                    scopedExistingMappings,
+                    syncOccurrences,
+                    rawRemotePreviewEvents,
+                    calendarDestinationId);
+                if (!AreMappingsEquivalent(scopedExistingMappings, normalizedMappings))
+                {
+                    existingMappings = MergeScopedMappings(
+                        request.Preferences.DefaultProvider,
+                        existingMappings,
+                        normalizedMappings,
+                        calendarDestinationId);
+                    await syncMappingRepository.SaveAsync(
+                            request.Preferences.DefaultProvider,
+                            existingMappings,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    scopedExistingMappings = normalizedMappings;
+                }
+            }
+
             remotePreviewEvents = AlignRemotePreviewEventsWithMappings(
                 request.Preferences.DefaultProvider,
-                await remotePreviewEventsTask.ConfigureAwait(false),
-                existingMappings);
+                rawRemotePreviewEvents,
+                scopedExistingMappings,
+                calendarDestinationId);
 
             var syncPlan = await syncDiffService.CreatePreviewAsync(
                     request.Preferences.DefaultProvider,
                     syncOccurrences,
                     normalizationResult.UnresolvedItems,
                     previousSnapshot,
-                    existingMappings,
+                    scopedExistingMappings,
                     remotePreviewEvents,
-                    ResolveCalendarDestinationId(request.Preferences, request.Preferences.DefaultProvider),
+                    calendarDestinationId,
                     deletionWindow,
                     cancellationToken)
                 .ConfigureAwait(false);
 
             if (request.Preferences.DefaultProvider == ProviderKind.Google)
             {
-                var backfilledMappings = BackfillGoogleExactMatchMappings(syncPlan, existingMappings);
-                if (!AreMappingsEquivalent(existingMappings, backfilledMappings))
+                var backfilledMappings = BackfillGoogleExactMatchMappings(syncPlan, scopedExistingMappings, calendarDestinationId);
+                backfilledMappings = NormalizeGoogleCalendarMappings(
+                    backfilledMappings,
+                    syncOccurrences,
+                    rawRemotePreviewEvents,
+                    calendarDestinationId);
+                if (!AreMappingsEquivalent(scopedExistingMappings, backfilledMappings))
                 {
+                    existingMappings = MergeScopedMappings(
+                        request.Preferences.DefaultProvider,
+                        existingMappings,
+                        backfilledMappings,
+                        calendarDestinationId);
                     await syncMappingRepository.SaveAsync(
                             request.Preferences.DefaultProvider,
-                            backfilledMappings,
+                            existingMappings,
                             cancellationToken)
                         .ConfigureAwait(false);
-                    existingMappings = backfilledMappings;
+                    scopedExistingMappings = backfilledMappings;
                 }
             }
 
@@ -448,6 +489,10 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
             var calendarDestinationDisplayName = ResolveCalendarDestinationDisplayName(preview.Preferences, provider);
             var taskListDestinationId = ResolveTaskListDestinationId(preview.Preferences, provider);
             var taskListDestinationDisplayName = ResolveTaskListDestinationDisplayName(preview.Preferences, provider);
+            var scopedExistingMappings = FilterMappingsForDestination(
+                provider,
+                existingMappings,
+                calendarDestinationId);
             var applyResult = await adapter.ApplyAcceptedChangesAsync(
                     new ProviderApplyRequest(
                         connectionContext,
@@ -459,15 +504,16 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
                         acceptedChanges,
                         preview.SyncPlan.Occurrences,
                         preview.NormalizationResult.ExportGroups,
-                        existingMappings,
+                        scopedExistingMappings,
                         providerDefaults.DefaultCalendarColorId),
                     cancellationToken)
                 .ConfigureAwait(false);
 
             var updatedMappings = provider == ProviderKind.Google
-                ? BackfillGoogleExactMatchMappings(preview.SyncPlan, applyResult.UpdatedMappings)
+                ? BackfillGoogleExactMatchMappings(preview.SyncPlan, applyResult.UpdatedMappings, calendarDestinationId)
                 : applyResult.UpdatedMappings;
-            await syncMappingRepository.SaveAsync(provider, updatedMappings, cancellationToken).ConfigureAwait(false);
+            var mergedMappings = MergeScopedMappings(provider, existingMappings, updatedMappings, calendarDestinationId);
+            await syncMappingRepository.SaveAsync(provider, mergedMappings, cancellationToken).ConfigureAwait(false);
 
             successfulIds = applyResult.ChangeResults
                 .Where(static result => result.Succeeded)
@@ -639,7 +685,8 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
 
     private static IReadOnlyList<SyncMapping> BackfillGoogleExactMatchMappings(
         SyncPlan syncPlan,
-        IReadOnlyList<SyncMapping> updatedMappings)
+        IReadOnlyList<SyncMapping> updatedMappings,
+        string? calendarDestinationId)
     {
         if (syncPlan.ExactMatchOccurrenceIds.Count == 0)
         {
@@ -672,7 +719,61 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
         }
 
         return mappingsByLocalId.Values
+            .Where(mapping => mapping.TargetKind != SyncTargetKind.CalendarEvent
+                || string.IsNullOrWhiteSpace(calendarDestinationId)
+                || MatchesDestination(mapping, calendarDestinationId))
             .OrderBy(static mapping => mapping.LocalSyncId, StringComparer.Ordinal)
+            .ThenBy(static mapping => mapping.RemoteItemId, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<SyncMapping> NormalizeGoogleCalendarMappings(
+        IReadOnlyList<SyncMapping> mappings,
+        IReadOnlyList<ResolvedOccurrence> currentOccurrences,
+        IReadOnlyList<ProviderRemoteCalendarEvent> remotePreviewEvents,
+        string? calendarDestinationId)
+    {
+        if (mappings.Count == 0 || string.IsNullOrWhiteSpace(calendarDestinationId))
+        {
+            return mappings;
+        }
+
+        var currentOccurrencesById = currentOccurrences
+            .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
+            .GroupBy(SyncIdentity.CreateOccurrenceId, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.First(), StringComparer.Ordinal);
+        var remoteEventsByIdentityKey = remotePreviewEvents
+            .Where(static remoteEvent => remoteEvent.IsManagedByApp)
+            .Select(remoteEvent => (Key: TryCreateGoogleRemoteIdentityKey(remoteEvent), RemoteEvent: remoteEvent))
+            .Where(static item => item.Key is not null)
+            .GroupBy(static item => item.Key!, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.First().RemoteEvent, StringComparer.Ordinal);
+        var normalizedCalendarMappings = mappings
+            .Where(static mapping => mapping.TargetKind == SyncTargetKind.CalendarEvent)
+            .Where(mapping => MatchesDestination(mapping, calendarDestinationId))
+            .Select(mapping => (Key: TryCreateGoogleMappingRemoteIdentityKey(mapping), Mapping: mapping))
+            .Where(static item => item.Key is not null)
+            .GroupBy(static item => item.Key!, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                remoteEventsByIdentityKey.TryGetValue(group.Key, out var remoteEvent);
+                return SelectPreferredGoogleCalendarMapping(
+                    group.Select(static item => item.Mapping).ToArray(),
+                    currentOccurrencesById,
+                    remoteEvent);
+            })
+            .GroupBy(static mapping => mapping.LocalSyncId, StringComparer.Ordinal)
+            .Select(static group => group
+                .OrderByDescending(static mapping => mapping.LastSyncedAt)
+                .ThenBy(static mapping => mapping.RemoteItemId, StringComparer.Ordinal)
+                .First())
+            .ToArray();
+
+        return mappings
+            .Where(static mapping => mapping.TargetKind != SyncTargetKind.CalendarEvent)
+            .Concat(normalizedCalendarMappings)
+            .OrderBy(static mapping => mapping.LocalSyncId, StringComparer.Ordinal)
+            .ThenBy(static mapping => mapping.RemoteItemId, StringComparer.Ordinal)
             .ToArray();
     }
 
@@ -708,6 +809,56 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
         }
 
         return true;
+    }
+
+    private static SyncMapping SelectPreferredGoogleCalendarMapping(
+        IReadOnlyList<SyncMapping> mappings,
+        Dictionary<string, ResolvedOccurrence> currentOccurrencesById,
+        ProviderRemoteCalendarEvent? remoteEvent)
+    {
+        var currentMatches = mappings
+            .Where(mapping => currentOccurrencesById.ContainsKey(mapping.LocalSyncId))
+            .ToArray();
+        if (currentMatches.Length == 1)
+        {
+            return currentMatches[0];
+        }
+
+        if (currentMatches.Length > 1)
+        {
+            var exactCurrentSourceMatch = currentMatches.FirstOrDefault(mapping =>
+                currentOccurrencesById.TryGetValue(mapping.LocalSyncId, out var occurrence)
+                && string.Equals(mapping.SourceFingerprint.SourceKind, occurrence.SourceFingerprint.SourceKind, StringComparison.Ordinal)
+                && string.Equals(mapping.SourceFingerprint.Hash, occurrence.SourceFingerprint.Hash, StringComparison.Ordinal));
+            if (exactCurrentSourceMatch is not null)
+            {
+                return exactCurrentSourceMatch;
+            }
+        }
+
+        if (remoteEvent is not null && currentMatches.Length == 0)
+        {
+            var remoteLocalSyncIdMatch = mappings.FirstOrDefault(mapping =>
+                !string.IsNullOrWhiteSpace(remoteEvent.LocalSyncId)
+                && string.Equals(mapping.LocalSyncId, remoteEvent.LocalSyncId, StringComparison.Ordinal));
+            if (remoteLocalSyncIdMatch is not null)
+            {
+                return remoteLocalSyncIdMatch;
+            }
+
+            var remoteSourceMatch = mappings.FirstOrDefault(mapping =>
+                string.Equals(mapping.SourceFingerprint.SourceKind, remoteEvent.SourceKind, StringComparison.Ordinal)
+                && string.Equals(mapping.SourceFingerprint.Hash, remoteEvent.SourceFingerprintHash, StringComparison.Ordinal));
+            if (remoteSourceMatch is not null)
+            {
+                return remoteSourceMatch;
+            }
+        }
+
+        return mappings
+            .OrderByDescending(static mapping => mapping.LastSyncedAt)
+            .ThenBy(static mapping => mapping.LocalSyncId, StringComparer.Ordinal)
+            .First();
     }
 
     private static ProviderRemoteCalendarEvent? ResolveExactMatchRemoteEventForMapping(
@@ -763,6 +914,46 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
                 originalStartTimeUtc: null,
                 occurrence.SourceFingerprint,
                 DateTimeOffset.UtcNow);
+
+    private static string? TryCreateGoogleMappingRemoteIdentityKey(SyncMapping mapping)
+    {
+        if (mapping.TargetKind != SyncTargetKind.CalendarEvent)
+        {
+            return null;
+        }
+
+        if (mapping.MappingKind == SyncMappingKind.RecurringMember
+            && !string.IsNullOrWhiteSpace(mapping.ParentRemoteItemId)
+            && mapping.OriginalStartTimeUtc is not null)
+        {
+            return CreateGoogleRecurringIdentityKey(mapping.ParentRemoteItemId!, mapping.OriginalStartTimeUtc.Value);
+        }
+
+        return string.IsNullOrWhiteSpace(mapping.RemoteItemId)
+            ? null
+            : string.Concat("event|", mapping.RemoteItemId);
+    }
+
+    private static string? TryCreateGoogleRemoteIdentityKey(ProviderRemoteCalendarEvent remoteEvent)
+    {
+        if (remoteEvent.IsManagedByApp
+            && !string.IsNullOrWhiteSpace(remoteEvent.ParentRemoteItemId)
+            && remoteEvent.OriginalStartTimeUtc is not null)
+        {
+            return CreateGoogleRecurringIdentityKey(remoteEvent.ParentRemoteItemId!, remoteEvent.OriginalStartTimeUtc.Value);
+        }
+
+        return string.IsNullOrWhiteSpace(remoteEvent.RemoteItemId)
+            ? null
+            : string.Concat("event|", remoteEvent.RemoteItemId);
+    }
+
+    private static string CreateGoogleRecurringIdentityKey(string parentRemoteItemId, DateTimeOffset originalStartTimeUtc) =>
+        string.Concat(
+            "recurring|",
+            parentRemoteItemId,
+            "|",
+            originalStartTimeUtc.ToUniversalTime().ToString("O"));
 
     private static string? ResolveSelectedClassName(
         ClassSchedule[] classSchedules,
@@ -876,7 +1067,8 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
     private static IReadOnlyList<ProviderRemoteCalendarEvent> AlignRemotePreviewEventsWithMappings(
         ProviderKind provider,
         IReadOnlyList<ProviderRemoteCalendarEvent> remotePreviewEvents,
-        IReadOnlyList<SyncMapping> existingMappings)
+        IReadOnlyList<SyncMapping> existingMappings,
+        string? calendarDestinationId)
     {
         if (provider != ProviderKind.Google
             || remotePreviewEvents.Count == 0
@@ -886,8 +1078,9 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
         }
 
         var recurringMappings = existingMappings
-            .Where(static mapping =>
+            .Where(mapping =>
                 mapping.TargetKind == SyncTargetKind.CalendarEvent
+                && MatchesDestination(mapping, calendarDestinationId)
                 && mapping.MappingKind == SyncMappingKind.RecurringMember
                 && !string.IsNullOrWhiteSpace(mapping.ParentRemoteItemId)
                 && mapping.OriginalStartTimeUtc is not null)
@@ -941,21 +1134,75 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
     private static string CreateRecurringPreviewAlignmentKey(string parentRemoteItemId, DateTimeOffset originalStartTimeUtc) =>
         string.Concat(parentRemoteItemId, "|", originalStartTimeUtc.ToUniversalTime().ToString("O"));
 
+    private static IReadOnlyList<SyncMapping> FilterMappingsForDestination(
+        ProviderKind provider,
+        IReadOnlyList<SyncMapping> mappings,
+        string? calendarDestinationId)
+    {
+        if (provider != ProviderKind.Google || string.IsNullOrWhiteSpace(calendarDestinationId))
+        {
+            return mappings;
+        }
+
+        return mappings
+            .Where(mapping => mapping.TargetKind != SyncTargetKind.CalendarEvent || MatchesDestination(mapping, calendarDestinationId))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<SyncMapping> MergeScopedMappings(
+        ProviderKind provider,
+        IReadOnlyList<SyncMapping> existingMappings,
+        IReadOnlyList<SyncMapping> scopedMappings,
+        string? calendarDestinationId)
+    {
+        if (provider != ProviderKind.Google || string.IsNullOrWhiteSpace(calendarDestinationId))
+        {
+            return scopedMappings;
+        }
+
+        return existingMappings
+            .Where(mapping => mapping.TargetKind == SyncTargetKind.CalendarEvent && !MatchesDestination(mapping, calendarDestinationId))
+            .Concat(scopedMappings)
+            .OrderBy(static mapping => mapping.LocalSyncId, StringComparer.Ordinal)
+            .ThenBy(static mapping => mapping.RemoteItemId, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static bool MatchesDestination(SyncMapping mapping, string? calendarDestinationId) =>
+        !string.IsNullOrWhiteSpace(calendarDestinationId)
+        && string.Equals(mapping.DestinationId, calendarDestinationId, StringComparison.Ordinal);
+
     private NormalizationResult ApplyCourseScheduleOverrides(
         NormalizationResult normalizationResult,
         TimetableResolutionSettings timetableResolution,
-        IReadOnlyList<SchoolWeek> schoolWeeks)
+        IReadOnlyList<SchoolWeek> schoolWeeks,
+        IReadOnlyList<TimeProfile> timeProfiles)
     {
         ArgumentNullException.ThrowIfNull(normalizationResult);
         ArgumentNullException.ThrowIfNull(timetableResolution);
         ArgumentNullException.ThrowIfNull(schoolWeeks);
+        ArgumentNullException.ThrowIfNull(timeProfiles);
 
         if (timetableResolution.CourseScheduleOverrides.Count == 0)
         {
             return ApplyCoursePresentationOverrides(normalizationResult, timetableResolution);
         }
 
-        var overrideKeys = timetableResolution.CourseScheduleOverrides
+        var activeOverrideBindings = normalizationResult.Occurrences
+            .Select(occurrence => CreateCourseScheduleOverrideBindingKey(occurrence.ClassName, occurrence.SourceFingerprint))
+            .Concat(normalizationResult.UnresolvedItems
+                .Where(static item => !string.IsNullOrWhiteSpace(item.ClassName))
+                .Select(item => CreateCourseScheduleOverrideBindingKey(item.ClassName!, item.SourceFingerprint)))
+            .ToHashSet(StringComparer.Ordinal);
+        var activeScheduleOverrides = timetableResolution.CourseScheduleOverrides
+            .Where(scheduleOverride => activeOverrideBindings.Contains(CreateCourseScheduleOverrideBindingKey(scheduleOverride.ClassName, scheduleOverride.SourceFingerprint)))
+            .ToArray();
+        if (activeScheduleOverrides.Length == 0)
+        {
+            return ApplyCoursePresentationOverrides(normalizationResult, timetableResolution);
+        }
+
+        var overrideKeys = activeScheduleOverrides
             .Select(static scheduleOverride => scheduleOverride.SourceFingerprint)
             .ToHashSet();
         var baseOccurrences = normalizationResult.Occurrences
@@ -964,8 +1211,8 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
         var baseUnresolvedItems = normalizationResult.UnresolvedItems
             .Where(item => !overrideKeys.Contains(item.SourceFingerprint))
             .ToList();
-        var generatedOccurrences = timetableResolution.CourseScheduleOverrides
-            .SelectMany(scheduleOverride => ExpandCourseScheduleOverride(scheduleOverride, schoolWeeks))
+        var generatedOccurrences = activeScheduleOverrides
+            .SelectMany(scheduleOverride => ExpandCourseScheduleOverride(scheduleOverride, schoolWeeks, timeProfiles))
             .ToArray();
         var mergedOccurrences = baseOccurrences
             .Concat(generatedOccurrences)
@@ -988,6 +1235,14 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
                 fallbackConfirmations),
             timetableResolution);
     }
+
+    private static string CreateCourseScheduleOverrideBindingKey(string className, SourceFingerprint sourceFingerprint) =>
+        string.Concat(
+            className.Trim(),
+            "|",
+            sourceFingerprint.SourceKind,
+            "|",
+            sourceFingerprint.Hash);
 
     private NormalizationResult ApplyCoursePresentationOverrides(
         NormalizationResult normalizationResult,
@@ -1070,9 +1325,11 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
 
     private static IEnumerable<ResolvedOccurrence> ExpandCourseScheduleOverride(
         CourseScheduleOverride scheduleOverride,
-        IReadOnlyList<SchoolWeek> schoolWeeks)
+        IReadOnlyList<SchoolWeek> schoolWeeks,
+        IReadOnlyList<TimeProfile> timeProfiles)
     {
         var dates = EnumerateOccurrenceDates(scheduleOverride).ToArray();
+        var resolvedPeriodRange = ResolveOverridePeriodRange(scheduleOverride, timeProfiles);
         foreach (var date in dates)
         {
             var schoolWeekNumber = ResolveSchoolWeekNumber(schoolWeeks, date);
@@ -1088,7 +1345,7 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
                 new CourseMetadata(
                     scheduleOverride.CourseTitle,
                     CreateWeekExpression(scheduleOverride, schoolWeeks),
-                    new Domain.ValueObjects.PeriodRange(1, 1),
+                    resolvedPeriodRange,
                     scheduleOverride.Notes,
                     scheduleOverride.Campus,
                     scheduleOverride.Location,
@@ -1100,6 +1357,31 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
                 scheduleOverride.CalendarTimeZoneId,
                 scheduleOverride.GoogleCalendarColorId);
         }
+    }
+
+    private static Domain.ValueObjects.PeriodRange ResolveOverridePeriodRange(
+        CourseScheduleOverride scheduleOverride,
+        IReadOnlyList<TimeProfile> timeProfiles)
+    {
+        var profile = timeProfiles.FirstOrDefault(item =>
+            string.Equals(item.ProfileId, scheduleOverride.TimeProfileId, StringComparison.Ordinal));
+        if (profile is null)
+        {
+            return new Domain.ValueObjects.PeriodRange(1, 1);
+        }
+
+        var exactMatch = profile.Entries.FirstOrDefault(entry =>
+            entry.StartTime == scheduleOverride.StartTime
+            && entry.EndTime == scheduleOverride.EndTime);
+        if (exactMatch is not null)
+        {
+            return exactMatch.PeriodRange;
+        }
+
+        var containingEntry = profile.Entries.FirstOrDefault(entry =>
+            entry.StartTime <= scheduleOverride.StartTime
+            && entry.EndTime >= scheduleOverride.EndTime);
+        return containingEntry?.PeriodRange ?? new Domain.ValueObjects.PeriodRange(1, 1);
     }
 
     private static IEnumerable<DateOnly> EnumerateOccurrenceDates(CourseScheduleOverride scheduleOverride)

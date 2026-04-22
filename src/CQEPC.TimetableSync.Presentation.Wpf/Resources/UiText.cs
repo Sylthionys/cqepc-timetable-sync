@@ -142,9 +142,9 @@ public static class UiText
         "Calendar details will appear here once the local preview is ready.");
     public static string HomeOpenSettingsButton => GetString(nameof(HomeOpenSettingsButton), "Open Settings");
     public static string HomeOpenImportButton => GetString(nameof(HomeOpenImportButton), "Open Import");
-    public static string HomeSyncCalendarButton => GetString(nameof(HomeSyncCalendarButton), "Sync Existing Events");
+    public static string HomeSyncCalendarButton => GetString(nameof(HomeSyncCalendarButton), "Sync Current Calendar");
     public static string HomeImportScheduleButton => GetString(nameof(HomeImportScheduleButton), "Apply to Google Calendar");
-    public static string HomeExistingCalendarToggle => GetString(nameof(HomeExistingCalendarToggle), "Existing Events");
+    public static string HomeExistingCalendarToggle => GetString(nameof(HomeExistingCalendarToggle), "Current Calendar");
     public static string HomePreviousMonthButton => GetString(nameof(HomePreviousMonthButton), "Previous");
     public static string HomeTodayButton => GetString(nameof(HomeTodayButton), "Today");
     public static string HomeNextMonthButton => GetString(nameof(HomeNextMonthButton), "Next");
@@ -154,22 +154,26 @@ public static class UiText
     public static string HomeStandardCourseType => GetString(nameof(HomeStandardCourseType), "Standard");
     public static string HomeRemoteCalendarDetailsFallback => GetString(nameof(HomeRemoteCalendarDetailsFallback), "Existing Google Calendar event");
     public static string HomeNoClassesOnSelectedDay => GetString(nameof(HomeNoClassesOnSelectedDay), "No scheduled classes on the selected day.");
+    public static string HomeNoScheduleSummary => GetString(nameof(HomeNoScheduleSummary), "No schedule");
+    public static string HomeNoScheduleSummaryWithWeekFormat => GetString(
+        nameof(HomeNoScheduleSummaryWithWeekFormat),
+        "No schedule | Week {0}");
     public static string HomeOccurrenceCountFormat => GetString(nameof(HomeOccurrenceCountFormat), "{0} item(s)");
     public static string HomeCalendarPreviewCountFormat => GetString(nameof(HomeCalendarPreviewCountFormat), "{0} classes");
     public static string HomeSummaryOccurrenceFormat => GetString(nameof(HomeSummaryOccurrenceFormat), "{0} occurrence(s)");
     public static string HomeSummaryUnresolvedFormat => GetString(nameof(HomeSummaryUnresolvedFormat), "{0} unresolved");
     public static string HomeSelectedDaySummaryFormat => GetString(
         nameof(HomeSelectedDaySummaryFormat),
-        "{0} item(s) on this day.");
+        "{0} item(s)");
     public static string HomeSelectedDaySummaryWithWeekFormat => GetString(
         nameof(HomeSelectedDaySummaryWithWeekFormat),
-        "{0} item(s) on this day.");
+        "{0} item(s) | Week {1}");
     public static string HomeWeekNumberFormat => GetString(nameof(HomeWeekNumberFormat), "Week {0}");
     public static string HomeCalendarContextFormat => GetString(
         nameof(HomeCalendarContextFormat),
         "{0}. First week starts on {1:yyyy-MM-dd}.");
-    public static string HomeExistingCalendarSummaryFormat => GetString(nameof(HomeExistingCalendarSummaryFormat), "Existing events: {0}");
-    public static string HomeExistingCalendarHiddenSummary => GetString(nameof(HomeExistingCalendarHiddenSummary), "Existing events hidden");
+    public static string HomeExistingCalendarSummaryFormat => GetString(nameof(HomeExistingCalendarSummaryFormat), "Current calendar: {0}");
+    public static string HomeExistingCalendarHiddenSummary => GetString(nameof(HomeExistingCalendarHiddenSummary), "Current calendar preview hidden");
     public static string CourseEditorTitle => GetString(nameof(CourseEditorTitle), "Edit Course");
     public static string CourseEditorConfirmTitle => GetString(nameof(CourseEditorConfirmTitle), "Confirm Unresolved Course");
     public static string CourseEditorConfirmSummary => GetString(
@@ -297,6 +301,7 @@ public static class UiText
     public static string ImportSelectAllButton => GetString(nameof(ImportSelectAllButton), "Select All");
     public static string ImportClearAllButton => GetString(nameof(ImportClearAllButton), "Clear All");
     public static string ImportApplySelectedFormat => GetString(nameof(ImportApplySelectedFormat), "Apply Selected ({0})");
+    public static string ImportChangesTitle => GetString(nameof(ImportChangesTitle), "Changes");
     public static string ImportAddedTitle => GetString(nameof(ImportAddedTitle), "Added");
     public static string ImportUpdatedTitle => GetString(nameof(ImportUpdatedTitle), "Updated");
     public static string ImportDeletedTitle => GetString(nameof(ImportDeletedTitle), "Deleted");
@@ -307,6 +312,12 @@ public static class UiText
     public static string ImportUnresolvedTitle => GetString(nameof(ImportUnresolvedTitle), "Unresolved");
     public static string ImportBeforeTitle => GetString(nameof(ImportBeforeTitle), "Before");
     public static string ImportAfterTitle => GetString(nameof(ImportAfterTitle), "After");
+    public static string ImportFieldTime => GetString(nameof(ImportFieldTime), "Time");
+    public static string ImportFieldLocation => GetString(nameof(ImportFieldLocation), "Location");
+    public static string ImportFieldTimeZone => GetString(nameof(ImportFieldTimeZone), "Time zone");
+    public static string ImportFieldColor => GetString(nameof(ImportFieldColor), "Color");
+    public static string ImportFieldChangeSource => GetString(nameof(ImportFieldChangeSource), "Source");
+    public static string ImportFieldRepeat => GetString(nameof(ImportFieldRepeat), "Repeat");
     public static string ImportCalendarDestinationFormat => GetString(nameof(ImportCalendarDestinationFormat), "Calendar: {0}");
     public static string ImportTaskListDestinationFormat => GetString(nameof(ImportTaskListDestinationFormat), "Task list: {0}");
     public static string ImportTimeProfileFormat => GetString(nameof(ImportTimeProfileFormat), "Time profile: {0}");
@@ -348,13 +359,13 @@ public static class UiText
 
     public static string AboutSummary => GetString(
         nameof(AboutSummary),
-        "Local-first CQEPC timetable parsing, preview, diffing, and provider-aware sync preparation.");
+        "Local-first CQEPC timetable parsing, preview, diffing, and confirmed Google Calendar sync.");
     public static string AboutPhilosophy => GetString(
         nameof(AboutPhilosophy),
-        "The app keeps parsing, normalization, preview, and diffing on the local machine and preserves unresolved timetable items explicitly before any sync write path is allowed.");
+        "Parsing, normalization, preview, and diffing all stay on the local machine, unresolved timetable items remain explicit, and remote writes are only allowed after user review and confirmation.");
     public static string AboutProviders => GetString(
         nameof(AboutProviders),
-        "Supported provider families: Google Calendar / Tasks and Outlook Calendar / Microsoft To Do.");
+        "Currently available: Google Calendar and optional Google Tasks. Planned next: Outlook Calendar and Microsoft To Do.");
     public static string AboutVersionFormat => GetString(nameof(AboutVersionFormat), "Version {0}");
 
     public static string DiffTaskTargetLabel => GetString(nameof(DiffTaskTargetLabel), "Task");
@@ -370,6 +381,10 @@ public static class UiText
     public static string DiffLocationTbd => GetString(nameof(DiffLocationTbd), "Location TBD");
     public static string DiffTaskDefaultListLocation => GetString(nameof(DiffTaskDefaultListLocation), "Task-list item");
     public static string DiffNoNotes => GetString(nameof(DiffNoNotes), "No notes");
+    public static string DiffSourceLocalSnapshot => GetString(nameof(DiffSourceLocalSnapshot), "Local snapshot");
+    public static string DiffSourceRemoteManaged => GetString(nameof(DiffSourceRemoteManaged), "Managed remote event");
+    public static string DiffSourceRemoteTitleConflict => GetString(nameof(DiffSourceRemoteTitleConflict), "Remote title conflict");
+    public static string DiffSourceRemoteExactMatch => GetString(nameof(DiffSourceRemoteExactMatch), "Remote exact match");
     public static string DiffTaskTitleFormat => GetString(nameof(DiffTaskTitleFormat), "Task: {0}");
     public static string DiffTaskTimeFormat => GetString(
         nameof(DiffTaskTimeFormat),
@@ -567,10 +582,19 @@ public static class UiText
         Format(HomeOccurrenceCountFormat, count);
 
     public static string FormatSelectedDaySummary(int count, WeekStartPreference weekStartPreference, int? schoolWeekNumber = null) =>
-        FormatSelectedDaySummary(count);
+        FormatSelectedDaySummary(count, schoolWeekNumber);
+
+    public static string FormatSelectedDaySummary(int count, int? schoolWeekNumber) =>
+        count <= 0
+            ? schoolWeekNumber.HasValue
+                ? Format(HomeNoScheduleSummaryWithWeekFormat, schoolWeekNumber.Value)
+                : HomeNoScheduleSummary
+            : schoolWeekNumber.HasValue
+                ? Format(HomeSelectedDaySummaryWithWeekFormat, count, schoolWeekNumber.Value)
+                : Format(HomeSelectedDaySummaryFormat, count);
 
     public static string FormatSelectedDaySummary(int count) =>
-        Format(HomeSelectedDaySummaryFormat, count);
+        FormatSelectedDaySummary(count, schoolWeekNumber: null);
 
     public static string FormatWeekNumber(int schoolWeekNumber) =>
         Format(HomeWeekNumberFormat, schoolWeekNumber);

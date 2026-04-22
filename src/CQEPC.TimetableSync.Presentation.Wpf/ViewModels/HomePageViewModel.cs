@@ -12,6 +12,8 @@ public sealed class HomePageViewModel : ObservableObject
 {
     private readonly WorkspaceSessionViewModel workspace;
     private readonly TimeProvider timeProvider;
+    private ObservableCollection<CalendarDayCellViewModel> calendarDays = [];
+    private ObservableCollection<CalendarWeekRowViewModel> calendarWeeks = [];
     private DateOnly displayMonth;
     private DateOnly selectedDate;
     private string summary = string.Empty;
@@ -23,6 +25,8 @@ public sealed class HomePageViewModel : ObservableObject
     private string currentMonthTitle = string.Empty;
     private string calendarContextSummary = string.Empty;
     private bool showEmptyState = true;
+    private int calendarPreviewEntryLimit = 3;
+    private bool isCompactAgendaLayout;
     private readonly AsyncRelayCommand importSchedulesCommand;
     private readonly AsyncRelayCommand syncCalendarCommand;
 
@@ -42,6 +46,7 @@ public sealed class HomePageViewModel : ObservableObject
         selectedDate = today;
 
         CalendarDays = new ObservableCollection<CalendarDayCellViewModel>();
+        CalendarWeeks = new ObservableCollection<CalendarWeekRowViewModel>();
         SelectedDayOccurrences = new ObservableCollection<AgendaOccurrenceViewModel>();
         HomeUnresolvedItems = new ObservableCollection<UnresolvedItemCardViewModel>();
         PreviousMonthCommand = new RelayCommand(() => ChangeMonth(-1));
@@ -118,6 +123,12 @@ public sealed class HomePageViewModel : ObservableObject
 
     public bool HasCalendarContextSummary => !string.IsNullOrWhiteSpace(CalendarContextSummary);
 
+    public bool IsCompactAgendaLayout
+    {
+        get => isCompactAgendaLayout;
+        private set => SetProperty(ref isCompactAgendaLayout, value);
+    }
+
     public IReadOnlyList<string> DayHeaders =>
         workspace.WeekStartPreference == WeekStartPreference.Monday
             ? UiText.DayHeadersMondayStart
@@ -140,7 +151,19 @@ public sealed class HomePageViewModel : ObservableObject
         }
     }
 
-    public ObservableCollection<CalendarDayCellViewModel> CalendarDays { get; }
+    public ObservableCollection<CalendarWeekRowViewModel> CalendarWeeks
+    {
+        get => calendarWeeks;
+        private set => SetProperty(ref calendarWeeks, value);
+    }
+
+    public ObservableCollection<CalendarDayCellViewModel> CalendarDays
+    {
+        get => calendarDays;
+        private set => SetProperty(ref calendarDays, value);
+    }
+
+    public int CalendarPreviewEntryLimit => calendarPreviewEntryLimit;
 
     public ObservableCollection<AgendaOccurrenceViewModel> SelectedDayOccurrences { get; }
 
@@ -265,38 +288,84 @@ public sealed class HomePageViewModel : ObservableObject
 
     private void RebuildCalendarDays(Dictionary<DateOnly, AgendaOccurrenceViewModel[]> dayItems)
     {
-        CalendarDays.Clear();
-
         var gridStart = CalculateGridStart(displayMonth, workspace.WeekStartPreference);
         var today = DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime);
+        var nextCalendarDays = new List<CalendarDayCellViewModel>(42);
+        var nextCalendarWeeks = new List<CalendarWeekRowViewModel>(6);
+        var canUpdateInPlace = CalendarDays.Count == 42;
 
-        for (var index = 0; index < 42; index++)
+        for (var weekIndex = 0; weekIndex < 6; weekIndex++)
         {
-            var date = gridStart.AddDays(index);
-            dayItems.TryGetValue(date, out var entries);
-            entries ??= Array.Empty<AgendaOccurrenceViewModel>();
-            var calendarEntries = entries
-                .Select(item => new HomeCalendarEntryViewModel(
-                    item.Title,
-                    item.TimeRange,
-                    item.Status,
-                    item.Source,
-                    item.Origin,
-                    item.VisualStyle,
-                    isSelectedForApply: true,
-                    item.Details))
+            var weekDates = Enumerable.Range(0, 7)
+                .Select(offset => gridStart.AddDays((weekIndex * 7) + offset))
                 .ToArray();
+            var weekMaxOccurrences = weekDates
+                .Select(date => dayItems.TryGetValue(date, out var weekEntries) ? weekEntries?.Length ?? 0 : 0)
+                .DefaultIfEmpty(0)
+                .Max();
+            var weekPreviewLimit = Math.Clamp(Math.Min(calendarPreviewEntryLimit, Math.Max(weekMaxOccurrences, 1)), 1, CalendarDayCellViewModel.MaxVisibleEntries);
+            var preferredHeight = CalculateCalendarCellHeight(weekPreviewLimit);
+            var weekCells = new List<CalendarDayCellViewModel>(7);
 
-            var cell = new CalendarDayCellViewModel(
-                date,
-                isInCurrentMonth: date.Month == displayMonth.Month && date.Year == displayMonth.Year,
-                isToday: date == today,
-                occurrenceCount: entries.Length,
-                calendarEntries,
-                UiText.FormatHomeCalendarPreviewCount(Math.Max(0, entries.Length - 3)));
-            cell.IsSelected = date == selectedDate;
-            CalendarDays.Add(cell);
+            foreach (var date in weekDates)
+            {
+                dayItems.TryGetValue(date, out var entries);
+                entries ??= Array.Empty<AgendaOccurrenceViewModel>();
+                var calendarEntries = entries
+                    .Select(item => new HomeCalendarEntryViewModel(
+                        item.Title,
+                        item.TimeRange,
+                        item.Status,
+                        item.Source,
+                        item.Origin,
+                        item.VisualStyle,
+                        isSelectedForApply: true,
+                        item.Details))
+                    .ToArray();
+
+                var moreEntriesLabel = UiText.FormatHomeCalendarPreviewCount(Math.Max(0, entries.Length - weekPreviewLimit));
+                var cellIndex = (weekIndex * 7) + weekCells.Count;
+                CalendarDayCellViewModel cell;
+                if (canUpdateInPlace && CalendarDays[cellIndex].Date == date)
+                {
+                    cell = CalendarDays[cellIndex];
+                    cell.UpdatePreview(
+                        isToday: date == today,
+                        occurrenceCount: entries.Length,
+                        calendarEntries,
+                        weekPreviewLimit,
+                        preferredHeight,
+                        moreEntriesLabel);
+                }
+                else
+                {
+                    canUpdateInPlace = false;
+                    cell = new CalendarDayCellViewModel(
+                        date,
+                        isInCurrentMonth: date.Month == displayMonth.Month && date.Year == displayMonth.Year,
+                        isToday: date == today,
+                        occurrenceCount: entries.Length,
+                        calendarEntries,
+                        weekPreviewLimit,
+                        preferredHeight,
+                        moreEntriesLabel);
+                }
+
+                cell.IsSelected = date == selectedDate;
+                nextCalendarDays.Add(cell);
+                weekCells.Add(cell);
+            }
+
+            nextCalendarWeeks.Add(new CalendarWeekRowViewModel(weekCells));
         }
+
+        if (canUpdateInPlace)
+        {
+            return;
+        }
+
+        CalendarDays = new ObservableCollection<CalendarDayCellViewModel>(nextCalendarDays);
+        CalendarWeeks = new ObservableCollection<CalendarWeekRowViewModel>(nextCalendarWeeks);
     }
 
     private void RebuildSelectedDayOccurrences(Dictionary<DateOnly, AgendaOccurrenceViewModel[]> dayItems)
@@ -310,9 +379,17 @@ public sealed class HomePageViewModel : ObservableObject
             SelectedDayOccurrences.Add(occurrence);
         }
 
-        SelectedDaySummary = dayOccurrences.Length == 0
-            ? UiText.HomeNoClassesOnSelectedDay
-            : UiText.FormatSelectedDaySummary(dayOccurrences.Length);
+        var schoolWeekNumber = dayOccurrences
+            .Select(static occurrence => occurrence.SchoolWeekNumber)
+            .FirstOrDefault(static value => value.HasValue);
+        if (!schoolWeekNumber.HasValue)
+        {
+            schoolWeekNumber = workspace.CurrentPreviewResult?.SchoolWeeks
+                .FirstOrDefault(week => selectedDate >= week.StartDate && selectedDate <= week.EndDate)
+                ?.WeekNumber;
+        }
+
+        SelectedDaySummary = UiText.FormatSelectedDaySummary(dayOccurrences.Length, schoolWeekNumber);
         RebuildHomeUnresolvedItems();
         CalendarContextSummary = BuildCalendarContextSummary();
         OnPropertyChanged(nameof(HasCalendarContextSummary));
@@ -368,6 +445,9 @@ public sealed class HomePageViewModel : ObservableObject
     private static bool IsInMonth(DateOnly month, DateOnly date) =>
         month.Year == date.Year && month.Month == date.Month;
 
+    private static double CalculateCalendarCellHeight(int visibleEntryLimit) =>
+        52d + (visibleEntryLimit * 34d);
+
     private void HandleWorkspaceStateChanged(object? sender, EventArgs e)
     {
         OnPropertyChanged(nameof(ShowGoogleHomePreviewToggle));
@@ -393,6 +473,56 @@ public sealed class HomePageViewModel : ObservableObject
         }
 
         return string.Empty;
+    }
+
+    public void UpdateResponsiveLayout(double calendarWidth, double calendarHeight, double agendaWidth)
+    {
+        var nextPreviewLimit = DeterminePreviewLimit(calendarWidth);
+        var nextCompactAgendaLayout = DetermineCompactAgendaLayout(agendaWidth);
+
+        var previewLimitChanged = nextPreviewLimit != calendarPreviewEntryLimit;
+        var compactAgendaChanged = nextCompactAgendaLayout != IsCompactAgendaLayout;
+
+        if (!previewLimitChanged && !compactAgendaChanged)
+        {
+            return;
+        }
+
+        calendarPreviewEntryLimit = nextPreviewLimit;
+        OnPropertyChanged(nameof(CalendarPreviewEntryLimit));
+        IsCompactAgendaLayout = nextCompactAgendaLayout;
+
+        if (previewLimitChanged)
+        {
+            Rebuild();
+            return;
+        }
+    }
+
+    private int DeterminePreviewLimit(double calendarWidth)
+    {
+        const double lowerThreshold = 820d;
+        const double upperThreshold = 960d;
+        const double hysteresis = 36d;
+
+        return calendarPreviewEntryLimit switch
+        {
+            >= 5 => calendarWidth < upperThreshold - hysteresis ? 4 : 5,
+            <= 3 => calendarWidth >= lowerThreshold + hysteresis ? 4 : 3,
+            _ when calendarWidth >= upperThreshold + hysteresis => 5,
+            _ when calendarWidth < lowerThreshold - hysteresis => 3,
+            _ => 4,
+        };
+    }
+
+    private bool DetermineCompactAgendaLayout(double agendaWidth)
+    {
+        const double threshold = 500d;
+        const double hysteresis = 24d;
+
+        return IsCompactAgendaLayout
+            ? agendaWidth <= threshold + hysteresis
+            : agendaWidth < threshold - hysteresis;
     }
 
     private async Task ApplySchedulesAsync()

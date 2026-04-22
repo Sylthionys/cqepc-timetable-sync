@@ -8,8 +8,8 @@
         Title="{Binding ApplicationTitle}"
         Width="1380"
         Height="900"
-        MinWidth="980"
-        MinHeight="680"
+        MinWidth="1104"
+        MinHeight="720"
         WindowStartupLocation="CenterScreen"
         behaviors:FileDropBehavior.Command="{Binding HandleDroppedFilesCommand}">
     <Window.InputBindings>
@@ -126,7 +126,7 @@
                  Opacity="0.45"
                  IsHitTestVisible="False" />
 
-        <Grid Margin="12">
+        <Grid Margin="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="SidebarColumn" Width="168" />
                 <ColumnDefinition x:Name="SidebarGapColumn" Width="12" />
@@ -249,7 +249,7 @@
                         BorderBrush="{DynamicResource BorderBrush}"
                         BorderThickness="1"
                         CornerRadius="28"
-                        Padding="6"
+                        Padding="0"
                         Effect="{StaticResource CardShadowEffect}">
                     <Grid>
                         <ContentControl AutomationProperties.AutomationId="Shell.PageHost"

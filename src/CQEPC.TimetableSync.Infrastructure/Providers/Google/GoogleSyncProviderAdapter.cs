@@ -178,7 +178,8 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
                     GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceKindKey) ?? descriptionMetadata.SourceKind,
                     item.RecurringEventId,
                     TryResolveEventDateTimeOffset(item.OriginalStartTime, fallbackTimeZoneId)?.ToUniversalTime(),
-                    GooglePayloadBuilders.NormalizeGoogleCalendarColorId(item.ColorId)));
+                    GooglePayloadBuilders.NormalizeGoogleCalendarColorId(item.ColorId),
+                    GetPrivateProperty(privateProperties, GoogleSyncConstants.ClassNameKey) ?? descriptionMetadata.ClassName));
             }
 
             pageToken = response.NextPageToken;
@@ -809,7 +810,8 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
             GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceKindKey) ?? descriptionMetadata.SourceKind,
             item.RecurringEventId,
             TryResolveEventDateTimeOffset(item.OriginalStartTime, fallbackTimeZoneId)?.ToUniversalTime(),
-            GooglePayloadBuilders.NormalizeGoogleCalendarColorId(item.ColorId));
+            GooglePayloadBuilders.NormalizeGoogleCalendarColorId(item.ColorId),
+            GetPrivateProperty(privateProperties, GoogleSyncConstants.ClassNameKey) ?? descriptionMetadata.ClassName);
     }
 
     internal static DateTimeOffset? TryResolveEventDateTimeOffset(EventDateTime? eventDateTime, string? fallbackTimeZoneId = null) =>
@@ -823,6 +825,7 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
         }
 
         string? managedBy = null;
+        string? className = null;
         string? localSyncId = null;
         string? sourceFingerprint = null;
         string? sourceKind = null;
@@ -854,6 +857,13 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
                 continue;
             }
 
+            if (className is null
+                && string.Equals(key, "Class", StringComparison.OrdinalIgnoreCase))
+            {
+                className = value;
+                continue;
+            }
+
             if (localSyncId is null
                 && string.Equals(key, GoogleSyncConstants.LocalSyncIdKey, StringComparison.OrdinalIgnoreCase))
             {
@@ -875,7 +885,7 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
             }
         }
 
-        return new GoogleDescriptionMetadata(managedBy, localSyncId, sourceFingerprint, sourceKind);
+        return new GoogleDescriptionMetadata(managedBy, className, localSyncId, sourceFingerprint, sourceKind);
     }
 
     private sealed record CachedGoogleServices(
@@ -886,10 +896,11 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
 
     internal sealed record GoogleDescriptionMetadata(
         string? ManagedBy,
+        string? ClassName,
         string? LocalSyncId,
         string? SourceFingerprint,
         string? SourceKind)
     {
-        public static GoogleDescriptionMetadata Empty { get; } = new(null, null, null, null);
+        public static GoogleDescriptionMetadata Empty { get; } = new(null, null, null, null, null);
     }
 }

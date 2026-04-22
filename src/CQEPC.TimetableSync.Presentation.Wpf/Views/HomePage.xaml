@@ -1,15 +1,21 @@
-﻿<UserControl x:Class="CQEPC.TimetableSync.Presentation.Wpf.Views.HomePage"
+<UserControl x:Class="CQEPC.TimetableSync.Presentation.Wpf.Views.HomePage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:views="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Views">
+             xmlns:behaviors="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Behaviors"
+             xmlns:views="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Views"
+             AutomationProperties.AutomationId="Home.PageRoot">
     <UserControl.Resources>
         <Style x:Key="HomeSectionStyle" TargetType="Border" BasedOn="{StaticResource CardBorderStyle}">
             <Setter Property="CornerRadius" Value="24" />
-            <Setter Property="Padding" Value="20" />
+            <Setter Property="Padding" Value="8" />
         </Style>
 
-        <Style x:Key="HomePillStyle" TargetType="Border" BasedOn="{StaticResource CompactChipBorderStyle}">
-            <Setter Property="Margin" Value="0,0,8,8" />
+        <Style x:Key="HomeRectBadgeStyle" TargetType="Border">
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="12" />
         </Style>
 
         <Style x:Key="HomeLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource EyebrowTextStyle}">
@@ -25,26 +31,22 @@
             <Setter Property="FontSize" Value="12" />
         </Style>
 
-        <Style x:Key="HomeStatusCardStyle" TargetType="Border" BasedOn="{StaticResource CardBorderStyle}">
-            <Setter Property="Padding" Value="16" />
-            <Setter Property="CornerRadius" Value="20" />
-            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
-            <Setter Property="Effect" Value="{x:Null}" />
-        </Style>
-
         <Style x:Key="HomeDayButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Chrome"
                                 Background="Transparent"
                                 CornerRadius="18">
-                            <ContentPresenter />
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -59,9 +61,23 @@
             </Setter>
         </Style>
 
+        <Style x:Key="HomeToolbarButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="MinWidth" Value="62" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+
+        <Style x:Key="HomeToolbarPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="MinWidth" Value="104" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+
         <Style x:Key="HomeToggleChipStyle" TargetType="ToggleButton">
-            <Setter Property="MinWidth" Value="92" />
-            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="MinWidth" Value="84" />
+            <Setter Property="Padding" Value="12,7" />
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
@@ -75,9 +91,8 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="12">
-                            <ContentPresenter Margin="0"
-                                              HorizontalAlignment="Center"
+                                CornerRadius="10">
+                            <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
@@ -102,43 +117,40 @@
     </UserControl.Resources>
 
     <Grid>
-        <ScrollViewer AutomationProperties.AutomationId="Home.PageRoot"
-                      VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled">
-            <Grid Margin="18"
-                  Style="{StaticResource PageRootStyle}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
+        <Grid Margin="0"
+              Style="{StaticResource PageRootStyle}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
 
-                <Border Grid.Row="0"
-                        Margin="0,0,0,14"
-                        Style="{StaticResource HomeSectionStyle}"
-                        Visibility="{Binding ShowEmptyState, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <Grid>
-                        <StackPanel MaxWidth="620">
-                            <TextBlock Style="{StaticResource SectionTitleTextStyle}"
-                                       Text="{Binding EmptyStateTitle}" />
-                            <TextBlock Margin="0,10,0,0"
-                                       Style="{StaticResource BodyTextStyle}"
-                                       Text="{Binding EmptyStateSummary}" />
-                            <Button Margin="0,16,0,0"
-                                    AutomationProperties.AutomationId="Home.EmptyState.OpenImport"
-                                    Command="{Binding OpenImportCommand}"
-                                    HorizontalAlignment="Left"
-                                    Style="{StaticResource SecondaryButtonStyle}"
-                                    Content="{DynamicResource HomeImportScheduleButton}" />
-                        </StackPanel>
-                    </Grid>
-                </Border>
+            <Border Grid.Row="0"
+                    Margin="0,0,0,14"
+                    Style="{StaticResource HomeSectionStyle}"
+                    Visibility="{Binding ShowEmptyState, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid>
+                    <StackPanel MaxWidth="620">
+                        <TextBlock Style="{StaticResource SectionTitleTextStyle}"
+                                   Text="{Binding EmptyStateTitle}" />
+                        <TextBlock Margin="0,10,0,0"
+                                   Style="{StaticResource BodyTextStyle}"
+                                   Text="{Binding EmptyStateSummary}" />
+                        <Button Margin="0,16,0,0"
+                                AutomationProperties.AutomationId="Home.EmptyState.OpenImport"
+                                Command="{Binding OpenImportCommand}"
+                                HorizontalAlignment="Left"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Content="{DynamicResource HomeImportScheduleButton}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
 
-                <Grid Grid.Row="1"
-                      Margin="0,0,0,18">
+            <Grid Grid.Row="1"
+                  Margin="0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="1.6*" />
-                        <ColumnDefinition Width="14" />
-                        <ColumnDefinition Width="0.94*" />
+                        <ColumnDefinition Width="1.72*" />
+                        <ColumnDefinition Width="4" />
+                        <ColumnDefinition Width="0.96*" />
                     </Grid.ColumnDefinitions>
 
                     <ContentControl x:Name="CalendarRegion"
@@ -146,221 +158,251 @@
                                     AutomationProperties.AutomationId="Home.CalendarSection">
                         <Border Style="{StaticResource HomeSectionStyle}">
                             <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
 
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="16" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
 
-                                <StackPanel>
-                                    <TextBlock Margin="0,0,0,2"
+                                    <TextBlock Grid.Column="0"
                                                FontSize="28"
                                                FontWeight="SemiBold"
                                                Text="{Binding CurrentMonthTitle}" />
-                                    <TextBlock Style="{StaticResource HomeMetaStyle}"
+                                    <TextBlock Grid.Column="2"
+                                               VerticalAlignment="Center"
+                                               Style="{StaticResource HomeMetaStyle}"
                                                Foreground="{DynamicResource SubtleTextBrush}"
                                                Text="{Binding CalendarContextSummary}"
+                                               TextTrimming="CharacterEllipsis"
+                                               TextWrapping="NoWrap"
                                                Visibility="{Binding HasCalendarContextSummary, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                </StackPanel>
 
-                                <WrapPanel Grid.Column="1"
-                                           Margin="12,0,0,0"
-                                           VerticalAlignment="Top">
-                                    <ToggleButton Margin="0,0,8,0"
-                                                  AutomationProperties.AutomationId="Home.Toggle.ExistingCalendar"
-                                                  IsChecked="{Binding IsGoogleCalendarImportEnabled, Mode=TwoWay}"
-                                                  Style="{StaticResource HomeToggleChipStyle}"
-                                                  Visibility="{Binding ShowGoogleHomePreviewToggle, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                                  Content="{DynamicResource HomeExistingCalendarToggle}" />
-                                    <Button Margin="0,0,8,0"
-                                            AutomationProperties.AutomationId="Home.Action.SyncCalendar"
-                                            Command="{Binding SyncCalendarCommand}"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Visibility="{Binding ShowGoogleHomePreviewToggle, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                            Content="{DynamicResource HomeSyncCalendarButton}" />
-                                    <Button Margin="0,0,8,0"
-                                            AutomationProperties.AutomationId="Home.PrimaryAction.ApplySelected"
-                                            Command="{Binding ApplySchedulesCommand}"
-                                            Style="{StaticResource PrimaryButtonStyle}"
-                                            Content="{DynamicResource HomeImportScheduleButton}" />
-                                    <Button Style="{StaticResource SecondaryButtonStyle}"
-                                            Command="{Binding TodayCommand}"
-                                            Content="{DynamicResource HomeTodayButton}" />
-                                    <Button Margin="8,0,0,0"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Command="{Binding PreviousMonthCommand}"
-                                            Content="{DynamicResource HomePreviousMonthButton}" />
-                                    <Button Margin="8,0,0,0"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Command="{Binding NextMonthCommand}"
-                                            Content="{DynamicResource HomeNextMonthButton}" />
-                                </WrapPanel>
-                            </Grid>
+                                    <WrapPanel Grid.Row="1"
+                                               Grid.ColumnSpan="3"
+                                               Margin="0,10,0,0"
+                                               HorizontalAlignment="Left">
+                                        <ToggleButton AutomationProperties.AutomationId="Home.Toggle.ExistingCalendar"
+                                                      IsChecked="{Binding IsGoogleCalendarImportEnabled, Mode=TwoWay}"
+                                                      Style="{StaticResource HomeToggleChipStyle}"
+                                                      Visibility="{Binding ShowGoogleHomePreviewToggle, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                      Content="{DynamicResource HomeExistingCalendarToggle}" />
+                                        <Button AutomationProperties.AutomationId="Home.Action.SyncCalendar"
+                                                Command="{Binding SyncCalendarCommand}"
+                                                Style="{StaticResource HomeToolbarButtonStyle}"
+                                                Visibility="{Binding ShowGoogleHomePreviewToggle, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                Content="{DynamicResource HomeSyncCalendarButton}" />
+                                        <Button AutomationProperties.AutomationId="Home.PrimaryAction.ApplySelected"
+                                                Command="{Binding ApplySchedulesCommand}"
+                                                Style="{StaticResource HomeToolbarPrimaryButtonStyle}"
+                                                Content="{DynamicResource HomeImportScheduleButton}" />
+                                        <Button Style="{StaticResource HomeToolbarButtonStyle}"
+                                                Command="{Binding TodayCommand}"
+                                                Content="{DynamicResource HomeTodayButton}" />
+                                        <Button Style="{StaticResource HomeToolbarButtonStyle}"
+                                                Command="{Binding PreviousMonthCommand}"
+                                                Content="{DynamicResource HomePreviousMonthButton}" />
+                                        <Button Style="{StaticResource HomeToolbarButtonStyle}"
+                                                Command="{Binding NextMonthCommand}"
+                                                Content="{DynamicResource HomeNextMonthButton}" />
+                                    </WrapPanel>
+                                </Grid>
 
-                            <ItemsControl Grid.Row="1"
-                                          Margin="0,18,0,0"
-                                          ItemsSource="{Binding DayHeaders}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <UniformGrid Columns="7" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Margin="3,0,3,8"
-                                                Padding="0,0,0,8"
-                                                BorderBrush="{DynamicResource DividerBrush}"
-                                                BorderThickness="0,0,0,1">
-                                            <TextBlock HorizontalAlignment="Center"
-                                                       Style="{StaticResource HomeMetaStyle}"
-                                                       FontWeight="SemiBold"
-                                                       Text="{Binding}" />
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-
-                            <ItemsControl Grid.Row="2"
-                                          AutomationProperties.AutomationId="Home.MonthlyCalendar"
-                                          Margin="0,2,0,0"
-                                          ItemsSource="{Binding CalendarDays}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <UniformGrid Columns="7"
-                                                     Rows="6" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Button Margin="3"
-                                                Padding="0"
-                                                Background="Transparent"
-                                                BorderThickness="0"
-                                                Command="{Binding DataContext.SelectDayCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                CommandParameter="{Binding}"
-                                                Style="{StaticResource HomeDayButtonStyle}">
-                                            <Border x:Name="CellBorder"
-                                                    MinHeight="92"
-                                                    Padding="10"
-                                                    Background="{DynamicResource SurfaceAltBrush}"
-                                                    BorderBrush="{DynamicResource CalendarGridBrush}"
-                                                    BorderThickness="1"
-                                                    CornerRadius="18">
-                                                <Grid>
-                                                    <Grid.RowDefinitions>
-                                                        <RowDefinition Height="Auto" />
-                                                        <RowDefinition Height="*" />
-                                                        <RowDefinition Height="Auto" />
-                                                    </Grid.RowDefinitions>
-
-                                                    <DockPanel LastChildFill="False">
-                                                        <Border x:Name="DayNumberBadge"
-                                                                Padding="7,3"
-                                                                Background="{DynamicResource SurfaceBrush}"
-                                                                BorderBrush="{DynamicResource BorderBrush}"
-                                                                BorderThickness="1"
-                                                                CornerRadius="999"
-                                                                DockPanel.Dock="Left">
-                                                            <TextBlock x:Name="DayNumberText"
-                                                                       FontSize="13"
-                                                                       FontWeight="SemiBold"
-                                                                       Text="{Binding DayNumber}" />
-                                                        </Border>
-                                                        <Ellipse x:Name="TodayDot"
-                                                                 Width="7"
-                                                                 Height="7"
-                                                                 Margin="0,7,0,0"
-                                                                 DockPanel.Dock="Right"
-                                                                 Fill="{DynamicResource AccentBrush}"
-                                                                 Visibility="Collapsed" />
-                                                    </DockPanel>
-
-                                                    <ItemsControl Grid.Row="1"
-                                                                  Margin="0,10,0,0"
-                                                                  ItemsSource="{Binding Entries}">
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate>
-                                                                <Border Margin="0,0,0,4"
-                                                                        Padding="6,4"
-                                                                        Background="{DynamicResource SurfaceBrush}"
-                                                                        BorderBrush="{Binding BorderBrushHex}"
-                                                                        BorderThickness="1"
-                                                                        CornerRadius="10">
-                                                                    <StackPanel>
-                                                                        <TextBlock FontSize="11"
-                                                                                   FontWeight="SemiBold"
-                                                                                   Foreground="{DynamicResource TextBrush}"
-                                                                                   Text="{Binding TimeRange}" />
-                                                                        <TextBlock FontSize="11"
-                                                                                   Foreground="{DynamicResource TextBrush}"
-                                                                                   Text="{Binding Title}"
-                                                                                   TextTrimming="CharacterEllipsis">
-                                                                            <TextBlock.Style>
-                                                                                <Style TargetType="TextBlock">
-                                                                                    <Setter Property="TextDecorations" Value="{x:Null}" />
-                                                                                    <Style.Triggers>
-                                                                                        <DataTrigger Binding="{Binding UseStrikethrough}" Value="True">
-                                                                                            <Setter Property="TextDecorations" Value="Strikethrough" />
-                                                                                        </DataTrigger>
-                                                                                    </Style.Triggers>
-                                                                                </Style>
-                                                                            </TextBlock.Style>
-                                                                        </TextBlock>
-                                                                    </StackPanel>
-                                                                </Border>
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                    </ItemsControl>
-
-                                                    <TextBlock Grid.Row="2"
-                                                               Margin="0,4,0,0"
-                                                               FontSize="11"
-                                                               Foreground="{DynamicResource SubtleTextBrush}"
-                                                               Text="{Binding MoreEntriesLabel}"
-                                                               Visibility="{Binding HasMoreEntries, Converter={StaticResource BooleanToVisibilityConverter}}" />
-
-                                                    <Border x:Name="CountBadge"
-                                                            Grid.Row="2"
-                                                            HorizontalAlignment="Left"
-                                                            Padding="8,3"
-                                                            Background="{DynamicResource MutedSurfaceBrush}"
-                                                            CornerRadius="999"
-                                                            Visibility="{Binding HasOccurrences, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                        <TextBlock x:Name="CountText"
-                                                                   FontSize="11"
-                                                                   FontWeight="SemiBold"
-                                                                   Foreground="{DynamicResource AccentStrongBrush}"
-                                                                   Text="{Binding OccurrenceCountLabel}" />
-                                                    </Border>
-                                                </Grid>
+                                <ItemsControl Grid.Row="1"
+                                              Margin="0,10,0,0"
+                                              ItemsSource="{Binding DayHeaders}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <UniformGrid Columns="7" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="3,0,3,6"
+                                                    Padding="0,0,0,8"
+                                                    BorderBrush="{DynamicResource DividerBrush}"
+                                                    BorderThickness="0,0,0,1">
+                                                <TextBlock HorizontalAlignment="Center"
+                                                           Style="{StaticResource HomeMetaStyle}"
+                                                           FontWeight="SemiBold"
+                                                           Text="{Binding}" />
                                             </Border>
-                                        </Button>
-                                        <DataTemplate.Triggers>
-                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                                <Setter TargetName="CellBorder" Property="Background" Value="{DynamicResource HighlightSurfaceBrush}" />
-                                                <Setter TargetName="CellBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                                                <Setter TargetName="DayNumberBadge" Property="Background" Value="{DynamicResource AccentBrush}" />
-                                                <Setter TargetName="DayNumberBadge" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                                                <Setter TargetName="DayNumberText" Property="Foreground" Value="White" />
-                                                <Setter TargetName="CountBadge" Property="Background" Value="{DynamicResource AccentBrush}" />
-                                                <Setter TargetName="CountText" Property="Foreground" Value="White" />
-                                            </DataTrigger>
-                                            <DataTrigger Binding="{Binding IsToday}" Value="True">
-                                                <Setter TargetName="TodayDot" Property="Visibility" Value="Visible" />
-                                            </DataTrigger>
-                                            <DataTrigger Binding="{Binding IsInCurrentMonth}" Value="False">
-                                                <Setter TargetName="CellBorder" Property="Opacity" Value="0.42" />
-                                            </DataTrigger>
-                                        </DataTemplate.Triggers>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <ScrollViewer x:Name="CalendarScrollViewer"
+                                              AutomationProperties.AutomationId="Home.CalendarScrollViewer"
+                                              Grid.Row="2"
+                                              Margin="0,2,0,0"
+                                              VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              CanContentScroll="False"
+                                              PanningMode="VerticalOnly"
+                                              PreviewMouseWheel="HandlePanelPreviewMouseWheel">
+                                    <ItemsControl AutomationProperties.AutomationId="Home.MonthlyCalendar"
+                                                  ItemsSource="{Binding CalendarWeeks}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <ItemsControl ItemsSource="{Binding Days}">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <UniformGrid Columns="7" />
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Button Margin="3"
+                                                                    Padding="0"
+                                                                    Background="Transparent"
+                                                                    BorderThickness="0"
+                                                                    Command="{Binding DataContext.SelectDayCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                    CommandParameter="{Binding}"
+                                                                    Style="{StaticResource HomeDayButtonStyle}">
+                                                                <Border x:Name="CellBorder"
+                                                                        behaviors:AnimatedMinHeightBehavior.Value="{Binding PreferredHeight}"
+                                                                        Padding="6"
+                                                                        Background="{DynamicResource SurfaceAltBrush}"
+                                                                        BorderBrush="{DynamicResource CalendarGridBrush}"
+                                                                        BorderThickness="1"
+                                                                        CornerRadius="18">
+                                                                    <Grid>
+                                                                        <Grid.RowDefinitions>
+                                                                            <RowDefinition Height="Auto" />
+                                                                            <RowDefinition Height="Auto" />
+                                                                            <RowDefinition Height="Auto" />
+                                                                        </Grid.RowDefinitions>
+
+                                                                        <DockPanel LastChildFill="False">
+                                                                            <Border x:Name="DayNumberBadge"
+                                                                                    Padding="5,1"
+                                                                                    Background="{DynamicResource SurfaceBrush}"
+                                                                                    BorderBrush="{DynamicResource BorderBrush}"
+                                                                                    BorderThickness="1"
+                                                                                    CornerRadius="999"
+                                                                                    DockPanel.Dock="Left">
+                                                                                <TextBlock x:Name="DayNumberText"
+                                                                                           FontSize="12"
+                                                                                           FontWeight="SemiBold"
+                                                                                           Text="{Binding DayNumber}" />
+                                                                            </Border>
+                                                                            <Ellipse x:Name="TodayDot"
+                                                                                     Width="7"
+                                                                                     Height="7"
+                                                                                     Margin="0,7,0,0"
+                                                                                     DockPanel.Dock="Right"
+                                                                                     Fill="{DynamicResource AccentBrush}"
+                                                                                     Visibility="Collapsed" />
+                                                                        </DockPanel>
+
+                                                                        <ItemsControl Grid.Row="1"
+                                                                                      Margin="0,4,0,0"
+                                                                                      ItemsSource="{Binding Entries}">
+                                                                            <ItemsControl.ItemTemplate>
+                                                                                <DataTemplate>
+                                                                                    <Border Margin="0,0,0,3"
+                                                                                            Padding="5,4"
+                                                                                            Background="{Binding CalendarCellBackgroundHex}"
+                                                                                            BorderBrush="{Binding CalendarCellBorderBrushHex}"
+                                                                                            BorderThickness="1"
+                                                                                            CornerRadius="8">
+                                                                                        <StackPanel>
+                                                                                            <TextBlock FontSize="10"
+                                                                                                       FontWeight="SemiBold"
+                                                                                                       Foreground="{DynamicResource TextBrush}"
+                                                                                                       Text="{Binding TimeRange}"
+                                                                                                       TextTrimming="CharacterEllipsis"
+                                                                                                       TextWrapping="NoWrap">
+                                                                                                <TextBlock.Style>
+                                                                                                    <Style TargetType="TextBlock">
+                                                                                                        <Setter Property="TextDecorations" Value="{x:Null}" />
+                                                                                                        <Style.Triggers>
+                                                                                                            <DataTrigger Binding="{Binding UseStrikethrough}" Value="True">
+                                                                                                                <Setter Property="TextDecorations" Value="Strikethrough" />
+                                                                                                            </DataTrigger>
+                                                                                                        </Style.Triggers>
+                                                                                                    </Style>
+                                                                                                </TextBlock.Style>
+                                                                                            </TextBlock>
+                                                                                            <TextBlock Margin="0,1,0,0"
+                                                                                                       FontSize="10"
+                                                                                                       Foreground="{DynamicResource TextBrush}"
+                                                                                                       Text="{Binding Title}"
+                                                                                                       TextTrimming="CharacterEllipsis"
+                                                                                                       TextWrapping="NoWrap">
+                                                                                                <TextBlock.Style>
+                                                                                                    <Style TargetType="TextBlock">
+                                                                                                        <Setter Property="TextDecorations" Value="{x:Null}" />
+                                                                                                        <Style.Triggers>
+                                                                                                            <DataTrigger Binding="{Binding UseStrikethrough}" Value="True">
+                                                                                                                <Setter Property="TextDecorations" Value="Strikethrough" />
+                                                                                                            </DataTrigger>
+                                                                                                        </Style.Triggers>
+                                                                                                    </Style>
+                                                                                                </TextBlock.Style>
+                                                                                            </TextBlock>
+                                                                                        </StackPanel>
+                                                                                    </Border>
+                                                                                </DataTemplate>
+                                                                            </ItemsControl.ItemTemplate>
+                                                                        </ItemsControl>
+
+                                                                        <Grid Grid.Row="2"
+                                                                              Margin="0,2,0,0">
+                                                                            <TextBlock FontSize="10"
+                                                                                       Foreground="{DynamicResource SubtleTextBrush}"
+                                                                                       Text="{Binding MoreEntriesLabel}"
+                                                                                       Visibility="{Binding HasMoreEntries, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                                            <Border x:Name="CountBadge"
+                                                                                    HorizontalAlignment="Right"
+                                                                                    Padding="6,1"
+                                                                                    Background="{DynamicResource MutedSurfaceBrush}"
+                                                                                    CornerRadius="999"
+                                                                                    Visibility="{Binding HasOccurrences, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                                                <TextBlock x:Name="CountText"
+                                                                                           FontSize="10"
+                                                                                           FontWeight="SemiBold"
+                                                                                           Foreground="{DynamicResource AccentStrongBrush}"
+                                                                                           Text="{Binding OccurrenceCountLabel}" />
+                                                                            </Border>
+                                                                        </Grid>
+                                                                    </Grid>
+                                                                </Border>
+                                                            </Button>
+                                                            <DataTemplate.Triggers>
+                                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                    <Setter TargetName="CellBorder" Property="Background" Value="{DynamicResource HighlightSurfaceBrush}" />
+                                                                    <Setter TargetName="CellBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                                    <Setter TargetName="DayNumberBadge" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                                                    <Setter TargetName="DayNumberBadge" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                                    <Setter TargetName="DayNumberText" Property="Foreground" Value="White" />
+                                                                    <Setter TargetName="CountBadge" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                                                    <Setter TargetName="CountText" Property="Foreground" Value="White" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsToday}" Value="True">
+                                                                    <Setter TargetName="TodayDot" Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsInCurrentMonth}" Value="False">
+                                                                    <Setter TargetName="CellBorder" Property="Opacity" Value="0.42" />
+                                                                </DataTrigger>
+                                                            </DataTemplate.Triggers>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
                             </Grid>
                         </Border>
                     </ContentControl>
@@ -370,212 +412,310 @@
                                     AutomationProperties.AutomationId="Home.AgendaSection">
                         <Border Style="{StaticResource HomeSectionStyle}">
                             <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
 
-                            <StackPanel>
-                                <Border Style="{StaticResource HomePillStyle}">
-                                    <TextBlock Foreground="{DynamicResource SubtleTextBrush}"
+                                <Border Style="{StaticResource HomeRectBadgeStyle}">
+                                    <TextBlock Foreground="{DynamicResource TextBrush}"
                                                FontSize="12"
                                                FontWeight="SemiBold"
-                                               Text="{Binding SelectedDaySummary}" />
+                                               Text="{Binding SelectedDaySummary}"
+                                               TextWrapping="NoWrap" />
                                 </Border>
-                                <TextBlock Margin="0,4,0,0"
-                                           FontSize="26"
-                                           FontWeight="SemiBold"
-                                           Text="{Binding SelectedDayTitle}" />
-                            </StackPanel>
 
-                            <ContentControl Grid.Row="1"
-                                            Margin="0,16,0,0"
-                                            AutomationProperties.AutomationId="Home.UnresolvedSection"
-                                            Visibility="{Binding HasUnresolvedItems, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                <Border Padding="14"
-                                        Background="{DynamicResource SurfaceAltBrush}"
-                                        BorderBrush="{DynamicResource BorderBrush}"
-                                        BorderThickness="1"
-                                        CornerRadius="18">
+                                <ScrollViewer x:Name="AgendaScrollViewer"
+                                              AutomationProperties.AutomationId="Home.AgendaScrollViewer"
+                                              Grid.Row="1"
+                                              Margin="0,14,0,0"
+                                              VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              CanContentScroll="False"
+                                              PanningMode="VerticalOnly"
+                                              PreviewMouseWheel="HandlePanelPreviewMouseWheel">
                                     <StackPanel>
-                                        <DockPanel LastChildFill="False">
-                                            <TextBlock Style="{StaticResource HomeLabelStyle}"
-                                                       Text="{DynamicResource ImportUnresolvedTitle}" />
-                                            <Border Margin="10,0,0,0"
-                                                    Padding="8,3"
-                                                    Background="{DynamicResource WarningSurfaceBrush}"
-                                                    BorderBrush="{DynamicResource WarningBorderBrush}"
+                                        <ContentControl AutomationProperties.AutomationId="Home.UnresolvedSection"
+                                                        Visibility="{Binding HasUnresolvedItems, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <Border Padding="14"
+                                                    Background="{DynamicResource SurfaceAltBrush}"
+                                                    BorderBrush="{DynamicResource BorderBrush}"
                                                     BorderThickness="1"
-                                                    CornerRadius="999"
-                                                    DockPanel.Dock="Right">
-                                                <TextBlock Style="{StaticResource HomeMetaStyle}"
-                                                           FontWeight="SemiBold"
-                                                           Foreground="{DynamicResource WarningTextBrush}"
-                                                           Text="{Binding HomeUnresolvedItems.Count}" />
-                                            </Border>
-                                        </DockPanel>
-
-                                        <ItemsControl Margin="0,12,0,0"
-                                                      AutomationProperties.AutomationId="Home.UnresolvedList"
-                                                      ItemsSource="{Binding HomeUnresolvedItems}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Border Margin="0,0,0,10"
-                                                            Padding="12"
-                                                            Background="{DynamicResource SurfaceBrush}"
-                                                            BorderBrush="{DynamicResource WarningBorderBrush}"
-                                                            BorderThickness="1"
-                                                            CornerRadius="14">
-                                                        <StackPanel>
-                                                            <TextBlock Style="{StaticResource CardTitleTextStyle}"
-                                                                       FontSize="15"
-                                                                       Text="{Binding Summary}"
-                                                                       TextWrapping="Wrap" />
-                                                            <TextBlock Margin="0,8,0,0"
-                                                                       Style="{StaticResource HomeMutedStyle}"
-                                                                       Text="{Binding Reason}"
-                                                                       TextWrapping="Wrap" />
-                                                            <TextBlock Margin="0,8,0,0"
-                                                                       Style="{StaticResource HomeMetaStyle}"
-                                                                       Foreground="{DynamicResource SubtleTextBrush}"
-                                                                       Text="{Binding ClassName}" />
-                                                        </StackPanel>
-                                                    </Border>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </StackPanel>
-                                </Border>
-                            </ContentControl>
-
-                            <Grid Grid.Row="2"
-                                  Margin="0,16,0,0">
-                                <Border Padding="18"
-                                        Background="{DynamicResource SurfaceAltBrush}"
-                                        BorderBrush="{DynamicResource BorderBrush}"
-                                        BorderThickness="1"
-                                        CornerRadius="18">
-                                    <TextBlock Foreground="{DynamicResource SubtleTextBrush}"
-                                               Text="{DynamicResource HomeNoClassesOnSelectedDay}"
-                                               Visibility="Collapsed">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Setter Property="Visibility" Value="Collapsed" />
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding SelectedDayOccurrences.Count}" Value="0">
-                                                        <Setter Property="Visibility" Value="Visible" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                </Border>
-
-                                <ItemsControl AutomationProperties.AutomationId="Home.SelectedDayCourseList"
-                                              ItemsSource="{Binding SelectedDayOccurrences}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Button Margin="0,0,0,10"
-                                                    Padding="0"
-                                                    Background="Transparent"
-                                                    BorderThickness="0"
-                                                    Command="{Binding OpenEditorCommand}"
-                                                    Style="{StaticResource HomeDayButtonStyle}">
-                                                <Border Padding="14"
-                                                        Background="{DynamicResource PanelBrush}"
-                                                        BorderBrush="{Binding BorderBrushHex}"
-                                                        BorderThickness="1"
-                                                        CornerRadius="18">
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="112" />
-                                                            <ColumnDefinition Width="12" />
-                                                            <ColumnDefinition Width="*" />
-                                                        </Grid.ColumnDefinitions>
-
-                                                        <Border Background="{DynamicResource SurfaceAltBrush}"
-                                                                BorderBrush="{DynamicResource DividerBrush}"
+                                                    CornerRadius="18">
+                                                <StackPanel>
+                                                    <DockPanel LastChildFill="False">
+                                                        <TextBlock Style="{StaticResource HomeLabelStyle}"
+                                                                   Text="{DynamicResource ImportUnresolvedTitle}" />
+                                                        <Border Margin="10,0,0,0"
+                                                                Padding="8,3"
+                                                                Background="{DynamicResource WarningSurfaceBrush}"
+                                                                BorderBrush="{DynamicResource WarningBorderBrush}"
                                                                 BorderThickness="1"
-                                                                CornerRadius="16"
-                                                                Padding="10"
-                                                                VerticalAlignment="Top">
-                                                            <StackPanel>
-                                                                <TextBlock Style="{StaticResource HomeMetaStyle}"
-                                                                           FontWeight="SemiBold"
-                                                                           Text="{DynamicResource HomeTimeLabel}" />
-                                                                <TextBlock Margin="0,6,0,0"
-                                                                           FontSize="16"
-                                                                           FontWeight="SemiBold"
-                                                                           Text="{Binding TimeRange}"
-                                                                           TextWrapping="Wrap" />
-                                                            </StackPanel>
+                                                                CornerRadius="10"
+                                                                DockPanel.Dock="Right">
+                                                            <TextBlock Style="{StaticResource HomeMetaStyle}"
+                                                                       FontWeight="SemiBold"
+                                                                       Foreground="{DynamicResource WarningTextBrush}"
+                                                                       Text="{Binding HomeUnresolvedItems.Count}" />
                                                         </Border>
+                                                    </DockPanel>
 
-                                                        <StackPanel Grid.Column="2">
-                                                            <DockPanel LastChildFill="True">
-                                                                <Ellipse DockPanel.Dock="Right"
-                                                                         Width="10"
-                                                                         Height="10"
-                                                                         Margin="10,6,0,0"
-                                                                         VerticalAlignment="Top"
-                                                                         Fill="{Binding ColorDotHex}" />
-                                                                <TextBlock Foreground="{DynamicResource TextBrush}"
-                                                                           Text="{Binding Title}">
-                                                                    <TextBlock.Style>
-                                                                        <Style TargetType="TextBlock"
-                                                                               BasedOn="{StaticResource CardTitleTextStyle}">
-                                                                            <Setter Property="TextDecorations" Value="{x:Null}" />
-                                                                            <Style.Triggers>
-                                                                                <DataTrigger Binding="{Binding UseStrikethrough}" Value="True">
-                                                                                    <Setter Property="TextDecorations" Value="Strikethrough" />
-                                                                                </DataTrigger>
-                                                                            </Style.Triggers>
-                                                                        </Style>
-                                                                    </TextBlock.Style>
-                                                                </TextBlock>
-                                                            </DockPanel>
-                                                            <WrapPanel Margin="0,8,0,0">
-                                                                <Border Style="{StaticResource HomePillStyle}"
-                                                                        Background="{DynamicResource SurfaceAltBrush}"
-                                                                        BorderBrush="{DynamicResource DividerBrush}">
-                                                                    <TextBlock Style="{StaticResource HomeMetaStyle}"
-                                                                               Foreground="{DynamicResource TextBrush}"
-                                                                               Text="{Binding Location}" />
+                                                    <ItemsControl Margin="0,12,0,0"
+                                                                  AutomationProperties.AutomationId="Home.UnresolvedList"
+                                                                  ItemsSource="{Binding HomeUnresolvedItems}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <Border Margin="0,0,0,10"
+                                                                        Padding="12"
+                                                                        Background="{DynamicResource SurfaceBrush}"
+                                                                        BorderBrush="{DynamicResource WarningBorderBrush}"
+                                                                        BorderThickness="1"
+                                                                        CornerRadius="14">
+                                                                    <StackPanel>
+                                                                        <TextBlock Style="{StaticResource CardTitleTextStyle}"
+                                                                                   FontSize="15"
+                                                                                   Text="{Binding Summary}"
+                                                                                   TextWrapping="Wrap" />
+                                                                        <TextBlock Margin="0,8,0,0"
+                                                                                   Style="{StaticResource HomeMutedStyle}"
+                                                                                   Text="{Binding Reason}"
+                                                                                   TextWrapping="Wrap" />
+                                                                        <TextBlock Margin="0,8,0,0"
+                                                                                   Style="{StaticResource HomeMetaStyle}"
+                                                                                   Foreground="{DynamicResource SubtleTextBrush}"
+                                                                                   Text="{Binding ClassName}" />
+                                                                    </StackPanel>
                                                                 </Border>
-                                                                <Border Style="{StaticResource HomePillStyle}"
-                                                                        Background="{DynamicResource SurfaceAltBrush}"
-                                                                        BorderBrush="{DynamicResource DividerBrush}">
-                                                                    <TextBlock Style="{StaticResource HomeMetaStyle}"
-                                                                               Foreground="{DynamicResource TextBrush}"
-                                                                               Text="{Binding Teacher}" />
-                                                                </Border>
-                                                            </WrapPanel>
-                                                            <Border Margin="0,4,0,0"
-                                                                    Padding="10,9"
-                                                                    Background="{DynamicResource SurfaceAltBrush}"
-                                                                    BorderBrush="{DynamicResource DividerBrush}"
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </StackPanel>
+                                            </Border>
+                                        </ContentControl>
+
+                                        <Grid Margin="0,12,0,0">
+                                            <ItemsControl AutomationProperties.AutomationId="Home.SelectedDayCourseList"
+                                                          ItemsSource="{Binding SelectedDayOccurrences}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Button Margin="0,0,0,8"
+                                                                Padding="0"
+                                                                Background="Transparent"
+                                                                BorderThickness="0"
+                                                                Command="{Binding OpenEditorCommand}"
+                                                                Style="{StaticResource HomeDayButtonStyle}">
+                                                            <Border x:Name="AgendaCardBorder"
+                                                                    Padding="12"
+                                                                    Background="{DynamicResource PanelBrush}"
+                                                                    BorderBrush="{Binding BorderBrushHex}"
                                                                     BorderThickness="1"
-                                                                    CornerRadius="14">
-                                                                <TextBlock Style="{StaticResource HomeMutedStyle}"
-                                                                           Foreground="{DynamicResource TextBrush}"
-                                                                           Text="{Binding Details}" />
-                                                            </Border>
-                                                        </StackPanel>
-                                                    </Grid>
-                                                </Border>
-                                            </Button>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </Grid>
+                                                                    CornerRadius="18">
+                                                                <Grid>
+                                                                    <Grid x:Name="AgendaNormalLayout">
+                                                                        <Grid.ColumnDefinitions>
+                                                                            <ColumnDefinition Width="Auto" />
+                                                                            <ColumnDefinition Width="10" />
+                                                                            <ColumnDefinition Width="*" />
+                                                                        </Grid.ColumnDefinitions>
 
+                                                                        <Border x:Name="AgendaTimePanel"
+                                                                                Width="128"
+                                                                                Background="{DynamicResource SurfaceAltBrush}"
+                                                                                BorderBrush="{DynamicResource DividerBrush}"
+                                                                                BorderThickness="1"
+                                                                                CornerRadius="16"
+                                                                                Padding="10,8"
+                                                                                VerticalAlignment="Top">
+                                                                            <StackPanel>
+                                                                                <TextBlock Style="{StaticResource HomeMetaStyle}"
+                                                                                           FontSize="11"
+                                                                                           FontWeight="SemiBold"
+                                                                                           Text="{DynamicResource HomeTimeLabel}" />
+                                                                                <TextBlock x:Name="AgendaTimeText"
+                                                                                           Margin="0,6,0,0"
+                                                                                           FontSize="15"
+                                                                                           FontWeight="SemiBold"
+                                                                                           Text="{Binding TimeRange}"
+                                                                                           TextWrapping="NoWrap" />
+                                                                            </StackPanel>
+                                                                        </Border>
+
+                                                                        <StackPanel Grid.Column="2">
+                                                                            <DockPanel LastChildFill="True">
+                                                                                <Ellipse DockPanel.Dock="Right"
+                                                                                         Width="10"
+                                                                                         Height="10"
+                                                                                         Margin="10,6,0,0"
+                                                                                         VerticalAlignment="Top"
+                                                                                         Fill="{Binding ColorDotHex}" />
+                                                                                <TextBlock x:Name="AgendaTitleText"
+                                                                                           Foreground="{DynamicResource TextBrush}"
+                                                                                           Text="{Binding Title}">
+                                                                                    <TextBlock.Style>
+                                                                                        <Style TargetType="TextBlock"
+                                                                                               BasedOn="{StaticResource CardTitleTextStyle}">
+                                                                                            <Setter Property="FontSize" Value="17" />
+                                                                                            <Setter Property="TextDecorations" Value="{x:Null}" />
+                                                                                            <Style.Triggers>
+                                                                                                <DataTrigger Binding="{Binding UseStrikethrough}" Value="True">
+                                                                                                    <Setter Property="TextDecorations" Value="Strikethrough" />
+                                                                                                </DataTrigger>
+                                                                                            </Style.Triggers>
+                                                                                        </Style>
+                                                                                    </TextBlock.Style>
+                                                                                </TextBlock>
+                                                                            </DockPanel>
+                                                                            <WrapPanel Margin="0,6,0,0">
+                                                                                <Border Margin="0,0,8,8"
+                                                                                        Style="{StaticResource HomeRectBadgeStyle}"
+                                                                                        Background="{DynamicResource SurfaceAltBrush}"
+                                                                                        BorderBrush="{DynamicResource DividerBrush}">
+                                                                                    <TextBlock x:Name="AgendaLocationText"
+                                                                                               Style="{StaticResource HomeMetaStyle}"
+                                                                                               FontSize="11"
+                                                                                               Foreground="{DynamicResource TextBrush}"
+                                                                                               Text="{Binding Location}" />
+                                                                                </Border>
+                                                                                <Border Margin="0,0,8,8"
+                                                                                        Style="{StaticResource HomeRectBadgeStyle}"
+                                                                                        Background="{DynamicResource SurfaceAltBrush}"
+                                                                                        BorderBrush="{DynamicResource DividerBrush}">
+                                                                                    <TextBlock x:Name="AgendaTeacherText"
+                                                                                               Style="{StaticResource HomeMetaStyle}"
+                                                                                               FontSize="11"
+                                                                                               Foreground="{DynamicResource TextBrush}"
+                                                                                               Text="{Binding Teacher}" />
+                                                                                </Border>
+                                                                            </WrapPanel>
+                                                                            <Border Margin="0,2,0,0"
+                                                                                    Padding="10,8"
+                                                                                    Background="{DynamicResource SurfaceAltBrush}"
+                                                                                    BorderBrush="{DynamicResource DividerBrush}"
+                                                                                    BorderThickness="1"
+                                                                                    CornerRadius="14">
+                                                                                <TextBlock x:Name="AgendaDetailsText"
+                                                                                           Style="{StaticResource HomeMutedStyle}"
+                                                                                           FontSize="12"
+                                                                                           LineHeight="18"
+                                                                                           Foreground="{DynamicResource TextBrush}"
+                                                                                           Text="{Binding Details}" />
+                                                                            </Border>
+                                                                        </StackPanel>
+                                                                    </Grid>
+
+                                                                    <StackPanel x:Name="AgendaCompactLayout"
+                                                                                Visibility="Collapsed">
+                                                                        <DockPanel LastChildFill="True">
+                                                                            <Ellipse DockPanel.Dock="Right"
+                                                                                     Width="10"
+                                                                                     Height="10"
+                                                                                     Margin="8,5,0,0"
+                                                                                     VerticalAlignment="Top"
+                                                                                     Fill="{Binding ColorDotHex}" />
+                                                                            <Border x:Name="AgendaCompactTimePanel"
+                                                                                    DockPanel.Dock="Left"
+                                                                                    Margin="0,0,8,0"
+                                                                                    Padding="8,5"
+                                                                                    Background="{DynamicResource SurfaceAltBrush}"
+                                                                                    BorderBrush="{DynamicResource DividerBrush}"
+                                                                                    BorderThickness="1"
+                                                                                    CornerRadius="12">
+                                                                                <StackPanel>
+                                                                                    <TextBlock Style="{StaticResource HomeMetaStyle}"
+                                                                                               FontSize="10"
+                                                                                               FontWeight="SemiBold"
+                                                                                               Text="{DynamicResource HomeTimeLabel}" />
+                                                                                    <TextBlock x:Name="AgendaCompactTimeText"
+                                                                                               Margin="0,3,0,0"
+                                                                                               FontSize="13"
+                                                                                               FontWeight="SemiBold"
+                                                                                               Text="{Binding TimeRange}"
+                                                                                               TextWrapping="NoWrap" />
+                                                                                </StackPanel>
+                                                                            </Border>
+                                                                            <TextBlock x:Name="AgendaCompactTitleText"
+                                                                                       Foreground="{DynamicResource TextBrush}"
+                                                                                       Text="{Binding Title}"
+                                                                                       TextWrapping="Wrap"
+                                                                                       LineHeight="18"
+                                                                                       MaxHeight="38">
+                                                                                <TextBlock.Style>
+                                                                                    <Style TargetType="TextBlock"
+                                                                                           BasedOn="{StaticResource CardTitleTextStyle}">
+                                                                                        <Setter Property="FontSize" Value="15" />
+                                                                                        <Setter Property="TextDecorations" Value="{x:Null}" />
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding UseStrikethrough}" Value="True">
+                                                                                                <Setter Property="TextDecorations" Value="Strikethrough" />
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </TextBlock.Style>
+                                                                            </TextBlock>
+                                                                        </DockPanel>
+
+                                                                        <WrapPanel Margin="0,6,0,0">
+                                                                            <Border Margin="0,0,6,6"
+                                                                                    Padding="9,4"
+                                                                                    Style="{StaticResource HomeRectBadgeStyle}"
+                                                                                    Background="{DynamicResource SurfaceAltBrush}"
+                                                                                    BorderBrush="{DynamicResource DividerBrush}">
+                                                                                <TextBlock x:Name="AgendaCompactLocationText"
+                                                                                           Style="{StaticResource HomeMetaStyle}"
+                                                                                           FontSize="10"
+                                                                                           Foreground="{DynamicResource TextBrush}"
+                                                                                           Text="{Binding Location}" />
+                                                                            </Border>
+                                                                            <Border Margin="0,0,6,6"
+                                                                                    Padding="9,4"
+                                                                                    Style="{StaticResource HomeRectBadgeStyle}"
+                                                                                    Background="{DynamicResource SurfaceAltBrush}"
+                                                                                    BorderBrush="{DynamicResource DividerBrush}">
+                                                                                <TextBlock x:Name="AgendaCompactTeacherText"
+                                                                                           Style="{StaticResource HomeMetaStyle}"
+                                                                                           FontSize="10"
+                                                                                           Foreground="{DynamicResource TextBrush}"
+                                                                                           Text="{Binding Teacher}" />
+                                                                            </Border>
+                                                                        </WrapPanel>
+
+                                                                        <Border Margin="0,0,0,0"
+                                                                                Padding="9,6"
+                                                                                Background="{DynamicResource SurfaceAltBrush}"
+                                                                                BorderBrush="{DynamicResource DividerBrush}"
+                                                                                BorderThickness="1"
+                                                                                CornerRadius="12">
+                                                                            <TextBlock x:Name="AgendaCompactDetailsText"
+                                                                                       Style="{StaticResource HomeMutedStyle}"
+                                                                                       FontSize="11"
+                                                                                       LineHeight="15"
+                                                                                       MaxHeight="46"
+                                                                                       Foreground="{DynamicResource TextBrush}"
+                                                                                       Text="{Binding Details}"
+                                                                                       TextWrapping="Wrap" />
+                                                                        </Border>
+                                                                    </StackPanel>
+                                                                </Grid>
+                                                            </Border>
+                                                        </Button>
+                                                        <DataTemplate.Triggers>
+                                                            <DataTrigger Binding="{Binding DataContext.IsCompactAgendaLayout, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
+                                                                <Setter TargetName="AgendaCardBorder" Property="Padding" Value="10" />
+                                                                <Setter TargetName="AgendaNormalLayout" Property="Visibility" Value="Collapsed" />
+                                                                <Setter TargetName="AgendaCompactLayout" Property="Visibility" Value="Visible" />
+                                                            </DataTrigger>
+                                                        </DataTemplate.Triggers>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </Grid>
+                                    </StackPanel>
+                                </ScrollViewer>
                             </Grid>
                         </Border>
                     </ContentControl>
-                </Grid>
             </Grid>
-        </ScrollViewer>
+        </Grid>
 
         <Grid Visibility="{Binding CourseEditor.IsOpen, Converter={StaticResource BooleanToVisibilityConverter}}"
               Background="{DynamicResource OverlayBackdropBrush}">
@@ -594,4 +734,3 @@
         </Grid>
     </Grid>
 </UserControl>
-

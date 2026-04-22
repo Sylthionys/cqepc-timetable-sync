@@ -28,6 +28,7 @@ public sealed class GoogleSyncProviderAdapterTests
         var metadata = GoogleSyncProviderAdapter.ParseDescriptionMetadata(description);
 
         metadata.ManagedBy.Should().Be(GoogleSyncConstants.ManagedByValue);
+        metadata.ClassName.Should().Be("Test");
         metadata.LocalSyncId.Should().Be("769415067c89c71d264a7c6022f4eac5e6e0622791734ac33684de94b2d5ef6a");
         metadata.SourceFingerprint.Should().Be("4241E9C97F05A3D5E8356C9EDFA4B449A2976321191B0C6C4A0292E747F56C0F");
         metadata.SourceKind.Should().Be("pdf");

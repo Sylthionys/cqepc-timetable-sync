@@ -336,6 +336,62 @@ public sealed class LocalSnapshotSyncDiffServiceTests
     }
 
     [Fact]
+    public async Task CreatePreviewAsyncIgnoresGoogleMappingsFromOtherSelectedCalendars()
+    {
+        var repository = new InMemoryWorkspaceRepository();
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var currentOccurrence = CreateOccurrence("Signals", new DateOnly(2026, 3, 5), new TimeOnly(8, 0), new TimeOnly(9, 40), "Room 301");
+        var localSyncId = SyncIdentity.CreateOccurrenceId(currentOccurrence);
+        SyncMapping[] mappings =
+        [
+            new SyncMapping(
+                ProviderKind.Google,
+                SyncTargetKind.CalendarEvent,
+                SyncMappingKind.SingleEvent,
+                localSyncId,
+                "other-google-cal",
+                "remote-other-calendar",
+                parentRemoteItemId: null,
+                originalStartTimeUtc: null,
+                currentOccurrence.SourceFingerprint,
+                DateTimeOffset.UtcNow),
+        ];
+        ProviderRemoteCalendarEvent[] remoteEvents =
+        [
+            new ProviderRemoteCalendarEvent(
+                "remote-other-calendar",
+                "other-google-cal",
+                currentOccurrence.Metadata.CourseTitle,
+                currentOccurrence.Start,
+                currentOccurrence.End,
+                currentOccurrence.Metadata.Location,
+                isManagedByApp: true,
+                localSyncId: localSyncId,
+                sourceFingerprintHash: currentOccurrence.SourceFingerprint.Hash,
+                sourceKind: currentOccurrence.SourceFingerprint.SourceKind,
+                className: currentOccurrence.ClassName),
+        ];
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: mappings,
+            remoteDisplayEvents: remoteEvents,
+            calendarDestinationId: "google-cal",
+            deletionWindow: new PreviewDateWindow(
+                new DateTimeOffset(new DateTime(2026, 3, 2), TimeSpan.Zero),
+                new DateTimeOffset(new DateTime(2026, 3, 9), TimeSpan.Zero)),
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().ContainSingle();
+        plan.PlannedChanges[0].ChangeKind.Should().Be(SyncChangeKind.Added);
+        plan.RemotePreviewEvents.Should().BeEmpty();
+        plan.ExactMatchOccurrenceIds.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task CreatePreviewAsyncUpdatesManagedGoogleEventWhenOnlySourceFingerprintMetadataDrifts()
     {
         var repository = new InMemoryWorkspaceRepository();
@@ -370,6 +426,141 @@ public sealed class LocalSnapshotSyncDiffServiceTests
         plan.PlannedChanges[0].RemoteEvent!.RemoteItemId.Should().Be(remoteEvent.RemoteItemId);
         plan.ExactMatchRemoteEventIds.Should().BeEmpty();
         plan.ExactMatchOccurrenceIds.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CreatePreviewAsyncKeepsSingleUpdateWhenOccurrenceFingerprintAndLocationDriftTogether()
+    {
+        var previousOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            "Room 301",
+            sourceHash: "signals-original");
+        var currentOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            "Room 305",
+            sourceHash: "signals-updated");
+        var localSyncId = SyncIdentity.CreateOccurrenceId(previousOccurrence);
+        var repository = new InMemoryWorkspaceRepository
+        {
+            Snapshot = new ImportedScheduleSnapshot(
+                DateTimeOffset.UtcNow,
+                "Class A",
+                [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals")])],
+                Array.Empty<UnresolvedItem>(),
+                [new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8))],
+                [new TimeProfile("main-campus", "Main Campus", [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))])],
+                [previousOccurrence],
+                [new ExportGroup(ExportGroupKind.SingleOccurrence, [previousOccurrence])],
+                Array.Empty<RuleBasedTaskGenerationRule>()),
+        };
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var remoteEvent = CreateRemoteEvent(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            isManagedByApp: true,
+            localSyncId: localSyncId,
+            sourceHash: previousOccurrence.SourceFingerprint.Hash,
+            location: "Room 301");
+        SyncMapping[] mappings =
+        [
+            new SyncMapping(
+                ProviderKind.Google,
+                SyncTargetKind.CalendarEvent,
+                SyncMappingKind.SingleEvent,
+                localSyncId,
+                "google-cal",
+                remoteEvent.RemoteItemId,
+                parentRemoteItemId: null,
+                originalStartTimeUtc: null,
+                previousOccurrence.SourceFingerprint,
+                DateTimeOffset.UtcNow),
+        ];
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: mappings,
+            remoteDisplayEvents: [remoteEvent],
+            calendarDestinationId: "google-cal",
+            deletionWindow: new PreviewDateWindow(
+                new DateTimeOffset(new DateTime(2026, 3, 2), TimeSpan.Zero),
+                new DateTimeOffset(new DateTime(2026, 3, 9), TimeSpan.Zero)),
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().ContainSingle(change =>
+            change.ChangeKind == SyncChangeKind.Updated
+            && change.LocalStableId == localSyncId
+            && change.After == currentOccurrence
+            && change.RemoteEvent != null
+            && change.RemoteEvent.RemoteItemId == remoteEvent.RemoteItemId);
+        plan.PlannedChanges.Should().NotContain(change => change.ChangeKind == SyncChangeKind.Added);
+        plan.PlannedChanges.Should().NotContain(change => change.ChangeKind == SyncChangeKind.Deleted);
+    }
+
+    [Fact]
+    public async Task CreatePreviewAsyncIgnoresDuplicatePreviousSnapshotOccurrencesWhenOnlySourceFingerprintDiffers()
+    {
+        var previousOccurrenceA = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            "Room 301",
+            sourceHash: "signals-a");
+        var previousOccurrenceB = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            "Room 301",
+            sourceHash: "signals-b");
+        var currentOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            "Room 301",
+            sourceHash: "signals-c");
+        var repository = new InMemoryWorkspaceRepository
+        {
+            Snapshot = new ImportedScheduleSnapshot(
+                DateTimeOffset.UtcNow,
+                "Class A",
+                [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals")])],
+                Array.Empty<UnresolvedItem>(),
+                [new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8))],
+                [new TimeProfile("main-campus", "Main Campus", [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))])],
+                [previousOccurrenceA, previousOccurrenceB],
+                [
+                    new ExportGroup(ExportGroupKind.SingleOccurrence, [previousOccurrenceA]),
+                    new ExportGroup(ExportGroupKind.SingleOccurrence, [previousOccurrenceB]),
+                ],
+                Array.Empty<RuleBasedTaskGenerationRule>()),
+        };
+        var service = new LocalSnapshotSyncDiffService(repository);
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: Array.Empty<SyncMapping>(),
+            remoteDisplayEvents: Array.Empty<ProviderRemoteCalendarEvent>(),
+            calendarDestinationId: "google-cal",
+            deletionWindow: null,
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().BeEmpty();
     }
 
     [Fact]
@@ -1242,6 +1433,229 @@ public sealed class LocalSnapshotSyncDiffServiceTests
     }
 
     [Fact]
+    public async Task CreatePreviewAsyncTreatsSameClassManagedPayloadMatchWithStaleMetadataAsUpdateInsteadOfAdd()
+    {
+        var repository = new InMemoryWorkspaceRepository();
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var currentOccurrence = CreateOccurrence("Signals", new DateOnly(2026, 3, 16), new TimeOnly(14, 30), new TimeOnly(16, 0), "Room 31501");
+        var staleMetadataRemoteEvent = CreateRemoteEvent(
+            "Signals",
+            new DateOnly(2026, 3, 16),
+            new TimeOnly(14, 30),
+            new TimeOnly(16, 0),
+            isManagedByApp: true,
+            localSyncId: "legacy-local-sync-id",
+            sourceHash: "legacy-source-hash",
+            location: "Room 31501",
+            remoteItemId: "remote-stale-metadata",
+            description: GooglePayloadTextFormatter.BuildEventDescription(
+                CreateOccurrence(
+                    "Signals",
+                    new DateOnly(2026, 3, 16),
+                    new TimeOnly(14, 30),
+                    new TimeOnly(16, 0),
+                    "Room 31501",
+                    sourceHash: "legacy-source-hash")));
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: Array.Empty<SyncMapping>(),
+            remoteDisplayEvents: [staleMetadataRemoteEvent],
+            calendarDestinationId: "google-cal",
+            deletionWindow: new PreviewDateWindow(
+                new DateTimeOffset(new DateTime(2026, 3, 9), TimeSpan.Zero),
+                new DateTimeOffset(new DateTime(2026, 3, 30), TimeSpan.Zero)),
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().ContainSingle(change =>
+            change.ChangeKind == SyncChangeKind.Updated
+            && change.ChangeSource == SyncChangeSource.RemoteManaged
+            && change.LocalStableId == SyncIdentity.CreateOccurrenceId(currentOccurrence)
+            && change.RemoteEvent!.RemoteItemId == staleMetadataRemoteEvent.RemoteItemId);
+        plan.PlannedChanges.Should().NotContain(change => change.ChangeKind == SyncChangeKind.Added);
+        plan.PlannedChanges.Should().NotContain(change =>
+            change.ChangeKind == SyncChangeKind.Deleted
+            && change.RemoteEvent!.RemoteItemId == staleMetadataRemoteEvent.RemoteItemId);
+    }
+
+    [Fact]
+    public async Task CreatePreviewAsyncTreatsLegacyManagedPayloadMatchWithoutClassMetadataAsUpdateInsteadOfAdd()
+    {
+        var repository = new InMemoryWorkspaceRepository();
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var currentOccurrence = CreateOccurrence("Signals", new DateOnly(2026, 3, 16), new TimeOnly(14, 30), new TimeOnly(16, 0), "Room 31501");
+        var legacyRemoteEvent = CreateRemoteEvent(
+            "Signals",
+            new DateOnly(2026, 3, 16),
+            new TimeOnly(14, 30),
+            new TimeOnly(16, 0),
+            isManagedByApp: true,
+            localSyncId: "legacy-local-sync-id",
+            sourceHash: "legacy-source-hash",
+            location: "Room 31501",
+            remoteItemId: "remote-legacy-payload",
+            description: "legacy managed event without class metadata",
+            className: null);
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: Array.Empty<SyncMapping>(),
+            remoteDisplayEvents: [legacyRemoteEvent],
+            calendarDestinationId: "google-cal",
+            deletionWindow: new PreviewDateWindow(
+                new DateTimeOffset(new DateTime(2026, 3, 9), TimeSpan.Zero),
+                new DateTimeOffset(new DateTime(2026, 3, 30), TimeSpan.Zero)),
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().ContainSingle(change =>
+            change.ChangeKind == SyncChangeKind.Updated
+            && change.ChangeSource == SyncChangeSource.RemoteManaged
+            && change.LocalStableId == SyncIdentity.CreateOccurrenceId(currentOccurrence)
+            && change.RemoteEvent!.RemoteItemId == legacyRemoteEvent.RemoteItemId);
+        plan.PlannedChanges.Should().NotContain(change => change.ChangeKind == SyncChangeKind.Added);
+    }
+
+    [Fact]
+    public async Task CreatePreviewAsyncPrefersExactPayloadMatchWhenSameSlotManagedDuplicateSharesLocalSyncId()
+    {
+        var repository = new InMemoryWorkspaceRepository();
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var currentOccurrence = CreateOccurrence("Signals", new DateOnly(2026, 3, 16), new TimeOnly(14, 30), new TimeOnly(16, 0), "Room 31501");
+        var localSyncId = SyncIdentity.CreateOccurrenceId(currentOccurrence);
+        var mapping = new SyncMapping(
+            ProviderKind.Google,
+            SyncTargetKind.CalendarEvent,
+            SyncMappingKind.RecurringMember,
+            localSyncId,
+            "google-cal",
+            "series_primary_20260316T063000Z",
+            parentRemoteItemId: "series-primary",
+            originalStartTimeUtc: currentOccurrence.Start.ToUniversalTime(),
+            currentOccurrence.SourceFingerprint,
+            DateTimeOffset.UtcNow);
+        var primaryRemoteEvent = CreateRemoteEvent(
+            "Signals",
+            new DateOnly(2026, 3, 16),
+            new TimeOnly(14, 30),
+            new TimeOnly(16, 0),
+            isManagedByApp: true,
+            localSyncId: localSyncId,
+            sourceHash: currentOccurrence.SourceFingerprint.Hash,
+            location: "Room 31501",
+            remoteItemId: mapping.RemoteItemId,
+            parentRemoteItemId: mapping.ParentRemoteItemId,
+            originalStartTimeUtc: mapping.OriginalStartTimeUtc);
+        var sameSlotDuplicateRemoteEvent = CreateRemoteEvent(
+            "Signals",
+            new DateOnly(2026, 3, 16),
+            new TimeOnly(14, 30),
+            new TimeOnly(16, 0),
+            isManagedByApp: true,
+            localSyncId: localSyncId,
+            sourceHash: currentOccurrence.SourceFingerprint.Hash,
+            location: "Room 99999",
+            remoteItemId: "series_duplicate_20260316T063000Z",
+            parentRemoteItemId: "series-duplicate",
+            originalStartTimeUtc: currentOccurrence.Start.ToUniversalTime(),
+            description: GooglePayloadTextFormatter.BuildEventDescription(
+                CreateOccurrence(
+                    "Signals",
+                    new DateOnly(2026, 3, 16),
+                    new TimeOnly(14, 30),
+                    new TimeOnly(16, 0),
+                    "Room 99999")));
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: [mapping],
+            remoteDisplayEvents: [sameSlotDuplicateRemoteEvent, primaryRemoteEvent],
+            calendarDestinationId: "google-cal",
+            deletionWindow: new PreviewDateWindow(
+                new DateTimeOffset(new DateTime(2026, 3, 9), TimeSpan.Zero),
+                new DateTimeOffset(new DateTime(2026, 3, 30), TimeSpan.Zero)),
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().ContainSingle(change =>
+            change.ChangeKind == SyncChangeKind.Deleted
+            && change.ChangeSource == SyncChangeSource.RemoteManaged
+            && change.RemoteEvent!.RemoteItemId == sameSlotDuplicateRemoteEvent.RemoteItemId);
+        plan.PlannedChanges.Should().NotContain(change =>
+            change.ChangeKind == SyncChangeKind.Updated
+            && change.RemoteEvent!.RemoteItemId == sameSlotDuplicateRemoteEvent.RemoteItemId);
+        plan.ExactMatchOccurrenceIds.Should().Contain(localSyncId);
+        plan.ExactMatchRemoteEventIds.Should().Contain(primaryRemoteEvent.RemoteItemId);
+    }
+
+    [Fact]
+    public async Task CreatePreviewAsyncReusesSamePayloadManagedRemoteEventWhenStoredMappingRemoteIdIsStale()
+    {
+        var repository = new InMemoryWorkspaceRepository();
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var currentOccurrence = CreateOccurrence("Signals", new DateOnly(2026, 3, 16), new TimeOnly(14, 30), new TimeOnly(16, 0), "Room 31501");
+        var localSyncId = SyncIdentity.CreateOccurrenceId(currentOccurrence);
+        var staleMapping = new SyncMapping(
+            ProviderKind.Google,
+            SyncTargetKind.CalendarEvent,
+            SyncMappingKind.SingleEvent,
+            localSyncId,
+            "google-cal",
+            "remote-stale-id",
+            parentRemoteItemId: null,
+            originalStartTimeUtc: null,
+            currentOccurrence.SourceFingerprint,
+            DateTimeOffset.UtcNow);
+        var remotePayloadMatch = CreateRemoteEvent(
+            "Signals",
+            new DateOnly(2026, 3, 16),
+            new TimeOnly(14, 30),
+            new TimeOnly(16, 0),
+            isManagedByApp: true,
+            localSyncId: "legacy-local-sync-id",
+            sourceHash: "legacy-source-hash",
+            location: "Room 31501",
+            remoteItemId: "remote-payload-match",
+            description: GooglePayloadTextFormatter.BuildEventDescription(
+                CreateOccurrence(
+                    "Signals",
+                    new DateOnly(2026, 3, 16),
+                    new TimeOnly(14, 30),
+                    new TimeOnly(16, 0),
+                    "Room 31501",
+                    sourceHash: "legacy-source-hash")));
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: [staleMapping],
+            remoteDisplayEvents: [remotePayloadMatch],
+            calendarDestinationId: "google-cal",
+            deletionWindow: new PreviewDateWindow(
+                new DateTimeOffset(new DateTime(2026, 3, 9), TimeSpan.Zero),
+                new DateTimeOffset(new DateTime(2026, 3, 30), TimeSpan.Zero)),
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().ContainSingle(change =>
+            change.ChangeKind == SyncChangeKind.Updated
+            && change.ChangeSource == SyncChangeSource.RemoteManaged
+            && change.LocalStableId == localSyncId
+            && change.RemoteEvent!.RemoteItemId == remotePayloadMatch.RemoteItemId);
+        plan.PlannedChanges.Should().NotContain(change =>
+            change.ChangeKind == SyncChangeKind.Added
+            && change.LocalStableId == localSyncId);
+    }
+
+    [Fact]
     public async Task CreatePreviewAsyncListsDeletedOccurrencesWhenRepeatSeriesBecomesSparse()
     {
         var fingerprint = "signals-repeat";
@@ -1329,10 +1743,12 @@ public sealed class LocalSnapshotSyncDiffServiceTests
         string? parentRemoteItemId = null,
         DateTimeOffset? originalStartTimeUtc = null,
         string? description = null,
-        string? googleCalendarColorId = null)
+        string? googleCalendarColorId = null,
+        string? className = null)
     {
         var resolvedSourceHash = isManagedByApp ? sourceHash ?? $"{title}-{date:yyyyMMdd}" : sourceHash;
         var resolvedDescription = description;
+        var resolvedClassName = className ?? (isManagedByApp ? "Class A" : null);
         if (isManagedByApp && string.IsNullOrWhiteSpace(resolvedDescription))
         {
             resolvedDescription = GooglePayloadTextFormatter.BuildEventDescription(
@@ -1342,6 +1758,7 @@ public sealed class LocalSnapshotSyncDiffServiceTests
                     start,
                     end,
                     location ?? "Room 301",
+                    className: resolvedClassName ?? "Class A",
                     sourceHash: resolvedSourceHash));
         }
 
@@ -1359,7 +1776,8 @@ public sealed class LocalSnapshotSyncDiffServiceTests
             sourceKind: resolvedSourceHash is null ? null : "pdf",
             parentRemoteItemId: parentRemoteItemId,
             originalStartTimeUtc: originalStartTimeUtc,
-            googleCalendarColorId: googleCalendarColorId);
+            googleCalendarColorId: googleCalendarColorId,
+            className: resolvedClassName);
     }
 
     private sealed class InMemoryWorkspaceRepository : IWorkspaceRepository

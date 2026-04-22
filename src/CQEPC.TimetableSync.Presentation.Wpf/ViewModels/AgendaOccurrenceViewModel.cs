@@ -7,6 +7,7 @@ public sealed class AgendaOccurrenceViewModel
 {
     public AgendaOccurrenceViewModel(
         DateOnly occurrenceDate,
+        int? schoolWeekNumber,
         string title,
         string timeRange,
         string location,
@@ -21,6 +22,7 @@ public sealed class AgendaOccurrenceViewModel
         Action? openEditor = null)
     {
         OccurrenceDate = occurrenceDate;
+        SchoolWeekNumber = schoolWeekNumber;
         Title = title;
         TimeRange = timeRange;
         Location = location;
@@ -36,6 +38,8 @@ public sealed class AgendaOccurrenceViewModel
     }
 
     public DateOnly OccurrenceDate { get; }
+
+    public int? SchoolWeekNumber { get; }
 
     public string Title { get; }
 

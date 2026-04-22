@@ -113,8 +113,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
         try
         {
             using var document = PdfDocument.Open(filePath);
-            var fileHash = ComputeFileHash(filePath);
-            var schedules = ParseDocument(document, fileHash, warnings, diagnostics, unresolvedItems, cancellationToken);
+            var schedules = ParseDocument(document, warnings, diagnostics, unresolvedItems, cancellationToken);
             return new ParserResult<IReadOnlyList<ClassSchedule>>(
                 schedules,
                 warnings.Distinct().ToArray(),
@@ -145,7 +144,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
 
     private static ClassSchedule[] ParseDocument(
         PdfDocument document,
-        string fileHash,
         List<ParseWarning> warnings,
         List<ParseDiagnostic> diagnostics,
         List<UnresolvedItem> unresolvedItems,
@@ -216,7 +214,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                         column.Weekday,
                         page.Number,
                         blocks,
-                        fileHash,
                         warnings,
                         diagnostics,
                         unresolvedItems,
@@ -231,7 +228,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                         column.Weekday,
                         page.Number,
                         blocks,
-                        fileHash,
                         out var continuedBlock)
                     && continuedBlock is not null)
                 {
@@ -242,7 +238,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                 {
                     var blockLines = blocks[blockIndex];
                     var isLastBlockOnPage = blockIndex == blocks.Count - 1;
-                    if (isLastBlockOnPage && currentClass.TryDeferPendingCarryover(column.Weekday, page.Number, blockLines, fileHash))
+                    if (isLastBlockOnPage && currentClass.TryDeferPendingCarryover(column.Weekday, page.Number, blockLines))
                     {
                         continue;
                     }
@@ -252,7 +248,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                         column.Weekday,
                         page.Number,
                         blockLines,
-                        fileHash,
                         warnings,
                         diagnostics,
                         unresolvedItems,
@@ -268,7 +263,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
 
         foreach (var accumulator in accumulators)
         {
-            accumulator.FlushPendingCarryovers(fileHash, warnings, diagnostics, unresolvedItems);
+            accumulator.FlushPendingCarryovers(warnings, diagnostics, unresolvedItems);
         }
 
         RecoverResolvableTruncatedBlocks(accumulators, unresolvedItems);
@@ -1085,7 +1080,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
         DayOfWeek weekday,
         int pageNumber,
         IReadOnlyList<PdfTextLine> blockLines,
-        string fileHash,
         List<ParseWarning> warnings,
         List<ParseDiagnostic> diagnostics,
         List<UnresolvedItem> unresolvedItems,
@@ -1135,7 +1129,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                     $"{TimetablePdfLexicon.UnresolvedBlockSummaryPrefix} {GetWeekdayLabel(weekday)}",
                     rawSourceText,
                     "Missing a recognizable (n-m?? period lead.",
-                    CreateSourceFingerprint(fileHash, className, pageNumber, $"{weekday:G}|{blockBounds.Left:F1}|{blockBounds.Top:F1}", rawSourceText),
+                    CreateSourceFingerprint(className, pageNumber, $"{weekday:G}|{blockBounds.Left:F1}|{blockBounds.Top:F1}", rawSourceText),
                     MissingPeriodLeadCode));
             return;
         }
@@ -1158,12 +1152,12 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                     $"{TimetablePdfLexicon.UnresolvedBlockSummaryPrefix} {GetWeekdayLabel(weekday)}",
                     rawSourceText,
                     "Multiple period leads were found in one extracted block; text from adjacent or stacked course cells likely merged.",
-                    CreateSourceFingerprint(fileHash, className, pageNumber, $"{weekday:G}|{blockBounds.Left:F1}|{blockBounds.Top:F1}", rawSourceText),
+                    CreateSourceFingerprint(className, pageNumber, $"{weekday:G}|{blockBounds.Left:F1}|{blockBounds.Top:F1}", rawSourceText),
                     MultiplePeriodLeadsCode));
             return;
         }
 
-        if (TryCreateCourseBlock(className, weekday, pageNumber, parseLines, blockBounds, fileHash, out courseBlock, out var failureKind))
+        if (TryCreateCourseBlock(className, weekday, pageNumber, parseLines, blockBounds, out courseBlock, out var failureKind))
         {
             return;
         }
@@ -1191,7 +1185,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                     $"{TimetablePdfLexicon.UnresolvedBlockSummaryPrefix} {GetWeekdayLabel(weekday)}",
                     rawSourceText,
                     "Missing a recognizable course title before the (n-m?? period lead.",
-                    CreateSourceFingerprint(fileHash, className, pageNumber, $"{weekday:G}|{blockBounds.Left:F1}|{blockBounds.Top:F1}", rawSourceText),
+                    CreateSourceFingerprint(className, pageNumber, $"{weekday:G}|{blockBounds.Left:F1}|{blockBounds.Top:F1}", rawSourceText),
                     MissingPeriodLeadCode));
             return;
         }
@@ -1218,7 +1212,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                     $"{TimetablePdfLexicon.UnresolvedBlockSummaryPrefix} {GetWeekdayLabel(weekday)}",
                     rawSourceText,
                     reason,
-                    CreateSourceFingerprint(fileHash, className, pageNumber, $"{weekday:G}|{blockBounds.Left:F1}|{blockBounds.Top:F1}", rawSourceText),
+                    CreateSourceFingerprint(className, pageNumber, $"{weekday:G}|{blockBounds.Left:F1}|{blockBounds.Top:F1}", rawSourceText),
                     code));
             return;
         }
@@ -1239,7 +1233,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                 $"{TimetablePdfLexicon.UnresolvedBlockSummaryPrefix} {GetWeekdayLabel(weekday)}",
                 rawSourceText,
                 reason,
-                CreateSourceFingerprint(fileHash, className, pageNumber, $"{weekday:G}|{blockBounds.Left:F1}|{blockBounds.Top:F1}", rawSourceText),
+                CreateSourceFingerprint(className, pageNumber, $"{weekday:G}|{blockBounds.Left:F1}|{blockBounds.Top:F1}", rawSourceText),
                 code));
     }
 
@@ -1249,7 +1243,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
         int pageNumber,
         IReadOnlyList<PdfTextLine> parseLines,
         PdfRectangle blockBounds,
-        string fileHash,
         out CourseBlock? courseBlock,
         out MetadataParseFailureKind failureKind)
     {
@@ -1297,7 +1290,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                 GetTaggedValue(taggedValues, MetadataLabels[1]),
                 GetTaggedValue(taggedValues, MetadataLabels[2]),
                 GetTaggedValue(taggedValues, MetadataLabels[3])),
-            CreateSourceFingerprint(fileHash, className, pageNumber, $"{weekday:G}|{blockBounds.Left:F1}|{blockBounds.Top:F1}", rawSourceText),
+            CreateSourceFingerprint(className, pageNumber, $"{weekday:G}|{blockBounds.Left:F1}|{blockBounds.Top:F1}", rawSourceText),
             courseType);
 
         return true;
@@ -1307,8 +1300,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
         string className,
         DayOfWeek weekday,
         int pageNumber,
-        IReadOnlyList<PdfTextLine> blockLines,
-        string fileHash)
+        IReadOnlyList<PdfTextLine> blockLines)
     {
         if (blockLines.Count == 0)
         {
@@ -1326,7 +1318,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
             pageNumber,
             parseLines,
             CreateBounds(orderedLines.Select(static line => line.Bounds)),
-            fileHash,
             out _,
             out _);
     }
@@ -1442,7 +1433,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
         int pageNumber,
         IReadOnlyList<PdfTextLine> titleLines,
         IReadOnlyList<PdfTextLine> metadataLines,
-        string fileHash,
         out CourseBlock? courseBlock)
     {
         courseBlock = null;
@@ -1478,7 +1468,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                 GetTaggedValue(taggedValues, MetadataLabels[1]),
                 GetTaggedValue(taggedValues, MetadataLabels[2]),
                 GetTaggedValue(taggedValues, MetadataLabels[3])),
-            CreateSourceFingerprint(fileHash, className, pageNumber, $"{weekday:G}|{mergedBounds.Left:F1}|{mergedBounds.Top:F1}", mergedSourceText),
+            CreateSourceFingerprint(className, pageNumber, $"{weekday:G}|{mergedBounds.Left:F1}|{mergedBounds.Top:F1}", mergedSourceText),
             courseType);
 
         return true;
@@ -1926,8 +1916,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
         string className,
         DayOfWeek weekday,
         int pageNumber,
-        IReadOnlyList<PdfTextLine> lines,
-        string fileHash)
+        IReadOnlyList<PdfTextLine> lines)
     {
         if (lines.Count == 0 || IsTopOfPageBlock(lines))
         {
@@ -1956,7 +1945,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                 pageNumber,
                 parseLines,
                 CreateBounds(orderedLines.Select(static line => line.Bounds)),
-                fileHash,
                 out _,
                 out var failureKind)
             && failureKind == MetadataParseFailureKind.TruncatedMetadataPayload;
@@ -2261,30 +2249,21 @@ public sealed partial class TimetablePdfParser : ITimetableParser
         return new PdfRectangle(left, bottom, right, top);
     }
 
-    private static string ComputeFileHash(string filePath)
-    {
-        using var stream = File.OpenRead(filePath);
-        var hash = SHA256.HashData(stream);
-        return Convert.ToHexString(hash);
-    }
-
     private static SourceFingerprint CreateSourceFingerprint(
-        string fileHash,
         string className,
         int pageNumber,
         DayOfWeek weekday,
         string rawSourceText) =>
-        CreateSourceFingerprint(fileHash, className, pageNumber, weekday.ToString("G"), rawSourceText);
+        CreateSourceFingerprint(className, pageNumber, weekday.ToString("G"), rawSourceText);
 
     private static SourceFingerprint CreateSourceFingerprint(
-        string fileHash,
         string className,
         int pageNumber,
         string anchor,
         string rawSourceText)
     {
         var normalized = NormalizeText(rawSourceText);
-        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes($"{fileHash}|{className}|{pageNumber}|{anchor}|{normalized}"));
+        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes($"{className}|{pageNumber}|{anchor}|{normalized}"));
         return new SourceFingerprint("pdf", Convert.ToHexString(hashBytes));
     }
 
@@ -2394,10 +2373,10 @@ public sealed partial class TimetablePdfParser : ITimetableParser
 
         public bool HasPendingCarryovers() => pendingCarryovers.Count > 0;
 
-        public bool TryDeferPendingCarryover(DayOfWeek weekday, int pageNumber, IReadOnlyList<PdfTextLine> blockLines, string fileHash)
+        public bool TryDeferPendingCarryover(DayOfWeek weekday, int pageNumber, IReadOnlyList<PdfTextLine> blockLines)
         {
             if (!IsLikelyBottomOfPageTitleCarryover(blockLines)
-                && !IsLikelyBottomOfPageTruncatedMetadataCarryover(ClassName, weekday, pageNumber, blockLines, fileHash))
+                && !IsLikelyBottomOfPageTruncatedMetadataCarryover(ClassName, weekday, pageNumber, blockLines))
             {
                 return false;
             }
@@ -2410,7 +2389,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
             DayOfWeek weekday,
             int pageNumber,
             List<IReadOnlyList<PdfTextLine>> blocks,
-            string fileHash,
             List<ParseWarning> warnings,
             List<ParseDiagnostic> diagnostics,
             List<UnresolvedItem> unresolvedItems,
@@ -2426,7 +2404,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
 
             if (blocks.Count == 0 || !IsTopOfPageBlock(blocks[0]))
             {
-                FlushPendingCarryover(weekday, fileHash, warnings, diagnostics, unresolvedItems);
+                FlushPendingCarryover(weekday, warnings, diagnostics, unresolvedItems);
                 return false;
             }
 
@@ -2437,7 +2415,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                     pending.PageNumber,
                     pending.Lines,
                     blocks[0],
-                    fileHash,
                     out courseBlock))
             {
                 pendingCarryovers.Remove(weekday);
@@ -2451,11 +2428,11 @@ public sealed partial class TimetablePdfParser : ITimetableParser
             var pendingLooksCompleteTitle = IsLikelyCompleteTitleFragment(pending.Lines);
             for (var index = 0; index < blocks.Count; index++)
             {
-                if (IsStandaloneCourseBlockCandidate(ClassName, weekday, pageNumber, blocks[index], fileHash))
+                if (IsStandaloneCourseBlockCandidate(ClassName, weekday, pageNumber, blocks[index]))
                 {
                     if (index == 0 && pendingLooksCompleteTitle)
                     {
-                        FlushPendingCarryover(weekday, fileHash, warnings, diagnostics, unresolvedItems);
+                        FlushPendingCarryover(weekday, warnings, diagnostics, unresolvedItems);
                         return false;
                     }
 
@@ -2479,7 +2456,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                         pending.PageNumber,
                         mergedLines.ToArray(),
                         CreateBounds(mergedLines.Select(static line => line.Bounds)),
-                        fileHash,
                         out courseBlock,
                         out _))
                 {
@@ -2496,10 +2472,9 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                     pending.PageNumber,
                     pending.Lines,
                     blocks[0],
-                    fileHash,
                     out courseBlock))
             {
-                FlushPendingCarryover(weekday, fileHash, warnings, diagnostics, unresolvedItems);
+                FlushPendingCarryover(weekday, warnings, diagnostics, unresolvedItems);
                 return false;
             }
 
@@ -2513,7 +2488,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
             DayOfWeek weekday,
             int pageNumber,
             List<IReadOnlyList<PdfTextLine>> blocks,
-            string fileHash,
             out CourseBlock? courseBlock)
         {
             courseBlock = null;
@@ -2529,7 +2503,7 @@ public sealed partial class TimetablePdfParser : ITimetableParser
             var consumedBlockCount = 0;
             for (var index = 0; index < blocks.Count; index++)
             {
-                if (IsStandaloneCourseBlockCandidate(ClassName, weekday, pageNumber, blocks[index], fileHash))
+                if (IsStandaloneCourseBlockCandidate(ClassName, weekday, pageNumber, blocks[index]))
                 {
                     if (index == 0)
                     {
@@ -2553,7 +2527,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                         parsed.PageNumber,
                         mergedLines.ToArray(),
                         CreateBounds(mergedLines.Select(static line => line.Bounds)),
-                        fileHash,
                         out courseBlock,
                         out _))
                 {
@@ -2580,7 +2553,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
 
         public void FlushPendingCarryover(
             DayOfWeek weekday,
-            string fileHash,
             List<ParseWarning> warnings,
             List<ParseDiagnostic> diagnostics,
             List<UnresolvedItem> unresolvedItems)
@@ -2601,7 +2573,6 @@ public sealed partial class TimetablePdfParser : ITimetableParser
                 weekday,
                 pending.PageNumber,
                 pending.Lines,
-                fileHash,
                 warnings,
                 diagnostics,
                 unresolvedItems,
@@ -2611,14 +2582,13 @@ public sealed partial class TimetablePdfParser : ITimetableParser
         }
 
         public void FlushPendingCarryovers(
-            string fileHash,
             List<ParseWarning> warnings,
             List<ParseDiagnostic> diagnostics,
             List<UnresolvedItem> unresolvedItems)
         {
             foreach (var weekday in pendingCarryovers.Keys.ToArray())
             {
-                FlushPendingCarryover(weekday, fileHash, warnings, diagnostics, unresolvedItems);
+                FlushPendingCarryover(weekday, warnings, diagnostics, unresolvedItems);
             }
         }
 

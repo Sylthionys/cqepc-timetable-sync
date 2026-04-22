@@ -1418,6 +1418,51 @@ public sealed class WorkspaceSessionResolutionTests
     }
 
     [Fact]
+    public async Task WorkspaceSessionPreservesRemoteEventOffsetWhenEditingCalendarEvent()
+    {
+        var localOffset = TimeZoneInfo.Local.GetUtcOffset(new DateTime(2026, 3, 4));
+        var remoteOffset = localOffset >= TimeSpan.Zero ? TimeSpan.FromHours(-12) : TimeSpan.FromHours(14);
+        var remoteStartTime = localOffset >= TimeSpan.Zero
+            ? new DateTime(2026, 3, 4, 23, 30, 0)
+            : new DateTime(2026, 3, 4, 0, 30, 0);
+        var remoteEndTime = remoteStartTime.AddHours(1);
+        var remoteEvent = new ProviderRemoteCalendarEvent(
+            remoteItemId: "remote-offset",
+            calendarId: "google-cal-1",
+            title: "Offset Test",
+            start: new DateTimeOffset(remoteStartTime, remoteOffset),
+            end: new DateTimeOffset(remoteEndTime, remoteOffset),
+            location: "Campus Hall",
+            description: "Imported from Google");
+        var googleAdapter = new FakeGoogleSyncProviderAdapter(
+            writableCalendars: [new ProviderCalendarDescriptor("google-cal-1", "Classes", true)],
+            remoteEvents:
+            [
+                remoteEvent,
+            ]);
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create()),
+            new DynamicWorkspacePreviewService(CreatePreviewWithGoogleHomeMix),
+            googleProviderAdapter: googleAdapter);
+
+        await session.InitializeAsync();
+        await session.OpenRemoteCalendarEventEditorAsync(remoteEvent);
+
+        session.RemoteCalendarEventEditor.StartDate.Should().Be(remoteStartTime.Date);
+        session.RemoteCalendarEventEditor.EndDate.Should().Be(remoteEndTime.Date);
+        session.RemoteCalendarEventEditor.StartTimeText = "10:30";
+        session.RemoteCalendarEventEditor.EndTimeText = "11:15";
+        await session.RemoteCalendarEventEditor.SaveCommand.ExecuteAsync(null);
+
+        googleAdapter.LastUpdateRequest.Should().NotBeNull();
+        googleAdapter.LastUpdateRequest!.Start.Offset.Should().Be(remoteOffset);
+        googleAdapter.LastUpdateRequest.End.Offset.Should().Be(remoteOffset);
+        googleAdapter.LastUpdateRequest.Start.DateTime.Should().Be(new DateTime(remoteStartTime.Year, remoteStartTime.Month, remoteStartTime.Day, 10, 30, 0));
+        googleAdapter.LastUpdateRequest.End.DateTime.Should().Be(new DateTime(remoteEndTime.Year, remoteEndTime.Month, remoteEndTime.Day, 11, 15, 0));
+    }
+
+    [Fact]
     public async Task WorkspaceSessionPersistsGoogleHomePreviewToggle()
     {
         var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());

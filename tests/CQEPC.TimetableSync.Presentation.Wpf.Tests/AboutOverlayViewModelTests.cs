@@ -17,4 +17,17 @@ public sealed class AboutOverlayViewModelTests
         viewModel.CloseCommand.Execute(null);
         viewModel.IsOpen.Should().BeFalse();
     }
+
+    [Fact]
+    public void DefaultCopyReflectsGoogleOnlyReleaseStatus()
+    {
+        var viewModel = new AboutOverlayViewModel();
+
+        viewModel.Summary.Should().Contain("Google Calendar");
+        viewModel.Providers.Should().Contain("Currently available");
+        viewModel.Providers.Should().Contain("Google Calendar");
+        viewModel.Providers.Should().Contain("optional Google Tasks");
+        viewModel.Providers.Should().Contain("Planned next");
+        viewModel.Providers.Should().Contain("Microsoft To Do");
+    }
 }

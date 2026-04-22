@@ -33,12 +33,14 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
 
         previousSnapshot ??= await workspaceRepository.LoadLatestSnapshotAsync(cancellationToken).ConfigureAwait(false);
         var previousOccurrences = ResolveComparablePreviousOccurrences(previousSnapshot, occurrences);
+        var scopedMappings = FilterMappingsForDestination(provider, existingMappings, calendarDestinationId);
+        var scopedRemoteDisplayEvents = FilterRemoteEventsForDestination(provider, remoteDisplayEvents, calendarDestinationId);
         var plannedChanges = BuildPlannedChanges(
             provider,
             previousOccurrences,
             occurrences,
-            existingMappings,
-            remoteDisplayEvents,
+            scopedMappings,
+            scopedRemoteDisplayEvents,
             deletionWindow,
             out var exactMatchRemoteEventIds,
             out var exactMatchOccurrenceIds);
@@ -46,7 +48,7 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
             occurrences,
             plannedChanges,
             unresolvedItems,
-            remoteDisplayEvents,
+            scopedRemoteDisplayEvents,
             deletionWindow,
             exactMatchRemoteEventIds,
             exactMatchOccurrenceIds);
@@ -166,6 +168,10 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
                 locallyPlannedCalendarChangeIds,
                 consumedRemoteKeys,
                 consumedMappedLocalIds);
+            changes.RemoveAll(change =>
+                change.ChangeKind == SyncChangeKind.Added
+                && change.ChangeSource == SyncChangeSource.LocalSnapshot
+                && consumedMappedLocalIds.Contains(change.LocalStableId));
             changes.AddRange(reconciliationResult.Changes);
             exactMatchRemoteIds.UnionWith(reconciliationResult.ExactMatchRemoteEventIds);
             exactMatchOccurrenceIdSet.UnionWith(reconciliationResult.ExactMatchOccurrenceIds);
@@ -399,15 +405,40 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
         IReadOnlyList<ProviderRemoteCalendarEvent> managedRemoteEvents)
     {
         var localSyncId = SyncIdentity.CreateOccurrenceId(occurrence);
-        var candidates = managedRemoteEvents
+        var identityCandidates = managedRemoteEvents
             .Where(remoteEvent =>
                 string.Equals(remoteEvent.LocalSyncId, localSyncId, StringComparison.Ordinal)
                 || (string.Equals(remoteEvent.SourceKind, occurrence.SourceFingerprint.SourceKind, StringComparison.Ordinal)
                     && string.Equals(remoteEvent.SourceFingerprintHash, occurrence.SourceFingerprint.Hash, StringComparison.Ordinal)))
             .ToArray();
+        var payloadCandidates = managedRemoteEvents
+            .Where(remoteEvent => MatchesRemotePayloadAndClass(occurrence, remoteEvent))
+            .OrderBy(static remoteEvent => remoteEvent.RemoteItemId, StringComparer.Ordinal)
+            .ToArray();
+        var legacyPayloadCandidates = managedRemoteEvents
+            .Where(remoteEvent => MatchesLegacyManagedRemotePayload(occurrence, remoteEvent))
+            .OrderBy(static remoteEvent => remoteEvent.RemoteItemId, StringComparer.Ordinal)
+            .ToArray();
+        var candidates = identityCandidates.Length > 0
+            ? identityCandidates
+            : payloadCandidates.Length > 0
+                ? payloadCandidates
+                : legacyPayloadCandidates;
         if (candidates.Length == 0)
         {
             return null;
+        }
+
+        var exactPayloadMatch = candidates.FirstOrDefault(remoteEvent => MatchesRemotePayloadAndClass(occurrence, remoteEvent));
+        if (exactPayloadMatch is not null)
+        {
+            return exactPayloadMatch;
+        }
+
+        var legacyPayloadMatch = candidates.FirstOrDefault(remoteEvent => MatchesLegacyManagedRemotePayload(occurrence, remoteEvent));
+        if (legacyPayloadMatch is not null)
+        {
+            return legacyPayloadMatch;
         }
 
         var originalStartUtc = occurrence.Start.ToUniversalTime();
@@ -421,6 +452,12 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
         if (exactStartMatch is not null)
         {
             return exactStartMatch;
+        }
+
+        var exactClassMatch = candidates.FirstOrDefault(remoteEvent => MatchesRemoteClass(occurrence, remoteEvent));
+        if (exactClassMatch is not null)
+        {
+            return exactClassMatch;
         }
 
         return candidates.Length == 1 ? candidates[0] : null;
@@ -535,24 +572,8 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
         }
     }
 
-    private static string CreateLogicalKey(ResolvedOccurrence occurrence) =>
-        string.Join(
-            "|",
-            occurrence.ClassName,
-            occurrence.OccurrenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            occurrence.Metadata.CourseTitle,
-            occurrence.TargetKind);
-
     private static string CreateMatchKey(ResolvedOccurrence occurrence) =>
-        HasStableSourceMatchKey(occurrence)
-            ? string.Join(
-                "|",
-                occurrence.ClassName,
-                occurrence.OccurrenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                occurrence.TargetKind,
-                occurrence.SourceFingerprint.SourceKind,
-                occurrence.SourceFingerprint.Hash)
-            : CreateLogicalKey(occurrence);
+        SyncIdentity.CreateOccurrenceId(occurrence);
 
     private static string CreatePayloadFingerprint(ResolvedOccurrence occurrence) =>
         string.Join(
@@ -568,9 +589,6 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
             occurrence.CourseType ?? string.Empty,
             occurrence.TimeProfileId,
             occurrence.GoogleCalendarColorId ?? string.Empty);
-
-    private static bool HasStableSourceMatchKey(ResolvedOccurrence occurrence) =>
-        string.Equals(occurrence.SourceFingerprint.SourceKind, "pdf", StringComparison.Ordinal);
 
     private static ResolvedOccurrence[] ResolveComparablePreviousOccurrences(
         ImportedScheduleSnapshot? previousSnapshot,
@@ -597,8 +615,20 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
             return [];
         }
 
-        return previousSnapshot.Occurrences.ToArray();
+        return DeduplicatePreviousOccurrences(previousSnapshot.Occurrences);
     }
+
+    private static ResolvedOccurrence[] DeduplicatePreviousOccurrences(
+        IEnumerable<ResolvedOccurrence> occurrences) =>
+        occurrences
+            .GroupBy(
+                occurrence => string.Concat(
+                    SyncIdentity.CreateOccurrenceId(occurrence),
+                    "|",
+                    CreatePayloadFingerprint(occurrence)),
+                StringComparer.Ordinal)
+            .Select(static group => group.First())
+            .ToArray();
 
     private static string CreateLocalStableId(ResolvedOccurrence? before, ResolvedOccurrence? after) =>
         before is not null
@@ -637,6 +667,8 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
         ResolvedOccurrence occurrence,
         ProviderRemoteCalendarEvent remoteEvent) =>
         string.Equals(remoteEvent.LocalSyncId, localSyncId, StringComparison.Ordinal)
+        && (string.IsNullOrWhiteSpace(remoteEvent.ClassName)
+            || string.Equals(remoteEvent.ClassName, occurrence.ClassName, StringComparison.Ordinal))
         && string.Equals(remoteEvent.SourceKind, occurrence.SourceFingerprint.SourceKind, StringComparison.Ordinal)
         && string.Equals(remoteEvent.SourceFingerprintHash, occurrence.SourceFingerprint.Hash, StringComparison.Ordinal);
 
@@ -671,9 +703,47 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
             return remoteIdMatch;
         }
 
-        return managedRemoteEvents.FirstOrDefault(remoteEvent =>
+        var payloadMatches = managedRemoteEvents
+            .Where(remoteEvent => MatchesRemotePayloadAndClass(occurrence, remoteEvent))
+            .OrderBy(static remoteEvent => remoteEvent.RemoteItemId, StringComparer.Ordinal)
+            .ToArray();
+        if (payloadMatches.Length > 0)
+        {
+            return payloadMatches[0];
+        }
+
+        var legacyPayloadMatches = managedRemoteEvents
+            .Where(remoteEvent => MatchesLegacyManagedRemotePayload(occurrence, remoteEvent))
+            .OrderBy(static remoteEvent => remoteEvent.RemoteItemId, StringComparer.Ordinal)
+            .ToArray();
+        if (legacyPayloadMatches.Length > 0)
+        {
+            return legacyPayloadMatches[0];
+        }
+
+        var localSyncMatches = managedRemoteEvents
+            .Where(remoteEvent =>
             string.Equals(remoteEvent.LocalSyncId, mapping.LocalSyncId, StringComparison.Ordinal)
-            && MatchesRemoteConflict(occurrence, remoteEvent));
+            && MatchesRemoteConflict(occurrence, remoteEvent))
+            .ToArray();
+        if (localSyncMatches.Length == 0)
+        {
+            return null;
+        }
+
+        var exactPayloadMatch = localSyncMatches.FirstOrDefault(remoteEvent => MatchesRemotePayloadAndClass(occurrence, remoteEvent));
+        if (exactPayloadMatch is not null)
+        {
+            return exactPayloadMatch;
+        }
+
+        var exactClassMatch = localSyncMatches.FirstOrDefault(remoteEvent => MatchesRemoteClass(occurrence, remoteEvent));
+        if (exactClassMatch is not null)
+        {
+            return exactClassMatch;
+        }
+
+        return localSyncMatches[0];
     }
 
     private static bool MatchesRemotePayload(ResolvedOccurrence occurrence, ProviderRemoteCalendarEvent remoteEvent) =>
@@ -682,6 +752,19 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
         && occurrence.End.ToUniversalTime() == remoteEvent.End.ToUniversalTime()
         && string.Equals(occurrence.Metadata.Location ?? string.Empty, remoteEvent.Location ?? string.Empty, StringComparison.Ordinal)
         && string.Equals(occurrence.GoogleCalendarColorId ?? string.Empty, remoteEvent.GoogleCalendarColorId ?? string.Empty, StringComparison.Ordinal);
+
+    private static bool MatchesRemotePayloadAndClass(ResolvedOccurrence occurrence, ProviderRemoteCalendarEvent remoteEvent) =>
+        MatchesRemoteClass(occurrence, remoteEvent)
+        && MatchesRemotePayload(occurrence, remoteEvent);
+
+    private static bool MatchesRemoteClass(ResolvedOccurrence occurrence, ProviderRemoteCalendarEvent remoteEvent) =>
+        !string.IsNullOrWhiteSpace(remoteEvent.ClassName)
+        && string.Equals(occurrence.ClassName, remoteEvent.ClassName, StringComparison.Ordinal);
+
+    private static bool MatchesLegacyManagedRemotePayload(ResolvedOccurrence occurrence, ProviderRemoteCalendarEvent remoteEvent) =>
+        remoteEvent.IsManagedByApp
+        && string.IsNullOrWhiteSpace(remoteEvent.ClassName)
+        && MatchesRemotePayload(occurrence, remoteEvent);
 
     private static bool MatchesRemoteConflict(ResolvedOccurrence occurrence, ProviderRemoteCalendarEvent remoteEvent) =>
         string.Equals(occurrence.Metadata.CourseTitle, remoteEvent.Title, StringComparison.Ordinal)
@@ -752,7 +835,7 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
         }
 
         return new ResolvedOccurrence(
-            className: "Google Calendar",
+            className: remoteEvent.ClassName ?? "Google Calendar",
             schoolWeekNumber: 1,
             occurrenceDate: remoteEvent.OccurrenceDate,
             start: remoteEvent.Start,
@@ -779,5 +862,37 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
     {
         public static ManagedRemoteReconciliationResult Empty { get; } =
             new(Array.Empty<PlannedSyncChange>(), Array.Empty<string>(), Array.Empty<string>());
+    }
+
+    private static IReadOnlyList<SyncMapping> FilterMappingsForDestination(
+        ProviderKind provider,
+        IReadOnlyList<SyncMapping> existingMappings,
+        string? calendarDestinationId)
+    {
+        if (provider != ProviderKind.Google || string.IsNullOrWhiteSpace(calendarDestinationId))
+        {
+            return existingMappings;
+        }
+
+        return existingMappings
+            .Where(mapping =>
+                mapping.TargetKind != SyncTargetKind.CalendarEvent
+                || string.Equals(mapping.DestinationId, calendarDestinationId, StringComparison.Ordinal))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<ProviderRemoteCalendarEvent> FilterRemoteEventsForDestination(
+        ProviderKind provider,
+        IReadOnlyList<ProviderRemoteCalendarEvent> remoteDisplayEvents,
+        string? calendarDestinationId)
+    {
+        if (provider != ProviderKind.Google || string.IsNullOrWhiteSpace(calendarDestinationId))
+        {
+            return remoteDisplayEvents;
+        }
+
+        return remoteDisplayEvents
+            .Where(remoteEvent => string.Equals(remoteEvent.CalendarId, calendarDestinationId, StringComparison.Ordinal))
+            .ToArray();
     }
 }

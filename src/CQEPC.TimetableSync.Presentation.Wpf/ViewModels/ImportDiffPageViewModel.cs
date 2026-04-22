@@ -17,6 +17,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
     private string summary = string.Empty;
     private string title = UiText.ImportTitle;
     private bool suppressWorkspaceSelectionUpdate;
+    private bool isApplyingSelection;
     private ParsedCourseDisplayMode parsedCourseDisplayMode = ParsedCourseDisplayMode.RepeatRules;
 
     public ImportDiffPageViewModel(WorkspaceSessionViewModel workspace)
@@ -27,6 +28,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         DeletedChanges = new ObservableCollection<DiffChangeItemViewModel>();
         AddedChangeGroups = new ObservableCollection<EditableCourseGroupViewModel>();
         DeletedChangeGroups = new ObservableCollection<EditableCourseGroupViewModel>();
+        ChangeGroups = new ObservableCollection<ImportChangeCourseGroupViewModel>();
         TimeProfileFallbackConfirmations = new ObservableCollection<TimeProfileFallbackConfirmationCardViewModel>();
         ParsedCourseGroups = new ObservableCollection<EditableCourseGroupViewModel>();
         UnresolvedCourseGroups = new ObservableCollection<EditableCourseGroupViewModel>();
@@ -76,6 +78,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
     public ObservableCollection<EditableCourseGroupViewModel> DeletedChangeGroups { get; }
 
+    public ObservableCollection<ImportChangeCourseGroupViewModel> ChangeGroups { get; }
+
     public ObservableCollection<TimeProfileFallbackConfirmationCardViewModel> TimeProfileFallbackConfirmations { get; }
 
     public ObservableCollection<EditableCourseGroupViewModel> ParsedCourseGroups { get; }
@@ -103,6 +107,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
     public bool HasDeletedChanges => DeletedChanges.Count > 0;
 
+    public bool HasChangeGroups => ChangeGroups.Count > 0;
+
     public bool HasTimeProfileFallbackConfirmations => TimeProfileFallbackConfirmations.Count > 0;
 
     public bool HasParsedCourses => ParsedCourseGroups.Count > 0;
@@ -118,7 +124,11 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             ? UiText.ImportParsedCoursesHint
             : UiText.ImportParsedCoursesAllTimesHint;
 
-    public bool CanApplySelected => workspace.HasReadyPreview && SelectedChangeCount > 0;
+    public bool CanApplySelected =>
+        workspace.HasReadyPreview
+        && SelectedChangeCount > 0
+        && !isApplyingSelection
+        && !workspace.IsCurrentImportSelectionApplied(GetSelectedChangeIds());
 
     public IRelayCommand SelectAllCommand { get; }
 
@@ -150,6 +160,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             DeletedChanges.Clear();
             AddedChangeGroups.Clear();
             DeletedChangeGroups.Clear();
+            ChangeGroups.Clear();
             TimeProfileFallbackConfirmations.Clear();
             ParsedCourseGroups.Clear();
             UnresolvedCourseGroups.Clear();
@@ -196,6 +207,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
                 BuildChangeGroups(AddedChanges, AddedChangeGroups);
                 BuildChangeGroups(DeletedChanges, DeletedChangeGroups);
+                BuildUnifiedChangeGroups();
             }
 
             workspace.UpdateImportSelection(AllChangeItems()
@@ -210,6 +222,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             OnPropertyChanged(nameof(HasAddedChanges));
             OnPropertyChanged(nameof(HasUpdatedChanges));
             OnPropertyChanged(nameof(HasDeletedChanges));
+            OnPropertyChanged(nameof(HasChangeGroups));
             OnPropertyChanged(nameof(HasTimeProfileFallbackConfirmations));
             OnPropertyChanged(nameof(HasParsedCourses));
             OnPropertyChanged(nameof(HasUnresolvedItems));
@@ -257,15 +270,40 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
     private async Task ApplySelectedAsync()
     {
-        var acceptedIds = AllChangeItems()
-            .Where(static item => item.IsSelected)
-            .Select(static item => item.LocalStableId)
-            .ToArray();
-        await workspace.ApplyAcceptedChangesLocallyAsync(acceptedIds);
+        if (!CanApplySelected)
+        {
+            return;
+        }
+
+        isApplyingSelection = true;
+        OnPropertyChanged(nameof(CanApplySelected));
+        ApplySelectedCommand.NotifyCanExecuteChanged();
+
+        try
+        {
+            var acceptedIds = AllChangeItems()
+                .Where(static item => item.IsSelected)
+                .Select(static item => item.LocalStableId)
+                .ToArray();
+
+            await workspace.ApplyAcceptedChangesLocallyAsync(acceptedIds);
+        }
+        finally
+        {
+            isApplyingSelection = false;
+            OnPropertyChanged(nameof(CanApplySelected));
+            ApplySelectedCommand.NotifyCanExecuteChanged();
+        }
     }
 
     private IEnumerable<DiffChangeItemViewModel> AllChangeItems() =>
         AddedChanges.Concat(UpdatedChanges).Concat(DeletedChanges);
+
+    private string[] GetSelectedChangeIds() =>
+        AllChangeItems()
+            .Where(static item => item.IsSelected)
+            .Select(static item => item.LocalStableId)
+            .ToArray();
 
     private void HandleItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -291,7 +329,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         ApplySelectedCommand.NotifyCanExecuteChanged();
     }
 
-    private void BuildUnresolvedCourseGroups(IReadOnlyList<CQEPC.TimetableSync.Domain.Model.UnresolvedItem> unresolvedItems)
+    private void BuildUnresolvedCourseGroups(IReadOnlyList<UnresolvedItem> unresolvedItems)
     {
         foreach (var group in unresolvedItems
                      .GroupBy(static item => ExtractCourseTitle(item), StringComparer.Ordinal)
@@ -324,9 +362,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
         foreach (var group in occurrences
                      .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
-                     .GroupBy(
-                         static occurrence => occurrence.Metadata.CourseTitle,
-                         StringComparer.Ordinal)
+                     .GroupBy(static occurrence => occurrence.Metadata.CourseTitle, StringComparer.Ordinal)
                      .OrderBy(static group => group.Key, StringComparer.Ordinal))
         {
             var timeItems = group
@@ -396,7 +432,595 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         }
     }
 
-    private static string ExtractCourseTitle(CQEPC.TimetableSync.Domain.Model.UnresolvedItem item)
+    private void BuildUnifiedChangeGroups()
+    {
+        foreach (var group in AllChangeItems()
+                     .GroupBy(static item => item.Title, StringComparer.Ordinal)
+                     .OrderBy(static group => group.Key, StringComparer.Ordinal))
+        {
+            var items = group.OrderBy(static item => GetSortKey(item), StringComparer.Ordinal).ToArray();
+            var beforeOccurrences = items
+                .Select(static item => item.PlannedChange.Before)
+                .Where(static occurrence => occurrence is not null)
+                .Cast<ResolvedOccurrence>()
+                .ToArray();
+            var afterOccurrences = items
+                .Select(static item => item.PlannedChange.After)
+                .Where(static occurrence => occurrence is not null)
+                .Cast<ResolvedOccurrence>()
+                .ToArray();
+
+            ChangeGroups.Add(new ImportChangeCourseGroupViewModel(
+                group.Key,
+                BuildChangeSummary(items),
+                beforeOccurrences.Length == 0 ? null : BuildRuleField(BuildDisplayScheduleRuleSummary(beforeOccurrences)),
+                afterOccurrences.Length == 0 ? null : BuildRuleField(BuildDisplayScheduleRuleSummary(afterOccurrences)),
+                BuildSingleRuleSummary(items, beforeOccurrences, afterOccurrences),
+                BuildRuleGroups(items)));
+        }
+    }
+
+    private IEnumerable<ImportChangeRuleGroupViewModel> BuildRuleGroups(DiffChangeItemViewModel[] items)
+    {
+        var groups = new List<ImportChangeRuleGroupViewModel>();
+        groups.AddRange(BuildUpdatedRuleGroups(items.Where(static item => item.IsUpdated)));
+        groups.AddRange(BuildAddedRuleGroups(items.Where(static item => item.IsAdded)));
+        groups.AddRange(BuildDeletedRuleGroups(items.Where(static item => item.IsDeleted)));
+
+        return groups
+            .OrderBy(static group => group.ChangeKind switch
+            {
+                SyncChangeKind.Updated => 0,
+                SyncChangeKind.Added => 1,
+                SyncChangeKind.Deleted => 2,
+                _ => 3,
+            })
+            .ThenBy(static group => group.Summary, StringComparer.Ordinal);
+    }
+
+    private IEnumerable<ImportChangeRuleGroupViewModel> BuildUpdatedRuleGroups(IEnumerable<DiffChangeItemViewModel> items) =>
+        items
+            .GroupBy(static item => new UpdatedRuleGroupKey(
+                CreateScheduleKey(item.PlannedChange.Before),
+                CreateScheduleKey(item.PlannedChange.After)))
+            .Select(group =>
+            {
+                var orderedItems = group.OrderBy(static item => GetSortKey(item), StringComparer.Ordinal).ToArray();
+                var beforeOccurrences = orderedItems
+                    .Select(static item => item.PlannedChange.Before)
+                    .Where(static occurrence => occurrence is not null)
+                    .Cast<ResolvedOccurrence>()
+                    .ToArray();
+                var afterOccurrences = orderedItems
+                    .Select(static item => item.PlannedChange.After)
+                    .Where(static occurrence => occurrence is not null)
+                    .Cast<ResolvedOccurrence>()
+                    .ToArray();
+                var beforeAggregate = BuildRuleAggregate(beforeOccurrences);
+                var afterAggregate = BuildRuleAggregate(afterOccurrences);
+
+                return new ImportChangeRuleGroupViewModel(
+                    SyncChangeKind.Updated,
+                    BuildRuleGroupSummary(beforeAggregate, afterAggregate, orderedItems),
+                    beforeAggregate is null ? null : BuildRuleChangeSummary(UiText.ImportBeforeTitle, beforeAggregate, afterAggregate),
+                    afterAggregate is null ? null : BuildRuleChangeSummary(UiText.ImportAfterTitle, afterAggregate, beforeAggregate),
+                    null,
+                    orderedItems,
+                    BuildOccurrenceItems(orderedItems).Where(static item => item is not null)!);
+            });
+
+    private IEnumerable<ImportChangeRuleGroupViewModel> BuildAddedRuleGroups(IEnumerable<DiffChangeItemViewModel> items) =>
+        items
+            .GroupBy(static item => CreateScheduleKey(item.PlannedChange.After))
+            .Select(group =>
+            {
+                var orderedItems = group.OrderBy(static item => GetSortKey(item), StringComparer.Ordinal).ToArray();
+                var occurrences = orderedItems
+                    .Select(static item => item.PlannedChange.After)
+                    .Where(static occurrence => occurrence is not null)
+                    .Cast<ResolvedOccurrence>()
+                    .ToArray();
+                var aggregate = BuildRuleAggregate(occurrences);
+
+                return new ImportChangeRuleGroupViewModel(
+                    SyncChangeKind.Added,
+                    BuildRuleGroupSummary(null, aggregate, orderedItems),
+                    null,
+                    null,
+                    aggregate is null ? null : BuildRuleRangeSummary(aggregate),
+                    orderedItems,
+                    BuildOccurrenceItems(orderedItems).Where(static item => item is not null)!);
+            });
+
+    private IEnumerable<ImportChangeRuleGroupViewModel> BuildDeletedRuleGroups(IEnumerable<DiffChangeItemViewModel> items) =>
+        items
+            .GroupBy(static item => CreateScheduleKey(item.PlannedChange.Before))
+            .Select(group =>
+            {
+                var orderedItems = group.OrderBy(static item => GetSortKey(item), StringComparer.Ordinal).ToArray();
+                var occurrences = orderedItems
+                    .Select(static item => item.PlannedChange.Before)
+                    .Where(static occurrence => occurrence is not null)
+                    .Cast<ResolvedOccurrence>()
+                    .ToArray();
+                var aggregate = BuildRuleAggregate(occurrences);
+
+                return new ImportChangeRuleGroupViewModel(
+                    SyncChangeKind.Deleted,
+                    BuildRuleGroupSummary(aggregate, null, orderedItems),
+                    null,
+                    null,
+                    aggregate is null ? null : BuildRuleRangeSummary(aggregate),
+                    orderedItems,
+                    BuildOccurrenceItems(orderedItems).Where(static item => item is not null)!);
+            });
+
+    private IEnumerable<ImportChangeOccurrenceItemViewModel?> BuildOccurrenceItems(IEnumerable<DiffChangeItemViewModel> items) =>
+        items.Select(BuildOccurrenceItem);
+
+    private static string BuildChangeSummary(DiffChangeItemViewModel[] items)
+    {
+        var parts = new List<string>();
+        var updatedCount = items.Count(static item => item.IsUpdated);
+        var addedCount = items.Count(static item => item.IsAdded);
+        var deletedCount = items.Count(static item => item.IsDeleted);
+
+        if (updatedCount > 0)
+        {
+            parts.Add($"{UiText.ImportUpdatedTitle} {updatedCount}");
+        }
+
+        if (addedCount > 0)
+        {
+            parts.Add($"{UiText.ImportAddedTitle} {addedCount}");
+        }
+
+        if (deletedCount > 0)
+        {
+            parts.Add($"{UiText.ImportDeletedTitle} {deletedCount}");
+        }
+
+        return string.Join(UiText.SummarySeparator, parts);
+    }
+
+    private string? BuildSingleRuleSummary(
+        DiffChangeItemViewModel[] items,
+        ResolvedOccurrence[] beforeOccurrences,
+        ResolvedOccurrence[] afterOccurrences)
+    {
+        if (beforeOccurrences.Length > 0 && afterOccurrences.Length > 0)
+        {
+            return null;
+        }
+
+        if (afterOccurrences.Length > 0)
+        {
+            return BuildRuleField(BuildDisplayScheduleRuleSummary(afterOccurrences));
+        }
+
+        if (beforeOccurrences.Length > 0)
+        {
+            return BuildRuleField(BuildDisplayScheduleRuleSummary(beforeOccurrences));
+        }
+
+        return items.Length > 0 ? BuildRuleField(UiText.DiffNotPresent) : null;
+    }
+
+    private static string BuildRuleField(string value) =>
+        $"{UiText.ImportFieldRepeat}: {value}";
+
+    private static string BuildOccurrenceField(string label, ResolvedOccurrence? occurrence, string fallback)
+    {
+        var value = label switch
+        {
+            var time when time == UiText.ImportFieldTime => occurrence is null ? fallback : FormatOccurrenceWhen(occurrence),
+            var location when location == UiText.ImportFieldLocation => occurrence?.Metadata.Location ?? fallback,
+            var timeZone when timeZone == UiText.ImportFieldTimeZone => occurrence?.CalendarTimeZoneId ?? fallback,
+            _ => fallback,
+        };
+
+        return $"{label}: {value}";
+    }
+
+    private string BuildTimeZoneField(ResolvedOccurrence? occurrence) =>
+        $"{UiText.ImportFieldTimeZone}: {FormatTimeZoneValue(occurrence)}";
+
+    private ImportChangeOccurrenceItemViewModel? BuildOccurrenceItem(DiffChangeItemViewModel item)
+    {
+        var beforeDetails = BuildChangedDetailLines(item.PlannedChange.Before, item.PlannedChange.After, item);
+        var afterDetails = BuildChangedDetailLines(item.PlannedChange.After, item.PlannedChange.Before, item, isAfter: true);
+
+        if (item.IsUpdated
+            && beforeDetails.Length == 0
+            && afterDetails.Length == 0)
+        {
+            return null;
+        }
+
+        return new ImportChangeOccurrenceItemViewModel(
+            item,
+            BuildOccurrenceSummary(item),
+            beforeDetails,
+            afterDetails);
+    }
+
+    private string[] BuildChangedDetailLines(ResolvedOccurrence? primary, ResolvedOccurrence? other, DiffChangeItemViewModel item, bool isAfter = false)
+    {
+        var lines = new List<string>();
+        AddChangedLine(lines, UiText.ImportFieldTime, primary is null ? UiText.DiffNotPresent : FormatOccurrenceWhen(primary), other is null ? UiText.DiffNotPresent : FormatOccurrenceWhen(other));
+        AddChangedLine(lines, UiText.ImportFieldLocation, primary?.Metadata.Location ?? UiText.DiffNoLocation, other?.Metadata.Location ?? UiText.DiffNoLocation);
+
+        var primaryTimeZone = FormatTimeZoneValue(primary);
+        var otherTimeZone = FormatTimeZoneValue(other);
+        if (!string.Equals(primaryTimeZone, UiText.DiffNotPresent, StringComparison.Ordinal))
+        {
+            AddChangedLine(lines, UiText.ImportFieldTimeZone, primaryTimeZone, otherTimeZone);
+        }
+
+        AddChangedLine(lines, UiText.ImportFieldColor, FormatColorValue(primary), FormatColorValue(other));
+        AddChangedLine(lines, UiText.CourseEditorNotesLabel, primary?.Metadata.Notes ?? UiText.DiffNoNotes, other?.Metadata.Notes ?? UiText.DiffNoNotes);
+
+        var sourceText = ResolveChangeSourceText(item.PlannedChange.ChangeSource);
+        if (!string.IsNullOrWhiteSpace(sourceText) && !isAfter)
+        {
+            lines.Add($"{UiText.ImportFieldChangeSource}: {sourceText}");
+        }
+
+        return lines.ToArray();
+    }
+
+    private static void AddChangedLine(List<string> lines, string label, string currentValue, string otherValue)
+    {
+        if (!string.Equals(currentValue, otherValue, StringComparison.Ordinal))
+        {
+            lines.Add($"{label}: {currentValue}");
+        }
+    }
+
+    private static string BuildOccurrenceSummary(DiffChangeItemViewModel item)
+    {
+        var occurrence = item.PlannedChange.After ?? item.PlannedChange.Before;
+        if (occurrence is null)
+        {
+            return item.Summary;
+        }
+
+        var parts = new List<string> { FormatOccurrenceWhen(occurrence) };
+        if (!string.IsNullOrWhiteSpace(occurrence.Metadata.Location))
+        {
+            parts.Add(occurrence.Metadata.Location);
+        }
+
+        return string.Join(UiText.SummarySeparator, parts);
+    }
+
+    private static string GetSortKey(DiffChangeItemViewModel item) =>
+        item.AfterTime == UiText.DiffNotPresent ? item.BeforeTime : item.AfterTime;
+
+    private static string BuildRuleGroupSummary(RuleAggregate? before, RuleAggregate? after, IReadOnlyList<DiffChangeItemViewModel> items)
+    {
+        var parts = new List<string> { BuildRuleCommonSummary(before, after) };
+
+        var beforeColor = items.Select(static item => item.PlannedChange.Before?.GoogleCalendarColorId).FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value));
+        var afterColor = items.Select(static item => item.PlannedChange.After?.GoogleCalendarColorId).FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value));
+        if (!string.Equals(FormatColorValue(beforeColor), FormatColorValue(afterColor), StringComparison.Ordinal))
+        {
+            parts.Add($"{UiText.ImportFieldColor}: {FormatColorValue(beforeColor)} -> {FormatColorValue(afterColor)}");
+        }
+
+        var sources = items
+            .Select(static item => item.PlannedChange.ChangeSource)
+            .Distinct()
+            .Select(ResolveChangeSourceText)
+            .Where(static text => !string.IsNullOrWhiteSpace(text))
+            .ToArray();
+        if (sources.Length > 0)
+        {
+            parts.Add($"{UiText.ImportFieldChangeSource}: {string.Join(", ", sources)}");
+        }
+
+        return string.Join(UiText.SummarySeparator, parts.Where(static part => !string.IsNullOrWhiteSpace(part)));
+    }
+
+    private RuleAggregate? BuildRuleAggregate(ResolvedOccurrence[] occurrences)
+    {
+        if (occurrences.Length == 0)
+        {
+            return null;
+        }
+
+        var ordered = occurrences.OrderBy(static occurrence => occurrence.Start).ToArray();
+        var first = ordered[0];
+        var repeatKind = InferRepeatKind(ordered);
+        var repeatLabel = repeatKind switch
+        {
+            CourseScheduleRepeatKind.Weekly => UiText.CourseEditorRepeatWeekly,
+            CourseScheduleRepeatKind.Biweekly => UiText.CourseEditorRepeatBiweekly,
+            _ => UiText.CourseEditorRepeatNone,
+        };
+
+        return new RuleAggregate(
+            repeatLabel,
+            first.OccurrenceDate.ToDateTime(TimeOnly.MinValue).ToString("dddd", CultureInfo.CurrentCulture),
+            $"{TimeOnly.FromDateTime(first.Start.DateTime):HH\\:mm}-{TimeOnly.FromDateTime(first.End.DateTime):HH\\:mm}",
+            string.IsNullOrWhiteSpace(first.Metadata.Location) ? null : first.Metadata.Location,
+            NormalizeDisplayTimeZone(first),
+            ordered[0].OccurrenceDate,
+            ordered[^1].OccurrenceDate);
+    }
+
+    private static string BuildRuleCommonSummary(RuleAggregate? before, RuleAggregate? after)
+    {
+        if (before is null && after is null)
+        {
+            return UiText.DiffNotPresent;
+        }
+
+        if (before is null)
+        {
+            return BuildRuleDescriptor(after!);
+        }
+
+        if (after is null)
+        {
+            return BuildRuleDescriptor(before);
+        }
+
+        var commonParts = new[]
+            {
+                before.RepeatLabel == after.RepeatLabel ? before.RepeatLabel : null,
+                before.WeekdayLabel == after.WeekdayLabel ? before.WeekdayLabel : null,
+                before.TimeRange == after.TimeRange ? before.TimeRange : null,
+                before.Location == after.Location ? before.Location : null,
+                before.TimeZone == after.TimeZone ? before.TimeZone : null,
+            }
+            .Where(static part => !string.IsNullOrWhiteSpace(part))
+            .ToArray();
+
+        return commonParts.Length == 0 ? BuildRuleDescriptor(after) : string.Join(UiText.SummarySeparator, commonParts);
+    }
+
+    private static string BuildRuleChangeSummary(string label, RuleAggregate current, RuleAggregate? other)
+    {
+        var parts = new List<string> { BuildRuleRange(current.StartDate, current.EndDate) };
+        if (other is null || !string.Equals(current.RepeatLabel, other.RepeatLabel, StringComparison.Ordinal))
+        {
+            parts.Add(current.RepeatLabel);
+        }
+
+        if (other is null || !string.Equals(current.WeekdayLabel, other.WeekdayLabel, StringComparison.Ordinal))
+        {
+            parts.Add(current.WeekdayLabel);
+        }
+
+        if (other is null || !string.Equals(current.TimeRange, other.TimeRange, StringComparison.Ordinal))
+        {
+            parts.Add(current.TimeRange);
+        }
+
+        if (!string.IsNullOrWhiteSpace(current.Location)
+            && (other is null || !string.Equals(current.Location, other.Location, StringComparison.Ordinal)))
+        {
+            parts.Add(current.Location);
+        }
+
+        if (!string.IsNullOrWhiteSpace(current.TimeZone)
+            && (other is null || !string.Equals(current.TimeZone, other.TimeZone, StringComparison.Ordinal)))
+        {
+            parts.Add(current.TimeZone);
+        }
+
+        return $"{label}: {string.Join(UiText.SummarySeparator, parts)}";
+    }
+
+    private static string BuildRuleDescriptor(RuleAggregate aggregate)
+    {
+        var parts = new List<string>
+        {
+            aggregate.RepeatLabel,
+            aggregate.WeekdayLabel,
+            aggregate.TimeRange,
+        };
+
+        if (!string.IsNullOrWhiteSpace(aggregate.Location))
+        {
+            parts.Add(aggregate.Location);
+        }
+
+        if (!string.IsNullOrWhiteSpace(aggregate.TimeZone))
+        {
+            parts.Add(aggregate.TimeZone);
+        }
+
+        return string.Join(UiText.SummarySeparator, parts);
+    }
+
+    private static string BuildRuleRangeSummary(RuleAggregate aggregate) =>
+        $"{UiText.ImportFieldTime}: {BuildRuleRange(aggregate.StartDate, aggregate.EndDate)}";
+
+    private static string BuildRuleRange(DateOnly startDate, DateOnly endDate) =>
+        startDate == endDate
+            ? startDate.ToString("yyyy-MM-dd", CultureInfo.CurrentCulture)
+            : $"{startDate:yyyy-MM-dd} - {endDate:yyyy-MM-dd}";
+
+    private string? NormalizeDisplayTimeZone(ResolvedOccurrence occurrence)
+    {
+        var value = FormatTimeZoneValue(occurrence);
+        return string.Equals(value, UiText.DiffNotPresent, StringComparison.Ordinal) ? null : value;
+    }
+
+    private static string FormatColorValue(ResolvedOccurrence? occurrence) =>
+        FormatColorValue(occurrence?.GoogleCalendarColorId);
+
+    private static string FormatColorValue(string? colorId) =>
+        string.IsNullOrWhiteSpace(colorId) ? UiText.DiffNotPresent : colorId.Trim();
+
+    private static string ResolveChangeSourceText(SyncChangeSource source) =>
+        source switch
+        {
+            SyncChangeSource.LocalSnapshot => UiText.DiffSourceLocalSnapshot,
+            SyncChangeSource.RemoteManaged => UiText.DiffSourceRemoteManaged,
+            SyncChangeSource.RemoteTitleConflict => UiText.DiffSourceRemoteTitleConflict,
+            SyncChangeSource.RemoteExactMatch => UiText.DiffSourceRemoteExactMatch,
+            _ => source.ToString(),
+        };
+
+    private string BuildDisplayScheduleRuleSummary(IEnumerable<ResolvedOccurrence> occurrences)
+    {
+        var summaries = occurrences
+            .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
+            .GroupBy(static occurrence => new CompactScheduleKey(
+                occurrence.Weekday,
+                TimeOnly.FromDateTime(occurrence.Start.DateTime),
+                TimeOnly.FromDateTime(occurrence.End.DateTime),
+                occurrence.CalendarTimeZoneId,
+                occurrence.Metadata.Location))
+            .Select(static group => group.OrderBy(static occurrence => occurrence.Start).ToArray())
+            .OrderBy(static group => group[0].Start)
+            .Select(group =>
+            {
+                var first = group[0];
+                var repeatKind = InferRepeatKind(group);
+                var repeatLabel = repeatKind switch
+                {
+                    CourseScheduleRepeatKind.Weekly => UiText.CourseEditorRepeatWeekly,
+                    CourseScheduleRepeatKind.Biweekly => UiText.CourseEditorRepeatBiweekly,
+                    _ => UiText.CourseEditorRepeatNone,
+                };
+                var weekday = first.OccurrenceDate.ToDateTime(TimeOnly.MinValue).ToString("dddd", CultureInfo.CurrentCulture);
+                var timeRange = $"{TimeOnly.FromDateTime(first.Start.DateTime):HH\\:mm}-{TimeOnly.FromDateTime(first.End.DateTime):HH\\:mm}";
+                var parts = new List<string> { repeatLabel, weekday, timeRange };
+
+                if (!string.IsNullOrWhiteSpace(first.Metadata.Location))
+                {
+                    parts.Add(first.Metadata.Location);
+                }
+
+                var timeZone = FormatTimeZoneValue(first);
+                if (!string.Equals(timeZone, UiText.DiffNotPresent, StringComparison.Ordinal))
+                {
+                    parts.Add(timeZone);
+                }
+
+                return string.Join(UiText.SummarySeparator, parts);
+            })
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        return summaries.Length == 0 ? UiText.DiffNotPresent : string.Join("； ", summaries);
+    }
+
+    private string FormatTimeZoneValue(ResolvedOccurrence? occurrence)
+    {
+        if (occurrence is null)
+        {
+            return UiText.DiffNotPresent;
+        }
+
+        var timeZoneId = occurrence.CalendarTimeZoneId;
+        if (string.IsNullOrWhiteSpace(timeZoneId))
+        {
+            return UiText.DiffNotPresent;
+        }
+
+        var defaultTimeZoneId = workspace.CurrentPreferences.GoogleSettings.PreferredCalendarTimeZoneId
+            ?? WorkspacePreferenceDefaults.CreateGoogleSettings().PreferredCalendarTimeZoneId;
+        if (string.Equals(timeZoneId, defaultTimeZoneId, StringComparison.OrdinalIgnoreCase))
+        {
+            return UiText.DiffNotPresent;
+        }
+
+        var offset = ResolveTimeZoneOffset(timeZoneId, occurrence.Start.DateTime) ?? occurrence.Start.Offset;
+        var sign = offset < TimeSpan.Zero ? "-" : "+";
+        var absolute = offset.Duration();
+        return $"UTC{sign}{absolute:hh\\:mm}";
+    }
+
+    private static TimeSpan? ResolveTimeZoneOffset(string timeZoneId, DateTime referenceDateTime)
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId).GetUtcOffset(referenceDateTime);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+        }
+        catch (InvalidTimeZoneException)
+        {
+        }
+
+        if (TimeZoneInfo.TryConvertIanaIdToWindowsId(timeZoneId, out var windowsId))
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById(windowsId).GetUtcOffset(referenceDateTime);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+            }
+            catch (InvalidTimeZoneException)
+            {
+            }
+        }
+
+        return null;
+    }
+
+    private static CompactScheduleKey CreateScheduleKey(ResolvedOccurrence? occurrence) =>
+        occurrence is null
+            ? new CompactScheduleKey(default, default, default, null, null)
+            : new CompactScheduleKey(
+                occurrence.Weekday,
+                TimeOnly.FromDateTime(occurrence.Start.DateTime),
+                TimeOnly.FromDateTime(occurrence.End.DateTime),
+                occurrence.CalendarTimeZoneId,
+                occurrence.Metadata.Location);
+
+    private string BuildScheduleRuleSummary(IEnumerable<ResolvedOccurrence> occurrences)
+    {
+        var summaries = occurrences
+            .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
+            .GroupBy(static occurrence => new CompactScheduleKey(
+                occurrence.Weekday,
+                TimeOnly.FromDateTime(occurrence.Start.DateTime),
+                TimeOnly.FromDateTime(occurrence.End.DateTime),
+                occurrence.CalendarTimeZoneId,
+                occurrence.Metadata.Location))
+            .Select(static group => group.OrderBy(static occurrence => occurrence.Start).ToArray())
+            .OrderBy(static group => group[0].Start)
+            .Select(group =>
+            {
+                var first = group[0];
+                var repeatKind = InferRepeatKind(group);
+                var repeatLabel = repeatKind switch
+                {
+                    CourseScheduleRepeatKind.Weekly => UiText.CourseEditorRepeatWeekly,
+                    CourseScheduleRepeatKind.Biweekly => UiText.CourseEditorRepeatBiweekly,
+                    _ => UiText.CourseEditorRepeatNone,
+                };
+                var weekday = first.OccurrenceDate.ToDateTime(TimeOnly.MinValue).ToString("dddd", CultureInfo.CurrentCulture);
+                var timeRange = $"{TimeOnly.FromDateTime(first.Start.DateTime):HH\\:mm}-{TimeOnly.FromDateTime(first.End.DateTime):HH\\:mm}";
+                var parts = new List<string> { repeatLabel, weekday, timeRange };
+                if (!string.IsNullOrWhiteSpace(first.Metadata.Location))
+                {
+                    parts.Add(first.Metadata.Location);
+                }
+
+                var timeZone = FormatTimeZoneValue(first);
+                if (!string.Equals(timeZone, UiText.DiffNotPresent, StringComparison.Ordinal))
+                {
+                    parts.Add(timeZone);
+                }
+
+                return string.Join(UiText.SummarySeparator, parts);
+            })
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        return summaries.Length == 0 ? UiText.DiffNotPresent : string.Join("；", summaries);
+    }
+
+    private static string ExtractCourseTitle(UnresolvedItem item)
     {
         const string prefix = "CourseTitle:";
         var lines = item.RawSourceText.Split([Environment.NewLine, "\n"], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -406,7 +1030,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             : titleLine[prefix.Length..].Trim();
     }
 
-    private static string FormatUnresolvedTimeSummary(CQEPC.TimetableSync.Domain.Model.UnresolvedItem item)
+    private static string FormatUnresolvedTimeSummary(UnresolvedItem item)
     {
         var lines = item.RawSourceText.Split([Environment.NewLine, "\n"], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var weekday = ExtractValue(lines, "Weekday");
@@ -512,6 +1136,9 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         return string.Join(UiText.SummarySeparator, parts);
     }
 
+    private static string FormatOccurrenceWhen(ResolvedOccurrence occurrence) =>
+        $"{occurrence.OccurrenceDate:yyyy-MM-dd} {TimeOnly.FromDateTime(occurrence.Start.DateTime):HH\\:mm}-{TimeOnly.FromDateTime(occurrence.End.DateTime):HH\\:mm}";
+
     private static CourseScheduleRepeatKind InferRepeatKind(ResolvedOccurrence[] occurrences)
     {
         if (occurrences.Length <= 1)
@@ -561,14 +1188,14 @@ public sealed class ImportDiffPageViewModel : ObservableObject
     private static string BuildChangeGroupDetails(DiffChangeItemViewModel item)
     {
         var location = item.ChangeKind == SyncChangeKind.Deleted ? item.BeforeLocation : item.AfterLocation;
-        var notes = item.ChangeKind == SyncChangeKind.Deleted ? item.BeforeNotes : item.AfterNotes;
         var reason = item.PlannedChange.ChangeSource == SyncChangeSource.RemoteTitleConflict
-            ? "Google 已有同名日程，时间不一致。"
+            ? item.Summary
             : item.Summary;
-        return string.Join(UiText.SummarySeparator, reason, location, notes);
+        return string.Join(UiText.SummarySeparator, reason, location);
     }
 
-    private void HandleWorkspaceStateChanged(object? sender, EventArgs e) => Rebuild();
+    private void HandleWorkspaceStateChanged(object? sender, EventArgs e)
+        => Rebuild();
 
     private void SetParsedCourseDisplayMode(ParsedCourseDisplayMode mode)
     {
@@ -593,6 +1220,26 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         string ClassName,
         SourceFingerprint SourceFingerprint,
         SyncTargetKind TargetKind);
+
+    private sealed record CompactScheduleKey(
+        DayOfWeek Weekday,
+        TimeOnly StartTime,
+        TimeOnly EndTime,
+        string? CalendarTimeZoneId,
+        string? Location);
+
+    private sealed record UpdatedRuleGroupKey(
+        CompactScheduleKey Before,
+        CompactScheduleKey After);
+
+    private sealed record RuleAggregate(
+        string RepeatLabel,
+        string WeekdayLabel,
+        string TimeRange,
+        string? Location,
+        string? TimeZone,
+        DateOnly StartDate,
+        DateOnly EndDate);
 
     private enum ParsedCourseDisplayMode
     {

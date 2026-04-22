@@ -14,6 +14,8 @@ public sealed class RemoteCalendarEventEditorViewModel : ObservableObject
     private string title = string.Empty;
     private string summary = string.Empty;
     private string eventTitle = string.Empty;
+    private TimeSpan startOffset = TimeSpan.Zero;
+    private TimeSpan endOffset = TimeSpan.Zero;
     private DateTime? startDate;
     private string startTimeText = "08:00";
     private DateTime? endDate;
@@ -185,9 +187,11 @@ public sealed class RemoteCalendarEventEditorViewModel : ObservableObject
         Title = request.Title;
         Summary = request.Summary;
         EventTitle = request.EventTitle;
-        StartDate = request.Start.LocalDateTime.Date;
+        startOffset = request.Start.Offset;
+        endOffset = request.End.Offset;
+        StartDate = request.Start.Date;
         StartTimeText = request.Start.ToString("HH\\:mm", CultureInfo.InvariantCulture);
-        EndDate = request.End.LocalDateTime.Date;
+        EndDate = request.End.Date;
         EndTimeText = request.End.ToString("HH\\:mm", CultureInfo.InvariantCulture);
         Location = request.Location;
         Description = request.Description;
@@ -222,8 +226,8 @@ public sealed class RemoteCalendarEventEditorViewModel : ObservableObject
             return;
         }
 
-        var start = new DateTimeOffset(StartDate.Value.Date + startTime.ToTimeSpan(), TimeZoneInfo.Local.GetUtcOffset(StartDate.Value.Date + startTime.ToTimeSpan()));
-        var end = new DateTimeOffset(EndDate.Value.Date + endTime.ToTimeSpan(), TimeZoneInfo.Local.GetUtcOffset(EndDate.Value.Date + endTime.ToTimeSpan()));
+        var start = new DateTimeOffset(StartDate.Value.Date + startTime.ToTimeSpan(), startOffset);
+        var end = new DateTimeOffset(EndDate.Value.Date + endTime.ToTimeSpan(), endOffset);
         if (end <= start)
         {
             ValidationMessage = UiText.RemoteCalendarEditorValidationRange;

@@ -39,6 +39,31 @@ public sealed class SmokeTests
     }
 
     [StaFact]
+    public async Task HomeAgendaShowsNoScheduleSummaryWithoutPlaceholderCardOnEmptyDate()
+    {
+        await using var session = await UiAppSession.LaunchAsync(nameof(HomeAgendaShowsNoScheduleSummaryWithoutPlaceholderCardOnEmptyDate));
+        await session.RunAsync(
+            async current =>
+            {
+                current.WaitForElement("Home.PageRoot");
+
+                await current.SelectHomeDateAsync(new DateOnly(2026, 3, 17));
+                using var selectedDayState = JsonDocument.Parse(await current.GetHomeSelectedDayStateAsync() ?? "{}");
+                var root = selectedDayState.RootElement;
+                var summary = root.GetProperty("selectedDaySummary").GetString();
+                var occurrences = root.GetProperty("occurrences");
+
+                occurrences.GetArrayLength().Should().Be(0);
+                summary.Should().NotBeNullOrWhiteSpace();
+                summary.Should().NotContain("0");
+                summary.Should().MatchRegex("(无安排|No schedule)");
+
+                var screenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(screenshotPath).Should().BeTrue();
+            });
+    }
+
+    [StaFact]
     public async Task HomeSyncCalendarNavigatesToSettingsWhenGoogleIsNotConnected()
     {
         await using var session = await UiAppSession.LaunchAsync(nameof(HomeSyncCalendarNavigatesToSettingsWhenGoogleIsNotConnected));
@@ -80,12 +105,29 @@ public sealed class SmokeTests
             {
                 current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
                 current.WaitForElement("Import.ParsedCourseGroups");
-                current.WaitForElement("Import.ParsedCoursesHint");
                 current.WaitForElement("Import.ParsedCourses.Mode.RepeatRules");
                 current.WaitForElement("Import.ParsedCourses.Mode.AllTimes");
+                current.WaitForElement("Import.ChangeGroups");
 
                 var screenshotPath = await current.CaptureCurrentPageScreenshotAsync();
                 File.Exists(screenshotPath).Should().BeTrue();
+            });
+    }
+
+    [StaFact]
+    public async Task ImportApplyButtonDisablesAfterLocalApply()
+    {
+        await using var session = await UiAppSession.LaunchAsync(nameof(ImportApplyButtonDisablesAfterLocalApply));
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+                current.WaitForButton("Import.ApplySelected").IsEnabled.Should().BeTrue();
+
+                current.ClickButton("Import.ApplySelected");
+                await Task.Delay(TimeSpan.FromSeconds(2));
+
+                current.WaitForButton("Import.ApplySelected").IsEnabled.Should().BeFalse();
             });
     }
 
@@ -135,6 +177,28 @@ public sealed class SmokeTests
                 await current.CloseAboutOverlayAsync();
                 current.WaitForElementToDisappear("AboutOverlay.Root");
                 current.WaitForElement("ProgramSettingsOverlay.Root");
+            });
+    }
+
+    [StaFact]
+    public async Task AboutOverlayShowsGoogleAsAvailableAndMicrosoftAsPlanned()
+    {
+        await using var session = await UiAppSession.LaunchAsync(nameof(AboutOverlayShowsGoogleAsAvailableAndMicrosoftAsPlanned));
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+                current.ClickButton("Settings.ProgramSettingsButton", "ProgramSettingsOverlay.Root");
+                current.SelectComboBoxItemByIndexViaBridge("ProgramSettings.LocalizationCombo", 1).GetAwaiter().GetResult();
+                using var localizationState = JsonDocument.Parse(await current.GetLocalizationStateAsync() ?? "{}");
+                localizationState.RootElement.GetProperty("selectedPreferredCultureName").GetString().Should().Be("zh-CN");
+
+                current.ClickButton("ProgramSettings.AboutButton", "AboutOverlay.Root");
+                current.GetElementName("AboutOverlay.ProvidersText").Should().Be("当前已实现：Google Calendar 与可选的 Google Tasks。规划中：Outlook Calendar 与 Microsoft To Do。");
+                current.GetElementName("AboutOverlay.SummaryText").Should().Contain("Google 日历同步");
+
+                var screenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(screenshotPath).Should().BeTrue();
             });
     }
 
@@ -369,6 +433,33 @@ public sealed class SmokeTests
                 var darkScreenshotPath = await current.CaptureCurrentPageScreenshotAsync();
                 File.Exists(darkScreenshotPath).Should().BeTrue();
                 new FileInfo(darkScreenshotPath).Length.Should().BeGreaterThan(0);
+            });
+    }
+
+    [StaFact]
+    public async Task NativeTitleBarRecolorsToMatchLightAndDarkThemes()
+    {
+        await using var session = await UiAppSession.LaunchAsync(nameof(NativeTitleBarRecolorsToMatchLightAndDarkThemes));
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+                current.ClickButton("Settings.ProgramSettingsButton", "ProgramSettingsOverlay.Root");
+                current.WaitForElement("ProgramSettings.ThemeToggle");
+
+                current.ToggleElement("ProgramSettings.ThemeToggle", ToggleState.Off);
+                await Task.Delay(TimeSpan.FromMilliseconds(500));
+                using var lightState = JsonDocument.Parse(await current.GetTitleBarThemeStateAsync() ?? "{}");
+                lightState.RootElement.GetProperty("themeMode").GetString().Should().Be("Light");
+                lightState.RootElement.GetProperty("captionColorHex").GetString().Should().Be("#E7EFF9");
+                lightState.RootElement.GetProperty("textColorHex").GetString().Should().Be("#161C24");
+
+                current.ToggleElement("ProgramSettings.ThemeToggle", ToggleState.On);
+                await Task.Delay(TimeSpan.FromMilliseconds(500));
+                using var darkState = JsonDocument.Parse(await current.GetTitleBarThemeStateAsync() ?? "{}");
+                darkState.RootElement.GetProperty("themeMode").GetString().Should().Be("Dark");
+                darkState.RootElement.GetProperty("captionColorHex").GetString().Should().Be("#121B26");
+                darkState.RootElement.GetProperty("textColorHex").GetString().Should().Be("#F4F8FC");
             });
     }
 

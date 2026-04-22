@@ -48,11 +48,7 @@ public static class SyncIdentity
         return CreateHash(
             "task",
             ruleId.Trim(),
-            sourceOccurrence.SourceFingerprint.SourceKind,
-            sourceOccurrence.SourceFingerprint.Hash,
-            sourceOccurrence.OccurrenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            sourceOccurrence.Start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-            sourceOccurrence.End.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+            CreateOccurrenceId(sourceOccurrence));
     }
 
     private static string CreateHash(params object[] parts)

@@ -63,6 +63,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     private bool suppressWorkspaceStateChanged;
     private int activeTaskSequence;
     private HashSet<string>? selectedImportChangeIds;
+    private string? lastAppliedImportSelectionSignature;
+    private bool isApplyingImportSelection;
     private TimeProfileDefaultModeOptionViewModel? selectedTimeProfileDefaultModeOption;
     private TimeProfileOptionViewModel? selectedExplicitTimeProfileOption;
     private LocalizationOptionViewModel? selectedLocalizationOption;
@@ -1631,12 +1633,14 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
         try
         {
+            isApplyingImportSelection = true;
             var result = await previewService.ApplyAcceptedChangesLocallyAsync(
                 CurrentPreviewResult,
                 acceptedChangeIds,
                 CancellationToken.None);
 
             await RefreshPreviewCoreAsync();
+            lastAppliedImportSelectionSignature = CreateImportSelectionSignature(acceptedChangeIds);
             WorkspaceStatus = string.Concat(
                 UiFormatter.FormatWorkspaceApplyStatus(result),
                 " ",
@@ -1645,6 +1649,10 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         catch (Exception exception)
         {
             WorkspaceStatus = exception.Message;
+        }
+        finally
+        {
+            isApplyingImportSelection = false;
         }
 
         if (!suppressWorkspaceStateChanged)
@@ -2364,6 +2372,11 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     private void ApplyPreviewResult(WorkspacePreviewResult? previousPreview, WorkspacePreviewResult preview)
     {
+        if (!isApplyingImportSelection)
+        {
+            lastAppliedImportSelectionSignature = null;
+        }
+
         selectedImportChangeIds = BuildSelectedImportChangeIds(previousPreview, preview, selectedImportChangeIds);
 
         ReplaceAvailableClasses(preview.ParsedClassSchedules.Select(static schedule => schedule.ClassName));
@@ -3813,6 +3826,28 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         !string.IsNullOrWhiteSpace(localStableId)
         && selectedImportChangeIds?.Contains(localStableId) == true;
 
+    internal bool IsCurrentImportSelectionApplied(IReadOnlyCollection<string> selectedChangeIds) =>
+        string.Equals(
+            CreateImportSelectionSignature(selectedChangeIds),
+            lastAppliedImportSelectionSignature,
+            StringComparison.Ordinal);
+
+    private static string? CreateImportSelectionSignature(IReadOnlyCollection<string> selectedChangeIds)
+    {
+        if (selectedChangeIds.Count == 0)
+        {
+            return null;
+        }
+
+        var normalized = selectedChangeIds
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Select(static id => id.Trim())
+            .OrderBy(static id => id, StringComparer.Ordinal)
+            .ToArray();
+
+        return normalized.Length == 0 ? null : string.Join("\n", normalized);
+    }
+
     private bool IsGoogleTaskRuleEnabled(string ruleId) =>
         CurrentPreferences.GoogleSettings.TaskRules.Any(
             rule => string.Equals(rule.RuleId, ruleId, StringComparison.Ordinal) && rule.Enabled);
@@ -4785,6 +4820,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
         return new AgendaOccurrenceViewModel(
             occurrence.OccurrenceDate,
+            occurrence.SchoolWeekNumber,
             occurrence.Metadata.CourseTitle,
             $"{occurrence.Start:HH:mm}-{occurrence.End:HH:mm}",
             location,
@@ -4810,6 +4846,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
         return new AgendaOccurrenceViewModel(
             remoteEvent.OccurrenceDate,
+            null,
             remoteEvent.Title,
             $"{remoteEvent.Start:HH:mm}-{remoteEvent.End:HH:mm}",
             location,

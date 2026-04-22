@@ -210,6 +210,7 @@ public sealed class ShellViewModelTests
 
         home.CalendarDays.Single(day => day.IsSelected).Date.Should().Be(new DateOnly(2026, 3, 18));
         home.SelectedDayOccurrences.Should().BeEmpty();
+        home.SelectedDaySummary.Should().Be("No schedule | Week 1");
     }
 
     [Fact]
@@ -233,7 +234,7 @@ public sealed class ShellViewModelTests
             new FixedTimeProvider(new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.FromHours(8))));
 
         home.CalendarContextSummary.Should().Contain("Google Timetable");
-        home.SelectedDaySummary.Should().NotContain("Week");
+        home.SelectedDaySummary.Should().Be("1 item(s) | Week 1");
     }
 
     [Fact]
@@ -961,6 +962,7 @@ public sealed class ShellViewModelTests
 
         import.SelectedChangeCount.Should().Be(2);
         import.ApplySelectedLabel.Should().Be("Apply Selected (2)");
+        import.CanApplySelected.Should().BeTrue();
 
         import.ClearAllCommand.Execute(null);
         import.SelectedChangeCount.Should().Be(0);
@@ -971,6 +973,178 @@ public sealed class ShellViewModelTests
         import.SelectedChangeCount.Should().Be(2);
         import.ApplySelectedLabel.Should().Be("Apply Selected (2)");
         import.CanApplySelected.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelGroupsAddedUpdatedAndDeletedChangesByCourseTitle()
+    {
+        var beforeOccurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40));
+        var afterOccurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 26), new TimeOnly(10, 0), new TimeOnly(11, 40));
+        var addedOccurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 4, 2), new TimeOnly(10, 0), new TimeOnly(11, 40));
+        var deletedOccurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 12), new TimeOnly(8, 0), new TimeOnly(9, 40));
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [afterOccurrence, addedOccurrence],
+                syncPlan: new SyncPlan(
+                    [afterOccurrence, addedOccurrence],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Updated,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-updated",
+                            before: beforeOccurrence,
+                            after: afterOccurrence),
+                        new PlannedSyncChange(
+                            SyncChangeKind.Added,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-added",
+                            after: addedOccurrence),
+                        new PlannedSyncChange(
+                            SyncChangeKind.Deleted,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-deleted",
+                            before: deletedOccurrence),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        await session.InitializeAsync();
+
+          var import = new ImportDiffPageViewModel(session);
+
+          import.ChangeGroups.Should().ContainSingle();
+          import.ChangeGroups[0].Title.Should().Be("Signals");
+          import.ChangeGroups[0].RuleGroups.Should().HaveCount(3);
+          import.ChangeGroups[0].RuleGroups.SelectMany(static group => group.OccurrenceItems).Should().HaveCount(3);
+          import.ChangeGroups[0].Summary.Should().Contain("Updated");
+        import.ChangeGroups[0].Summary.Should().Contain("Added");
+        import.ChangeGroups[0].Summary.Should().Contain("Deleted");
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelHidesDefaultTimeZoneButShowsExplicitUtcOffset()
+    {
+        var beforeOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            calendarTimeZoneId: "Asia/Shanghai");
+        var afterOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            calendarTimeZoneId: "UTC");
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [afterOccurrence],
+                syncPlan: new SyncPlan(
+                    [afterOccurrence],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Updated,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-updated",
+                            before: beforeOccurrence,
+                            after: afterOccurrence),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        await session.InitializeAsync();
+
+        var import = new ImportDiffPageViewModel(session);
+        var occurrence = import.ChangeGroups[0].RuleGroups[0].OccurrenceItems[0];
+
+        occurrence.BeforeDetails.Should().NotContain(detail => detail.Contains("Time zone:", StringComparison.Ordinal));
+        occurrence.AfterDetails.Should().Contain("Time zone: UTC+00:00");
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelOmitsUpdatedOccurrenceRowsWhenNoDisplayFieldChanged()
+    {
+        var beforeOccurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40));
+        var afterOccurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40));
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [afterOccurrence],
+                syncPlan: new SyncPlan(
+                    [afterOccurrence],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Updated,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-updated",
+                            before: beforeOccurrence,
+                            after: afterOccurrence),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        await session.InitializeAsync();
+
+        var import = new ImportDiffPageViewModel(session);
+
+        import.ChangeGroups.Should().ContainSingle();
+        import.ChangeGroups[0].RuleGroups.Should().ContainSingle();
+        import.ChangeGroups[0].RuleGroups[0].OccurrenceItems.Should().ContainSingle();
+        import.ChangeGroups[0].RuleGroups[0].IsSelected.Should().BeTrue();
+        import.ChangeGroups[0].RuleGroups[0].OccurrenceItems[0].BeforeDetails.Should().Contain("Source: Local snapshot");
+        import.ChangeGroups[0].RuleGroups[0].BeforeRuleSummary.Should().NotBeNullOrWhiteSpace();
+        import.ChangeGroups[0].RuleGroups[0].AfterRuleSummary.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelShowsColorAndSourceForColorOnlyUpdate()
+    {
+        var beforeOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            googleCalendarColorId: "11");
+        var afterOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            googleCalendarColorId: "9");
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [afterOccurrence],
+                syncPlan: new SyncPlan(
+                    [afterOccurrence],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Updated,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-color",
+                            changeSource: SyncChangeSource.RemoteManaged,
+                            before: beforeOccurrence,
+                            after: afterOccurrence),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        await session.InitializeAsync();
+
+        var import = new ImportDiffPageViewModel(session);
+        var ruleGroup = import.ChangeGroups[0].RuleGroups[0];
+        var occurrence = ruleGroup.OccurrenceItems[0];
+
+        ruleGroup.Summary.Should().Contain("Color: 11 -> 9");
+        ruleGroup.Summary.Should().Contain("Managed remote event");
+        occurrence.BeforeDetails.Should().Contain("Color: 11");
+        occurrence.AfterDetails.Should().Contain("Color: 9");
     }
 
     [Fact]
@@ -1009,6 +1183,11 @@ public sealed class ShellViewModelTests
 
         previewService.LocalApplyAcceptedChangeIds.Should().Equal("chg-1");
         previewService.RemoteApplyAcceptedChangeIds.Should().BeEmpty();
+        import.CanApplySelected.Should().BeFalse();
+
+        import.ClearAllCommand.Execute(null);
+        import.SelectAllCommand.Execute(null);
+        import.CanApplySelected.Should().BeFalse();
     }
 
     [Fact]
@@ -1807,7 +1986,8 @@ public sealed class ShellViewModelTests
         TimeOnly start,
         TimeOnly end,
         SourceFingerprint? sourceFingerprint = null,
-        string? googleCalendarColorId = null) =>
+        string? googleCalendarColorId = null,
+        string? calendarTimeZoneId = null) =>
         new(
             className,
             schoolWeekNumber: 1,
@@ -1825,6 +2005,7 @@ public sealed class ShellViewModelTests
                 teacher: "Teacher A"),
             sourceFingerprint: sourceFingerprint ?? new SourceFingerprint("pdf", $"{className}-{courseTitle}-{date:yyyyMMdd}"),
             courseType: L010,
+            calendarTimeZoneId: calendarTimeZoneId,
             googleCalendarColorId: googleCalendarColorId);
 
     private sealed class FakeLocalSourceOnboardingService : ILocalSourceOnboardingService
