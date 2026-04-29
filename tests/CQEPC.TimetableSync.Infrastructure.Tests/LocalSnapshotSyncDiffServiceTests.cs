@@ -149,6 +149,72 @@ public sealed class LocalSnapshotSyncDiffServiceTests
     }
 
     [Fact]
+    public async Task CreatePreviewAsyncKeepsDistinctPreviousOccurrencesWithDifferentSourceFingerprints()
+    {
+        var firstPreviousOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            "Room 301",
+            sourceHash: "pdf-block-a");
+        var secondPreviousOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            "Room 301",
+            sourceHash: "pdf-block-b");
+        var repository = new InMemoryWorkspaceRepository
+        {
+            Snapshot = new ImportedScheduleSnapshot(
+                DateTimeOffset.UtcNow,
+                "Class A",
+                [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals")])],
+                Array.Empty<UnresolvedItem>(),
+                [new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8))],
+                [new TimeProfile("main-campus", "Main Campus", [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))])],
+                [firstPreviousOccurrence, secondPreviousOccurrence],
+                [
+                    new ExportGroup(ExportGroupKind.SingleOccurrence, [firstPreviousOccurrence]),
+                    new ExportGroup(ExportGroupKind.SingleOccurrence, [secondPreviousOccurrence]),
+                ],
+                Array.Empty<RuleBasedTaskGenerationRule>()),
+        };
+        var service = new LocalSnapshotSyncDiffService(repository);
+        ResolvedOccurrence[] currentOccurrences =
+        [
+            CreateOccurrence(
+                "Signals",
+                new DateOnly(2026, 3, 5),
+                new TimeOnly(8, 0),
+                new TimeOnly(9, 40),
+                "Room 301",
+                sourceHash: "pdf-block-a"),
+            CreateOccurrence(
+                "Signals",
+                new DateOnly(2026, 3, 5),
+                new TimeOnly(8, 0),
+                new TimeOnly(9, 40),
+                "Room 301",
+                sourceHash: "pdf-block-b"),
+        ];
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Microsoft,
+            currentOccurrences,
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: Array.Empty<SyncMapping>(),
+            remoteDisplayEvents: Array.Empty<ProviderRemoteCalendarEvent>(),
+            calendarDestinationId: null,
+            deletionWindow: null,
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task CreatePreviewAsyncIgnoresSnapshotFromDifferentSelectedClass()
     {
         var previousOccurrence = CreateOccurrence("Signals", new DateOnly(2026, 3, 5), new TimeOnly(8, 0), new TimeOnly(9, 40), "Room 301");

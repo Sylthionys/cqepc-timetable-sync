@@ -470,7 +470,7 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
         IReadOnlyList<ResolvedOccurrence> previousOccurrences,
         IReadOnlyList<ResolvedOccurrence> currentOccurrences)
     {
-        var previousItems = DeduplicateComparableOccurrences(previousOccurrences)
+        var previousItems = DeduplicateComparableOccurrences(previousOccurrences, currentOccurrences)
             .OrderBy(static occurrence => occurrence.Start)
             .ThenBy(static occurrence => occurrence.End)
             .ThenBy(static occurrence => occurrence.ClassName, StringComparer.Ordinal)
@@ -694,11 +694,28 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
     }
 
     private static ResolvedOccurrence[] DeduplicateComparableOccurrences(
-        IEnumerable<ResolvedOccurrence> occurrences) =>
-        occurrences
-            .GroupBy(CreateComparableOccurrenceKey, StringComparer.Ordinal)
-            .Select(static group => group.First())
+        IEnumerable<ResolvedOccurrence> previousOccurrences,
+        IEnumerable<ResolvedOccurrence> currentOccurrences)
+    {
+        var currentComparableCounts = currentOccurrences
+            .GroupBy(CreateComparableOccurrenceShapeKey, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
+
+        return previousOccurrences
+            .GroupBy(CreateComparableOccurrenceShapeKey, StringComparer.Ordinal)
+            .SelectMany(group =>
+            {
+                if (currentComparableCounts.GetValueOrDefault(group.Key) > 1)
+                {
+                    return group
+                        .GroupBy(CreateComparableOccurrenceKey, StringComparer.Ordinal)
+                        .Select(static duplicateGroup => duplicateGroup.First());
+                }
+
+                return group.Take(1);
+            })
             .ToArray();
+    }
 
     private static void EnrichLocalSnapshotChangesWithManagedRemoteEvents(
         List<PlannedSyncChange> changes,
@@ -759,7 +776,7 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
             occurrence.TimeProfileId,
             occurrence.GoogleCalendarColorId ?? string.Empty);
 
-    private static string CreateComparableOccurrenceKey(ResolvedOccurrence occurrence) =>
+    private static string CreateComparableOccurrenceShapeKey(ResolvedOccurrence occurrence) =>
         string.Join(
             "|",
             occurrence.TargetKind,
@@ -771,6 +788,13 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
             occurrence.Metadata.Location ?? string.Empty,
             occurrence.Metadata.Teacher ?? string.Empty,
             occurrence.TimeProfileId);
+
+    private static string CreateComparableOccurrenceKey(ResolvedOccurrence occurrence) =>
+        string.Join(
+            "|",
+            CreateComparableOccurrenceShapeKey(occurrence),
+            occurrence.SourceFingerprint.SourceKind,
+            occurrence.SourceFingerprint.Hash);
 
     private static ResolvedOccurrence[] ResolveComparablePreviousOccurrences(
         ImportedScheduleSnapshot? previousSnapshot,
