@@ -32,8 +32,12 @@ public sealed class ManualGoogleWorkflowTests
     private const string RealTimetablePdfEnvVar = "CQEPC_UI_REAL_TIMETABLE_PDF";
     private const string RealTeachingProgressXlsEnvVar = "CQEPC_UI_REAL_TEACHING_PROGRESS_XLS";
     private const string RealClassTimeDocxEnvVar = "CQEPC_UI_REAL_CLASS_TIME_DOCX";
-    private const string RequestedGoogleCalendarDisplayName = "2374452108@qq.com";
-    private const string AlternateGoogleCalendarDisplayName = "1";
+    private const string GoogleCalendarDisplayNameEnvVar = "CQEPC_UI_GOOGLE_CALENDAR_DISPLAY_NAME";
+    private const string AlternateGoogleCalendarDisplayNameEnvVar = "CQEPC_UI_GOOGLE_ALTERNATE_CALENDAR_DISPLAY_NAME";
+    private static readonly string RequestedGoogleCalendarDisplayName =
+        Environment.GetEnvironmentVariable(GoogleCalendarDisplayNameEnvVar) ?? "Primary test calendar";
+    private static readonly string AlternateGoogleCalendarDisplayName =
+        Environment.GetEnvironmentVariable(AlternateGoogleCalendarDisplayNameEnvVar) ?? "Alternate test calendar";
 
     [ManualUiFact]
     public async Task CanCaptureStyledHomeStateAndClickApplyAgainstRealStorage()
@@ -996,6 +1000,142 @@ public sealed class ManualGoogleWorkflowTests
 
                 var homeAfterPath = await current.CaptureCurrentPageScreenshotAsync();
                 File.Exists(homeAfterPath).Should().BeTrue();
+            });
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageImportKeepsChangeListAndDetailPrimaryWhenChangesExist()
+    {
+        var storageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(storageRoot))
+        {
+            return;
+        }
+
+        await using var session = await UiAppSession.LaunchAsync(nameof(ActualLocalStorageImportKeepsChangeListAndDetailPrimaryWhenChangesExist), storageRoot);
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+
+                using var plannedState = JsonDocument.Parse(await current.GetPlannedChangeStateAsync() ?? "{}");
+                var plannedChanges = plannedState.RootElement.GetProperty("plannedChanges").GetArrayLength();
+                if (plannedChanges == 0)
+                {
+                    return;
+                }
+
+                plannedState.RootElement.GetProperty("changeGroups").GetArrayLength().Should().BeGreaterThan(0);
+                current.WaitForElement("Import.ChangeGroups").FindAllChildren().Length.Should().BeGreaterThan(0);
+                current.WaitForElement("Import.Detail.CourseRuleGroups");
+                current.MainWindow.FindFirstDescendant(cf => cf.ByText("详细信息"))
+                    .Should().BeNull("the import detail panel no longer renders a standalone detail heading");
+                current.MainWindow.FindFirstDescendant(cf => cf.ByAutomationId("Import.ParsedCoursesSection"))
+                    .Should().BeNull("parsed-course editing must not replace the primary diff review when real changes exist");
+
+                var screenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(screenshotPath).Should().BeTrue();
+            });
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageImportEditorUsesUtc8DefaultAndDarkDatePickerCanBeCaptured()
+    {
+        var storageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(storageRoot))
+        {
+            return;
+        }
+
+        await using var session = await UiAppSession.LaunchAsync(
+            nameof(ActualLocalStorageImportEditorUsesUtc8DefaultAndDarkDatePickerCanBeCaptured),
+            storageRoot,
+            width: 2048,
+            height: 1152);
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+
+                using var plannedState = JsonDocument.Parse(await current.GetPlannedChangeStateAsync() ?? "{}");
+                if (plannedState.RootElement.GetProperty("unresolvedCourseGroupCount").GetInt32() > 0)
+                {
+                    current.WaitForElement("Import.UnresolvedCourseGroups");
+                }
+
+                if (plannedState.RootElement.GetProperty("changeGroups").GetArrayLength() == 0)
+                {
+                    return;
+                }
+
+                current.InvokeFirstElementByAutomationIdPrefix("Import.ChangeCourse.Expand.");
+                current.InvokeFirstElementByAutomationIdPrefix("Import.ChangeRule.Expand.");
+                current.WaitForButton("Import.Detail.EditSelected").IsEnabled.Should().BeTrue();
+                current.ClickButton("Import.Detail.EditSelected", "Import.CourseEditor.TimeZoneCombo");
+
+                current.GetComboBoxSelectionText("Import.CourseEditor.TimeZoneCombo")
+                    .Should()
+                    .Be("UTC+8", "the course editor must use the configured default Google Calendar time zone when the parsed occurrence has no explicit override");
+
+                await current.OpenDatePickerDropdownAsync("Import.CourseEditor.StartDate");
+                await Task.Delay(250);
+                using var calendarThemeState = JsonDocument.Parse(
+                    await current.GetDatePickerCalendarThemeStateAsync("Import.CourseEditor.StartDate"));
+                calendarThemeState.RootElement.GetProperty("contrastRatio").GetDouble()
+                    .Should()
+                    .BeGreaterThan(4.5, "dark-mode date-picker day text must stay readable against its calendar background");
+            });
+    }
+
+    [ManualUiFact]
+    public async Task ActualLocalStorageImportToolbarAndOverlayInteractionsWorkInCompactWindow()
+    {
+        var storageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(storageRoot))
+        {
+            return;
+        }
+
+        await using var session = await UiAppSession.LaunchAsync(
+            nameof(ActualLocalStorageImportToolbarAndOverlayInteractionsWorkInCompactWindow),
+            storageRoot,
+            width: 1080,
+            height: 820);
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+
+                using var initialState = JsonDocument.Parse(await current.GetPlannedChangeStateAsync() ?? "{}");
+                var changeGroups = initialState.RootElement.GetProperty("changeGroups");
+                if (changeGroups.GetArrayLength() == 0)
+                {
+                    return;
+                }
+
+                current.MainWindow.FindFirstDescendant(cf => cf.ByAutomationId("Import.Filter.Type")).Should().BeNull();
+                current.MainWindow.FindFirstDescendant(cf => cf.ByAutomationId("Import.Filter.Status")).Should().BeNull();
+                ClickButtonByText(current.WaitForElement("Import.PageRoot"), "同步当前日历", "Sync Current Calendar");
+                await Task.Delay(TimeSpan.FromSeconds(5));
+                current.WaitForElement("Import.PageRoot");
+
+                var infoButton = current.MainWindow.FindFirstDescendant(cf => cf.ByAutomationId("Import.ParsedCourseGroup.InfoButton"));
+                if (infoButton is not null)
+                {
+                    infoButton.AsButton().Invoke();
+                    current.WaitForElement("CoursePresentationEditorOverlay.Root");
+                    current.ClickButton("CoursePresentationEditor.Backdrop");
+                    current.WaitForElementToDisappear("CoursePresentationEditorOverlay.Root");
+                }
+
+                var screenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(screenshotPath).Should().BeTrue();
             });
     }
 
@@ -2427,6 +2567,212 @@ public sealed class ManualGoogleWorkflowTests
     }
 
     [ManualUiFact]
+    public async Task ActualLocalStorageLiveGoogleAppliesWholeRepeatAndSingleOccurrenceLargeOverride()
+    {
+        var storageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(storageRoot))
+        {
+            return;
+        }
+
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var mappingRepository = new JsonSyncMappingRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId)
+            || !string.Equals(preferences.GoogleSettings.SelectedCalendarDisplayName, "\u8bfe\u8868", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var previewService = CreateLiveGooglePreviewService(storagePaths);
+        var adapter = new GoogleSyncProviderAdapter(storagePaths);
+        var connectionContext = new ProviderConnectionContext(
+            preferences.GoogleSettings.OAuthClientConfigurationPath,
+            PreferredCalendarTimeZoneId: preferences.GoogleSettings.PreferredCalendarTimeZoneId,
+            RemoteReadFallbackTimeZoneId: preferences.GoogleSettings.RemoteReadFallbackTimeZoneId);
+        var calendarId = preferences.GoogleSettings.SelectedCalendarId!;
+        var baselineContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var baselinePreview = baselineContext.Preview;
+        baselinePreview.SyncPlan.Should().NotBeNull();
+
+        var candidate = SelectRepeatOverrideCandidate(baselinePreview.SyncPlan!.Occurrences, baselineContext.SelectedClassName);
+        var baselineOccurrences = candidate.Occurrences;
+        var baselineChangeIds = baselinePreview.SyncPlan.PlannedChanges
+            .Where(change => IsRelatedToSource(change, candidate.ClassName, candidate.SourceFingerprint))
+            .Select(static change => change.LocalStableId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (baselineChangeIds.Length > 0)
+        {
+            var baselineApplyResult = await previewService.ApplyAcceptedChangesAsync(
+                baselinePreview,
+                baselineChangeIds,
+                CancellationToken.None);
+            baselineApplyResult.Status.Kind.Should().NotBe(WorkspaceApplyStatusKind.NoSuccess);
+
+            preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+            baselineContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+            baselinePreview = baselineContext.Preview;
+            baselineOccurrences = baselinePreview.SyncPlan!.Occurrences
+                .Where(occurrence =>
+                    string.Equals(occurrence.ClassName, candidate.ClassName, StringComparison.Ordinal)
+                    && occurrence.SourceFingerprint == candidate.SourceFingerprint
+                    && occurrence.TargetKind == SyncTargetKind.CalendarEvent)
+                .OrderBy(static occurrence => occurrence.Start)
+                .ToArray();
+        }
+
+        baselineOccurrences.Length.Should().BeGreaterThanOrEqualTo(2);
+        await WaitForGoogleOccurrencesAsync(
+            adapter,
+            connectionContext,
+            calendarId,
+            baselineOccurrences,
+            CreatePreviewWindowForOccurrences(baselineOccurrences),
+            CancellationToken.None);
+
+        var token = DateTime.UtcNow.ToString("MMddHHmm", CultureInfo.InvariantCulture);
+        var wholeStart = baselineOccurrences[0];
+        var wholeEnd = baselineOccurrences[Math.Min(baselineOccurrences.Length - 1, 3)];
+        var suppressedWholeDate = wholeStart.OccurrenceDate;
+        var wholeStartTime = ShiftStartTime(wholeStart, 35);
+        var wholeEndTime = ShiftEndTime(wholeStartTime, wholeStart, minimumMinutes: 75);
+        var singleStartDate = suppressedWholeDate.AddDays(1);
+        var singleStartTime = ShiftStartTime(wholeStart, 125);
+        var singleEndTime = ShiftEndTime(singleStartTime, wholeStart, minimumMinutes: 65);
+        var wholeTitle = $"{wholeStart.Metadata.CourseTitle} TEST-WHOLE-{token}";
+        var singleTitle = $"{wholeStart.Metadata.CourseTitle} TEST-SINGLE-{token}";
+        var updatedResolution = preferences.TimetableResolution
+            .UpsertCourseScheduleOverride(new CourseScheduleOverride(
+                candidate.ClassName,
+                candidate.SourceFingerprint,
+                wholeTitle,
+                wholeStart.OccurrenceDate,
+                wholeEnd.OccurrenceDate,
+                wholeStartTime,
+                wholeEndTime,
+                CourseScheduleRepeatKind.Weekly,
+                wholeStart.TimeProfileId,
+                wholeStart.TargetKind,
+                wholeStart.CourseType,
+                $"{wholeStart.Metadata.Notes}\nLive repeat override test {token}".Trim(),
+                wholeStart.Metadata.Campus,
+                $"LIVE-WHOLE-{token}",
+                wholeStart.Metadata.Teacher,
+                wholeStart.Metadata.TeachingClassComposition,
+                wholeStart.CalendarTimeZoneId,
+                wholeStart.GoogleCalendarColorId,
+                repeatUnit: CourseScheduleRepeatUnit.Week,
+                repeatInterval: 1,
+                repeatWeekdays: [suppressedWholeDate.DayOfWeek]))
+            .UpsertCourseScheduleOverride(new CourseScheduleOverride(
+                candidate.ClassName,
+                candidate.SourceFingerprint,
+                singleTitle,
+                singleStartDate,
+                singleStartDate,
+                singleStartTime,
+                singleEndTime,
+                CourseScheduleRepeatKind.None,
+                wholeStart.TimeProfileId,
+                wholeStart.TargetKind,
+                wholeStart.CourseType,
+                $"{wholeStart.Metadata.Notes}\nLive single override test {token}".Trim(),
+                wholeStart.Metadata.Campus,
+                $"LIVE-SINGLE-{token}",
+                wholeStart.Metadata.Teacher,
+                wholeStart.Metadata.TeachingClassComposition,
+                wholeStart.CalendarTimeZoneId,
+                wholeStart.GoogleCalendarColorId,
+                sourceOccurrenceDate: suppressedWholeDate));
+
+        preferences = preferences.WithTimetableResolution(updatedResolution);
+        await preferencesRepository.SaveAsync(preferences, CancellationToken.None);
+
+        var overrideContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        var overridePreview = overrideContext.Preview;
+        overridePreview.SyncPlan.Should().NotBeNull();
+        var expectedOccurrences = overridePreview.SyncPlan!.Occurrences
+            .Where(occurrence =>
+                string.Equals(occurrence.ClassName, candidate.ClassName, StringComparison.Ordinal)
+                && occurrence.SourceFingerprint == candidate.SourceFingerprint
+                && occurrence.TargetKind == SyncTargetKind.CalendarEvent)
+            .OrderBy(static occurrence => occurrence.Start)
+            .ToArray();
+        expectedOccurrences.Should().Contain(occurrence =>
+            occurrence.Metadata.CourseTitle == singleTitle
+            && occurrence.OccurrenceDate == singleStartDate
+            && occurrence.Metadata.Location == $"LIVE-SINGLE-{token}");
+        expectedOccurrences.Should().NotContain(occurrence =>
+            occurrence.Metadata.CourseTitle == wholeTitle
+            && occurrence.OccurrenceDate == suppressedWholeDate);
+
+        var overrideChangeIds = overridePreview.SyncPlan.PlannedChanges
+            .Where(change => IsRelatedToSource(change, candidate.ClassName, candidate.SourceFingerprint))
+            .Select(static change => change.LocalStableId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        overrideChangeIds.Length.Should().BeGreaterThan(0);
+
+        var applyResult = await previewService.ApplyAcceptedChangesAsync(
+            overridePreview,
+            overrideChangeIds,
+            CancellationToken.None);
+        applyResult.Status.Kind.Should().NotBe(WorkspaceApplyStatusKind.NoSuccess);
+
+        await WaitForGoogleOccurrencesAsync(
+            adapter,
+            connectionContext,
+            calendarId,
+            expectedOccurrences,
+            CreatePreviewWindowForOccurrences(baselineOccurrences.Concat(expectedOccurrences).ToArray()),
+            CancellationToken.None);
+
+        var persistedMappings = await mappingRepository.LoadAsync(ProviderKind.Google, CancellationToken.None);
+        expectedOccurrences.Should().OnlyContain(occurrence =>
+            persistedMappings.Any(mapping =>
+                mapping.TargetKind == SyncTargetKind.CalendarEvent
+                && string.Equals(mapping.LocalSyncId, SyncIdentity.CreateOccurrenceId(occurrence), StringComparison.Ordinal)));
+
+        var remoteEvents = await adapter.ListCalendarPreviewEventsAsync(
+            connectionContext,
+            calendarId,
+            CreatePreviewWindowForOccurrences(baselineOccurrences.Concat(expectedOccurrences).ToArray()),
+            CancellationToken.None);
+        var expectedPayloadKeys = expectedOccurrences
+            .Select(occurrence => CreatePayloadKey(
+                occurrence.Metadata.CourseTitle,
+                occurrence.Start,
+                occurrence.End,
+                occurrence.Metadata.Location))
+            .ToHashSet(StringComparer.Ordinal);
+        var staleBaselineLocalIds = baselineOccurrences
+            .Where(occurrence => !expectedPayloadKeys.Contains(CreatePayloadKey(
+                occurrence.Metadata.CourseTitle,
+                occurrence.Start,
+                occurrence.End,
+                occurrence.Metadata.Location)))
+            .Select(SyncIdentity.CreateOccurrenceId)
+            .ToHashSet(StringComparer.Ordinal);
+        persistedMappings
+            .Where(mapping => staleBaselineLocalIds.Contains(mapping.LocalSyncId))
+            .Should()
+            .BeEmpty();
+        remoteEvents
+            .Where(static remoteEvent => remoteEvent.IsManagedByApp)
+            .Where(remoteEvent => !string.IsNullOrWhiteSpace(remoteEvent.LocalSyncId))
+            .Select(static remoteEvent => remoteEvent.LocalSyncId!)
+            .Intersect(staleBaselineLocalIds, StringComparer.Ordinal)
+            .Should()
+            .BeEmpty();
+    }
+
+    [ManualUiFact]
     public async Task ActualLocalStorageCurrentSelectedClassDirectApplyCreatesConflictLevelRemoteEventsForDenseDate()
     {
         var actualStorageRoot = Path.Combine(
@@ -3229,6 +3575,78 @@ public sealed class ManualGoogleWorkflowTests
             end.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
             location ?? string.Empty);
 
+    private static RepeatOverrideCandidate SelectRepeatOverrideCandidate(
+        IReadOnlyList<ResolvedOccurrence> occurrences,
+        string selectedClassName)
+    {
+        var candidate = occurrences
+            .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
+            .Where(occurrence => string.IsNullOrWhiteSpace(selectedClassName)
+                || string.Equals(occurrence.ClassName, selectedClassName, StringComparison.Ordinal))
+            .GroupBy(
+                static occurrence => new
+                {
+                    occurrence.ClassName,
+                    occurrence.SourceFingerprint,
+                    occurrence.Metadata.CourseTitle,
+                })
+            .Select(static group => new RepeatOverrideCandidate(
+                group.Key.ClassName,
+                group.Key.SourceFingerprint,
+                group.OrderBy(static occurrence => occurrence.Start).ToArray()))
+            .Where(static group => group.Occurrences.Length >= 2)
+            .OrderByDescending(static group => group.Occurrences.Length)
+            .ThenBy(static group => group.Occurrences[0].Start)
+            .FirstOrDefault();
+
+        candidate.Should().NotBeNull("live Google override validation needs a repeat-like parsed source with at least two occurrences");
+        return candidate!;
+    }
+
+    private static bool IsRelatedToSource(
+        PlannedSyncChange change,
+        string className,
+        SourceFingerprint sourceFingerprint) =>
+        IsRelatedOccurrence(change.Before, className, sourceFingerprint)
+        || IsRelatedOccurrence(change.After, className, sourceFingerprint)
+        || (change.RemoteEvent is not null
+            && string.Equals(change.RemoteEvent.ClassName, className, StringComparison.Ordinal)
+            && string.Equals(change.RemoteEvent.SourceKind, sourceFingerprint.SourceKind, StringComparison.Ordinal)
+            && string.Equals(change.RemoteEvent.SourceFingerprintHash, sourceFingerprint.Hash, StringComparison.Ordinal));
+
+    private static bool IsRelatedOccurrence(
+        ResolvedOccurrence? occurrence,
+        string className,
+        SourceFingerprint sourceFingerprint) =>
+        occurrence is not null
+        && string.Equals(occurrence.ClassName, className, StringComparison.Ordinal)
+        && occurrence.SourceFingerprint == sourceFingerprint;
+
+    private static PreviewDateWindow CreatePreviewWindowForOccurrences(IReadOnlyList<ResolvedOccurrence> occurrences)
+    {
+        occurrences.Count.Should().BeGreaterThan(0);
+        var start = occurrences.Min(static occurrence => occurrence.Start).AddDays(-2);
+        var end = occurrences.Max(static occurrence => occurrence.End).AddDays(2);
+        return new PreviewDateWindow(start, end);
+    }
+
+    private static TimeOnly ShiftStartTime(ResolvedOccurrence occurrence, int minutes)
+    {
+        var start = TimeOnly.FromDateTime(occurrence.Start.DateTime).AddMinutes(minutes);
+        return start > new TimeOnly(21, 0) ? new TimeOnly(18, 0) : start;
+    }
+
+    private static TimeOnly ShiftEndTime(TimeOnly startTime, ResolvedOccurrence occurrence, int minimumMinutes)
+    {
+        var originalStart = TimeOnly.FromDateTime(occurrence.Start.DateTime);
+        var originalEnd = TimeOnly.FromDateTime(occurrence.End.DateTime);
+        var durationMinutes = Math.Max(minimumMinutes, (int)(originalEnd - originalStart).TotalMinutes);
+        var end = startTime.AddMinutes(durationMinutes);
+        return end <= startTime || end > new TimeOnly(22, 30)
+            ? startTime.AddMinutes(minimumMinutes)
+            : end;
+    }
+
     private static bool MatchesRemotePayload(ResolvedOccurrence occurrence, ProviderRemoteCalendarEvent remoteEvent) =>
         string.Equals(occurrence.Metadata.CourseTitle, remoteEvent.Title, StringComparison.Ordinal)
         && occurrence.Start.ToUniversalTime() == remoteEvent.Start.ToUniversalTime()
@@ -3940,6 +4358,11 @@ public sealed class ManualGoogleWorkflowTests
             classTimeDocx);
         return true;
     }
+
+    private sealed record RepeatOverrideCandidate(
+        string ClassName,
+        SourceFingerprint SourceFingerprint,
+        ResolvedOccurrence[] Occurrences);
 
     private sealed record RealFixturePaths(
         string FixtureDirectory,

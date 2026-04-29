@@ -364,6 +364,7 @@ internal sealed class GoogleCalendarSyncExecutor
         CancellationToken cancellationToken)
     {
         var preferredRemoteEvent = ResolvePreferredRemoteEvent(change.LocalStableId, change.RemoteEvent);
+        string? deletedRecurringMasterId = null;
         if (mapping is null)
         {
             if (change.RemoteEvent is null)
@@ -377,6 +378,9 @@ internal sealed class GoogleCalendarSyncExecutor
                     change,
                     change.RemoteEvent.RemoteItemId,
                     change.RemoteEvent.ParentRemoteItemId);
+                deletedRecurringMasterId = string.Equals(deleteRemoteItemId, change.RemoteEvent.ParentRemoteItemId, StringComparison.Ordinal)
+                    ? change.RemoteEvent.ParentRemoteItemId
+                    : null;
                 await client.DeleteAsync(
                         change.RemoteEvent.CalendarId,
                         deleteRemoteItemId,
@@ -407,6 +411,9 @@ internal sealed class GoogleCalendarSyncExecutor
                     change,
                     preferredRemoteEvent.RemoteItemId,
                     preferredRemoteEvent.ParentRemoteItemId);
+                deletedRecurringMasterId = string.Equals(deleteRemoteItemId, preferredRemoteEvent.ParentRemoteItemId, StringComparison.Ordinal)
+                    ? preferredRemoteEvent.ParentRemoteItemId
+                    : null;
                 await client.DeleteAsync(
                         preferredRemoteEvent.CalendarId,
                         deleteRemoteItemId,
@@ -424,6 +431,7 @@ internal sealed class GoogleCalendarSyncExecutor
             {
                 if (ShouldDeleteRecurringSeries(change, mapping.ParentRemoteItemId))
                 {
+                    deletedRecurringMasterId = mapping.ParentRemoteItemId;
                     await client.DeleteAsync(targetCalendarId, mapping.ParentRemoteItemId!, cancellationToken).ConfigureAwait(false);
                     await DeleteFallbackRecurringInstanceAsync(
                             targetCalendarId,
@@ -448,7 +456,26 @@ internal sealed class GoogleCalendarSyncExecutor
             // Missing remote items should not block local mapping cleanup.
         }
 
-        mappings.Remove(change.LocalStableId);
+        RemoveDeletedMappings(mappings, change.LocalStableId, deletedRecurringMasterId);
+    }
+
+    private static void RemoveDeletedMappings(
+        IDictionary<string, SyncMapping> mappings,
+        string localStableId,
+        string? recurringMasterId)
+    {
+        if (!string.IsNullOrWhiteSpace(recurringMasterId))
+        {
+            foreach (var mappedLocalId in mappings
+                         .Where(pair => string.Equals(pair.Value.ParentRemoteItemId, recurringMasterId, StringComparison.Ordinal))
+                         .Select(static pair => pair.Key)
+                         .ToArray())
+            {
+                mappings.Remove(mappedLocalId);
+            }
+        }
+
+        mappings.Remove(localStableId);
     }
 
     private async Task DeleteFallbackRecurringInstanceAsync(

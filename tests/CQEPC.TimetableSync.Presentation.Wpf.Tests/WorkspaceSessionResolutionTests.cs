@@ -601,8 +601,8 @@ public sealed class WorkspaceSessionResolutionTests
         session.CourseEditor.CourseTitle = "Signals Updated";
         session.CourseEditor.StartDate = new DateTime(2026, 3, 2);
         session.CourseEditor.EndDate = new DateTime(2026, 3, 16);
-        session.CourseEditor.StartTimeText = "09:00";
-        session.CourseEditor.EndTimeText = "10:10";
+        session.CourseEditor.StartTimeText = "0900";
+        session.CourseEditor.EndTimeText = "1010";
         session.CourseEditor.Location = "Lab 204";
         session.CourseEditor.SelectWeeklyRepeatCommand.Execute(null);
         await session.CourseEditor.SaveCommand.ExecuteAsync(null);
@@ -618,6 +618,92 @@ public sealed class WorkspaceSessionResolutionTests
         savedOverride.EndTime.Should().Be(new TimeOnly(10, 10));
         savedOverride.Location.Should().Be("Lab 204");
         savedOverride.RepeatKind.Should().Be(CourseScheduleRepeatKind.Weekly);
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionSavesSingleOccurrenceEditorChangesWithSourceOccurrenceDate()
+    {
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            preferencesRepository,
+            new DynamicWorkspacePreviewService());
+
+        await session.InitializeAsync();
+
+        var occurrence = session.CurrentOccurrences.Single();
+        session.OpenCourseOccurrenceEditor(occurrence, occurrence.OccurrenceDate);
+        session.CourseEditor.StartTimeText = "18:30";
+        session.CourseEditor.EndTimeText = "20:00";
+        session.CourseEditor.Location = "Lab 509";
+        session.CourseEditor.SelectNoneRepeatCommand.Execute(null);
+        await session.CourseEditor.SaveCommand.ExecuteAsync(null);
+        await WaitForAsyncWorkAsync();
+
+        preferencesRepository.SavedPreferences.TimetableResolution.CourseScheduleOverrides.Should().ContainSingle();
+        var savedOverride = preferencesRepository.SavedPreferences.TimetableResolution.CourseScheduleOverrides[0];
+        savedOverride.SourceOccurrenceDate.Should().Be(occurrence.OccurrenceDate);
+        savedOverride.StartDate.Should().Be(occurrence.OccurrenceDate);
+        savedOverride.EndDate.Should().Be(occurrence.OccurrenceDate);
+        savedOverride.StartTime.Should().Be(new TimeOnly(18, 30));
+        savedOverride.EndTime.Should().Be(new TimeOnly(20, 0));
+        savedOverride.Location.Should().Be("Lab 509");
+        savedOverride.RepeatKind.Should().Be(CourseScheduleRepeatKind.None);
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionPromotesSingleOccurrenceEditorToRuleOverrideWhenRepeatIsSelected()
+    {
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            preferencesRepository,
+            new DynamicWorkspacePreviewService());
+
+        await session.InitializeAsync();
+
+        var occurrence = session.CurrentOccurrences.Single();
+        session.OpenCourseOccurrenceEditor(occurrence, occurrence.OccurrenceDate);
+        session.CourseEditor.StartDate = new DateTime(2026, 3, 2);
+        session.CourseEditor.EndDate = new DateTime(2026, 3, 16);
+        session.CourseEditor.StartTimeText = "18:30";
+        session.CourseEditor.EndTimeText = "20:00";
+        session.CourseEditor.Location = "Lab 509";
+        session.CourseEditor.SelectWeeklyRepeatCommand.Execute(null);
+        await session.CourseEditor.SaveCommand.ExecuteAsync(null);
+        await WaitForAsyncWorkAsync();
+
+        preferencesRepository.SavedPreferences.TimetableResolution.CourseScheduleOverrides.Should().ContainSingle();
+        var savedOverride = preferencesRepository.SavedPreferences.TimetableResolution.CourseScheduleOverrides[0];
+        savedOverride.SourceOccurrenceDate.Should().BeNull();
+        savedOverride.StartDate.Should().Be(new DateOnly(2026, 3, 2));
+        savedOverride.EndDate.Should().Be(new DateOnly(2026, 3, 16));
+        savedOverride.RepeatKind.Should().Be(CourseScheduleRepeatKind.Weekly);
+        savedOverride.Location.Should().Be("Lab 509");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionCourseEditorSaveSwapsInvertedRepeatDates()
+    {
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            preferencesRepository,
+            new DynamicWorkspacePreviewService());
+
+        await session.InitializeAsync();
+
+        var occurrence = session.CurrentOccurrences.Single();
+        session.OpenCourseEditor(occurrence);
+        session.CourseEditor.StartDate = new DateTime(2026, 3, 16);
+        session.CourseEditor.EndDate = new DateTime(2026, 3, 2);
+        session.CourseEditor.SelectWeeklyRepeatCommand.Execute(null);
+        await session.CourseEditor.SaveCommand.ExecuteAsync(null);
+        await WaitForAsyncWorkAsync();
+
+        var savedOverride = preferencesRepository.SavedPreferences.TimetableResolution.CourseScheduleOverrides.Should().ContainSingle().Subject;
+        savedOverride.StartDate.Should().Be(new DateOnly(2026, 3, 2));
+        savedOverride.EndDate.Should().Be(new DateOnly(2026, 3, 16));
     }
 
     [Fact]

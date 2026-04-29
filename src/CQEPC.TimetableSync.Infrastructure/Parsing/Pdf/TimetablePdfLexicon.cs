@@ -14,6 +14,7 @@ internal static class TimetablePdfLexicon
     public const string Location = "\u573a\u5730";
     public const string Teacher = "\u6559\u5e08";
     public const string TeachingClassComposition = "\u6559\u5b66\u73ed\u7ec4\u6210";
+    public const string TeachingClass = "\u6559\u5b66\u73ed";
     public const string TeachingClassSize = "\u6559\u5b66\u73ed\u4eba\u6570";
     public const string AssessmentMode = "\u8003\u6838\u65b9\u5f0f";
     public const string CourseHourComposition = "\u8bfe\u7a0b\u5b66\u65f6\u7ec4\u6210";
@@ -56,5 +57,5 @@ internal static class TimetablePdfLexicon
     public const string SemesterHeaderPattern = @"^\d{4}-\d{4}\u5b66\u5e74\u7b2c\d\u5b66\u671f$";
     public const string PeriodLeadPattern = @"^\((?<start>\d{1,2})-(?<end>\d{1,2})\u8282\)";
     public const string TaggedMetadataPattern =
-        @"/(?<label>\u6821\u533a|\u573a\u5730|\u6559\u5e08|\u6559\u5b66\u73ed\u7ec4\u6210|\u6559\u5b66\u73ed\u4eba\u6570|\u8003\u6838\u65b9\u5f0f|\u8bfe\u7a0b\u5b66\u65f6\u7ec4\u6210|\u5b66\u5206):";
+        @"/(?<label>\u6821\u533a|\u573a\u5730|\u6559\u5e08|\u6559\u5b66\u73ed\u7ec4\u6210|\u6559\u5b66\u73ed\u4eba\u6570|\u6559\u5b66\u73ed|\u8003\u6838\u65b9\u5f0f|\u8bfe\u7a0b\u5b66\u65f6\u7ec4\u6210|\u5b66\u5206):";
 }

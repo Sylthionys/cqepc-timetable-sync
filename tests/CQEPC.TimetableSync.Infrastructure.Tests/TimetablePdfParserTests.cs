@@ -749,6 +749,40 @@ public sealed class TimetablePdfParserTests
     }
 
     [Fact]
+    public async Task ParseAsyncTreatsTeachingClassAliasAsStructuredCompositionInsteadOfTeacherTail()
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        var className = PowerClass("25501");
+        var pdfPath = new TimetablePdfFixtureBuilder()
+            .AddPage(
+                className,
+                [
+                    new TimetablePdfFixtureBuilder.FixtureCourseBlock(
+                        DayOfWeek.Tuesday,
+                        198,
+                        ElectricalDrawingCadTitle,
+                        $"(9-10节)17-19周/校区:{CampusTongnan}/场地:32504/教师:{TeacherWangQinhui}/教学班:{JoinClasses(LogisticsClass25501, PowerClass25501)}/教学班人数:70/考核方式:{AssessmentExam}/课程学时组成:{CourseTypeTheory}:48/学分:3.0"),
+                ])
+            .Build(tempDirectory.DirectoryPath, "teaching-class-alias.pdf");
+
+        var parser = new TimetablePdfParser();
+
+        var result = await parser.ParseAsync(pdfPath, CancellationToken.None);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.Warnings.Should().BeEmpty();
+        result.UnresolvedItems.Should().BeEmpty();
+
+        var block = result.Payload.Should().ContainSingle().Subject.CourseBlocks.Should().ContainSingle().Subject;
+        block.Metadata.CourseTitle.Should().Be(ElectricalDrawingCadTitlePlain);
+        block.Metadata.Teacher.Should().Be(TeacherWangQinhui);
+        block.Metadata.TeachingClassComposition.Should().Be(JoinClasses(LogisticsClass25501, PowerClass25501));
+        block.Metadata.Notes.Should().Contain("教学班人数:70");
+        block.Metadata.Notes.Should().Contain(CreditNote3);
+        block.Metadata.Teacher.Contains("/教学班:", StringComparison.Ordinal).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task ParseAsyncTreatsTruncatedNotesTailAsUnresolved()
     {
         using var tempDirectory = new TemporaryDirectory();

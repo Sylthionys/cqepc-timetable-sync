@@ -299,14 +299,17 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
             tasksService = await CreateTasksServiceAsync(request.ConnectionContext.ClientConfigurationPath, cancellationToken).ConfigureAwait(false);
         }
 
+        var normalizedDeletedChanges = normalizedAcceptedChanges
+            .Where(static change => change.ChangeKind == SyncChangeKind.Deleted)
+            .ToArray();
         var deletedResults = await ApplyChangeBatchAsync(
-            normalizedAcceptedChanges.Where(static change => change.ChangeKind == SyncChangeKind.Deleted).ToArray(),
+            normalizedDeletedChanges,
             calendarExecutor,
             tasksService,
             request.CalendarDestinationId,
             mappings,
             cancellationToken).ConfigureAwait(false);
-        results.AddRange(deletedResults);
+        results.AddRange(ExpandDeletedChangeResultsForAcceptedChanges(request, normalizedDeletedChanges, deletedResults));
 
         var updatedResults = await ApplyChangeBatchAsync(
             normalizedAcceptedChanges.Where(static change => change.ChangeKind == SyncChangeKind.Updated).ToArray(),
@@ -628,6 +631,61 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
             .ThenBy(static change => change.After?.Start ?? change.Before?.Start ?? DateTimeOffset.MaxValue)
             .ThenBy(static change => change.LocalStableId, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    internal static IReadOnlyList<ProviderAppliedChangeResult> ExpandDeletedChangeResultsForAcceptedChanges(
+        ProviderApplyRequest request,
+        IReadOnlyList<PlannedSyncChange> normalizedDeletedChanges,
+        IReadOnlyList<ProviderAppliedChangeResult> deletedResults)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(normalizedDeletedChanges);
+        ArgumentNullException.ThrowIfNull(deletedResults);
+
+        if (normalizedDeletedChanges.Count == 0 || deletedResults.Count == 0)
+        {
+            return deletedResults;
+        }
+
+        var mappingsByLocalId = request.ExistingMappings
+            .GroupBy(static mapping => mapping.LocalSyncId, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.First(), StringComparer.Ordinal);
+        var acceptedDeleteLocalIdsByOperationKey = request.AcceptedChanges
+            .Where(static change => change.ChangeKind == SyncChangeKind.Deleted)
+            .GroupBy(change => BuildDeleteOperationKey(change, request.CalendarDestinationId, mappingsByLocalId), StringComparer.Ordinal)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group
+                    .Select(static change => change.LocalStableId)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray(),
+                StringComparer.Ordinal);
+
+        var expanded = new List<ProviderAppliedChangeResult>(deletedResults.Count);
+        var count = Math.Min(normalizedDeletedChanges.Count, deletedResults.Count);
+        for (var index = 0; index < count; index++)
+        {
+            var normalizedChange = normalizedDeletedChanges[index];
+            var result = deletedResults[index];
+            var operationKey = BuildDeleteOperationKey(normalizedChange, request.CalendarDestinationId, mappingsByLocalId);
+            if (!acceptedDeleteLocalIdsByOperationKey.TryGetValue(operationKey, out var localIds) || localIds.Length == 0)
+            {
+                expanded.Add(result);
+                continue;
+            }
+
+            foreach (var localId in localIds)
+            {
+                expanded.Add(new ProviderAppliedChangeResult(localId, result.Succeeded, result.ErrorMessage));
+            }
+        }
+
+        for (var index = count; index < deletedResults.Count; index++)
+        {
+            expanded.Add(deletedResults[index]);
+        }
+
+        return expanded;
     }
 
     private static int CompareApplyPreference(PlannedSyncChange candidate, PlannedSyncChange existing)

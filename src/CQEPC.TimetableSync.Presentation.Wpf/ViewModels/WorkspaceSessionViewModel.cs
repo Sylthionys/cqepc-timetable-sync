@@ -32,7 +32,9 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     private readonly SemaphoreSlim refreshGate = new(1, 1);
     private readonly SemaphoreSlim preferencePersistenceGate = new(1, 1);
     private readonly object preferencePersistenceSync = new();
+    private readonly object preferencePreviewRefreshSync = new();
     private Task pendingPreferencePersistenceTask = Task.CompletedTask;
+    private CancellationTokenSource? preferencePreviewRefreshCancellation;
     private LocalSourceCatalogState currentCatalogState = LocalSourceCatalogDefaults.CreateEmptyCatalog();
     private UserPreferences currentPreferences = WorkspacePreferenceDefaults.Create();
     private WorkspacePreviewResult? currentPreviewResult;
@@ -65,6 +67,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     private HashSet<string>? selectedImportChangeIds;
     private string? lastAppliedImportSelectionSignature;
     private bool isApplyingImportSelection;
+    private ImportWorkflowStage importWorkflowStage = ImportWorkflowStage.SelectChanges;
     private TimeProfileDefaultModeOptionViewModel? selectedTimeProfileDefaultModeOption;
     private TimeProfileOptionViewModel? selectedExplicitTimeProfileOption;
     private LocalizationOptionViewModel? selectedLocalizationOption;
@@ -182,6 +185,12 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     public CoursePresentationEditorViewModel CoursePresentationEditor { get; }
 
     public RemoteCalendarEventEditorViewModel RemoteCalendarEventEditor { get; }
+
+    public ImportWorkflowStage CurrentImportWorkflowStage
+    {
+        get => importWorkflowStage;
+        private set => SetProperty(ref importWorkflowStage, value);
+    }
 
     public IAsyncRelayCommand BrowseFilesCommand { get; }
 
@@ -1429,13 +1438,68 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     public void OpenCourseEditor(ResolvedOccurrence occurrence)
     {
         ArgumentNullException.ThrowIfNull(occurrence);
-        CourseEditor.Open(CreateEditorRequest(occurrence));
+        CourseEditor.Open(CreateEditorRequest(occurrence, editSingleOccurrence: false, sourceOccurrenceDate: null));
+    }
+
+    public void OpenCourseEditor(IReadOnlyList<ResolvedOccurrence> linkedOccurrences)
+    {
+        ArgumentNullException.ThrowIfNull(linkedOccurrences);
+        if (linkedOccurrences.Count == 0)
+        {
+            return;
+        }
+
+        CourseEditor.Open(CreateEditorRequest(
+            linkedOccurrences[0],
+            editSingleOccurrence: false,
+            sourceOccurrenceDate: null,
+            linkedOccurrencesOverride: linkedOccurrences));
+    }
+
+    public void OpenCourseOccurrenceEditor(ResolvedOccurrence occurrence, DateOnly sourceOccurrenceDate)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        CourseEditor.Open(CreateEditorRequest(occurrence, editSingleOccurrence: true, sourceOccurrenceDate));
     }
 
     public void OpenCourseEditor(UnresolvedItem unresolvedItem)
     {
         ArgumentNullException.ThrowIfNull(unresolvedItem);
         CourseEditor.Open(CreateEditorRequest(unresolvedItem));
+    }
+
+    public async Task CancelDeletedOccurrenceAsync(ResolvedOccurrence occurrence)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+
+        var occurrenceDate = occurrence.OccurrenceDate;
+        var scheduleOverride = new CourseScheduleOverride(
+            occurrence.ClassName,
+            occurrence.SourceFingerprint,
+            occurrence.Metadata.CourseTitle,
+            occurrenceDate,
+            occurrenceDate,
+            TimeOnly.FromDateTime(occurrence.Start.DateTime),
+            TimeOnly.FromDateTime(occurrence.End.DateTime),
+            CourseScheduleRepeatKind.None,
+            occurrence.TimeProfileId,
+            occurrence.TargetKind,
+            occurrence.CourseType,
+            occurrence.Metadata.Notes,
+            occurrence.Metadata.Campus,
+            occurrence.Metadata.Location,
+            occurrence.Metadata.Teacher,
+            occurrence.Metadata.TeachingClassComposition,
+            occurrence.CalendarTimeZoneId,
+            occurrence.GoogleCalendarColorId,
+            sourceOccurrenceDate: occurrenceDate,
+            repeatWeekdays: [occurrenceDate.DayOfWeek]);
+
+        ApplyPreferences(
+            CurrentPreferences.WithTimetableResolution(
+                CurrentPreferences.TimetableResolution.UpsertCourseScheduleOverride(scheduleOverride)),
+            notifyWorkspaceStateChanged: false);
+        await PersistPreferencesAsync(refreshPreview: true);
     }
 
     public void OpenCoursePresentationEditor(string courseTitle)
@@ -1458,9 +1522,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             .OrderBy(static occurrence => occurrence.Start)
             .ToArray();
         var storedOverride = CurrentPreferences.TimetableResolution.FindCoursePresentationOverride(className, courseTitle);
-        var selectedTimeZoneId = storedOverride?.CalendarTimeZoneId
-            ?? matchedOccurrences.FirstOrDefault()?.CalendarTimeZoneId
-            ?? SelectedGooglePreferredTimeZoneId;
+        var selectedTimeZoneId = ResolveEffectiveCalendarTimeZoneId(storedOverride?.CalendarTimeZoneId);
         var selectedColorId = storedOverride?.GoogleCalendarColorId
             ?? matchedOccurrences.FirstOrDefault()?.GoogleCalendarColorId
             ?? CurrentPreferences.GetDefaults(DefaultProvider).DefaultCalendarColorId;
@@ -1475,6 +1537,78 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                 selectedTimeZoneId,
                 selectedColorId,
                 storedOverride is not null));
+    }
+
+    public CoursePresentationSelection ResolveCoursePresentationSelection(string courseTitle)
+    {
+        if (string.IsNullOrWhiteSpace(courseTitle))
+        {
+            return new CoursePresentationSelection(null, null, false);
+        }
+
+        var className = EffectiveSelectedClassName;
+        if (string.IsNullOrWhiteSpace(className))
+        {
+            return new CoursePresentationSelection(null, null, false);
+        }
+
+        var matchedOccurrences = CurrentOccurrences
+            .Where(occurrence =>
+                string.Equals(occurrence.ClassName, className, StringComparison.Ordinal)
+                && string.Equals(occurrence.Metadata.CourseTitle, courseTitle, StringComparison.Ordinal))
+            .OrderBy(static occurrence => occurrence.Start)
+            .ToArray();
+        var storedOverride = CurrentPreferences.TimetableResolution.FindCoursePresentationOverride(className, courseTitle);
+        return new CoursePresentationSelection(
+            ResolveEffectiveCalendarTimeZoneId(storedOverride?.CalendarTimeZoneId),
+            storedOverride?.GoogleCalendarColorId
+                ?? matchedOccurrences.FirstOrDefault()?.GoogleCalendarColorId
+                ?? CurrentPreferences.GetDefaults(DefaultProvider).DefaultCalendarColorId,
+            storedOverride is not null);
+    }
+
+    public async Task SaveCoursePresentationOverrideAsync(string courseTitle, string? calendarTimeZoneId, string? googleCalendarColorId)
+    {
+        var className = EffectiveSelectedClassName;
+        if (string.IsNullOrWhiteSpace(className) || string.IsNullOrWhiteSpace(courseTitle))
+        {
+            return;
+        }
+
+        await SaveCoursePresentationOverrideAsync(new CoursePresentationEditorSaveRequest(
+            className,
+            courseTitle,
+            calendarTimeZoneId,
+            googleCalendarColorId));
+    }
+
+    public async Task ResetCoursePresentationOverrideAsync(string courseTitle)
+    {
+        var className = EffectiveSelectedClassName;
+        if (string.IsNullOrWhiteSpace(className) || string.IsNullOrWhiteSpace(courseTitle))
+        {
+            return;
+        }
+
+        await ResetCoursePresentationOverrideAsync(new CoursePresentationEditorResetRequest(className, courseTitle));
+    }
+
+    public async Task ResetCourseEditingOverridesAsync()
+    {
+        var resolution = CurrentPreferences.TimetableResolution;
+        if (resolution.CourseScheduleOverrides.Count == 0
+            && resolution.CoursePresentationOverrides.Count == 0)
+        {
+            return;
+        }
+
+        ApplyPreferences(
+            CurrentPreferences.WithTimetableResolution(
+                resolution
+                    .WithCourseScheduleOverrides(Array.Empty<CourseScheduleOverride>())
+                    .WithCoursePresentationOverrides(Array.Empty<CoursePresentationOverride>())),
+            notifyWorkspaceStateChanged: false);
+        await PersistPreferencesAsync(refreshPreview: true);
     }
 
     public async Task OpenRemoteCalendarEventEditorAsync(ProviderRemoteCalendarEvent remoteEvent)
@@ -1582,6 +1716,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         }
 
         var acceptedGoogleCalendarDeleteIds = GetAcceptedGoogleCalendarDeleteIds(CurrentPreviewResult, acceptedChangeIds);
+        CurrentImportWorkflowStage = ImportWorkflowStage.SyncingToProvider;
 
         await RunTrackedTaskAsync(
             UiText.TaskApplyGoogleCalendarTitle,
@@ -1611,10 +1746,14 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                         ? UiFormatter.FormatWorkspaceApplyStatus(result)
                         : UiText.FormatWorkspaceGoogleApplyVerificationPending(
                             CountPendingAcceptedGoogleCalendarChanges(acceptedGoogleCalendarDeleteIds));
+                    CurrentImportWorkflowStage = googleApplyVerified
+                        ? ImportWorkflowStage.Completed
+                        : ImportWorkflowStage.SyncingToProvider;
                 }
                 catch (Exception exception)
                 {
                     WorkspaceStatus = exception.Message;
+                    CurrentImportWorkflowStage = ImportWorkflowStage.PreviewApplied;
                 }
             });
 
@@ -1645,6 +1784,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                 UiFormatter.FormatWorkspaceApplyStatus(result),
                 " ",
                 UiText.WorkspaceImportApplyLocalOnly);
+            CurrentImportWorkflowStage = ImportWorkflowStage.PreviewApplied;
         }
         catch (Exception exception)
         {
@@ -2066,9 +2206,11 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         bool includeRemoteCalendarPreview = true,
         CancellationToken cancellationToken = default)
     {
-        await refreshGate.WaitAsync(cancellationToken);
+        var gateEntered = false;
         try
         {
+            await refreshGate.WaitAsync(cancellationToken);
+            gateEntered = true;
             IsBusy = true;
             if (!string.IsNullOrWhiteSpace(taskDetail))
             {
@@ -2089,15 +2231,24 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             ApplyPreviewResult(previousPreview, preview);
             WorkspaceStatus = UiFormatter.FormatWorkspacePreviewStatus(preview);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
         catch (Exception exception)
         {
             WorkspaceStatus = UiText.FormatPreviewRefreshFailed(exception.Message);
         }
         finally
         {
-            IsBusy = false;
-            refreshGate.Release();
-            WorkspaceStateChanged?.Invoke(this, EventArgs.Empty);
+            if (gateEntered)
+            {
+                IsBusy = false;
+                refreshGate.Release();
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    WorkspaceStateChanged?.Invoke(this, EventArgs.Empty);
+                }
+            }
         }
     }
 
@@ -2224,7 +2375,10 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         WorkspaceStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void ApplyPreferences(UserPreferences preferences, bool rebuildLocalizedOptions = false)
+    private void ApplyPreferences(
+        UserPreferences preferences,
+        bool rebuildLocalizedOptions = false,
+        bool notifyWorkspaceStateChanged = true)
     {
         var previousPreferences = CurrentPreferences;
         var providerChanged = previousPreferences.DefaultProvider != preferences.DefaultProvider;
@@ -2367,7 +2521,10 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CourseTimeProfileOverrideSummary));
         UseAutoDerivedFirstWeekStartCommand.NotifyCanExecuteChanged();
         AddCourseTimeProfileOverrideCommand.NotifyCanExecuteChanged();
-        WorkspaceStateChanged?.Invoke(this, EventArgs.Empty);
+        if (notifyWorkspaceStateChanged)
+        {
+            WorkspaceStateChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     private void ApplyPreviewResult(WorkspacePreviewResult? previousPreview, WorkspacePreviewResult preview)
@@ -2854,15 +3011,25 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        var repeatKind = request.RepeatKind;
+        var sourceOccurrenceDate = request.SourceOccurrenceDate;
+        if (sourceOccurrenceDate.HasValue && repeatKind != CourseScheduleRepeatKind.None)
+        {
+            sourceOccurrenceDate = null;
+        }
+
+        var endDate = repeatKind == CourseScheduleRepeatKind.None
+            ? request.StartDate
+            : request.EndDate;
         var scheduleOverride = new CourseScheduleOverride(
             request.ClassName,
             request.SourceFingerprint,
             request.CourseTitle,
             request.StartDate,
-            request.RepeatKind == CourseScheduleRepeatKind.None ? request.StartDate : request.EndDate,
+            endDate,
             request.StartTime,
             request.EndTime,
-            request.RepeatKind,
+            repeatKind,
             request.TimeProfileId,
             request.TargetKind,
             request.CourseType,
@@ -2872,10 +3039,26 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             request.Teacher,
             request.TeachingClassComposition,
             request.CalendarTimeZoneId,
-            request.GoogleCalendarColorId);
+            request.GoogleCalendarColorId,
+            sourceOccurrenceDate,
+            request.RepeatUnit,
+            request.RepeatInterval,
+            request.RepeatWeekdays,
+            request.MonthlyPattern);
 
-        ApplyPreferences(CurrentPreferences.WithTimetableResolution(
-            CurrentPreferences.TimetableResolution.UpsertCourseScheduleOverride(scheduleOverride)));
+        var updatedResolution = CurrentPreferences.TimetableResolution;
+        if (request.SourceOccurrenceDate.HasValue && !sourceOccurrenceDate.HasValue)
+        {
+            updatedResolution = updatedResolution.RemoveCourseScheduleOverride(
+                request.ClassName,
+                request.SourceFingerprint,
+                request.SourceOccurrenceDate);
+        }
+
+        ApplyPreferences(
+            CurrentPreferences.WithTimetableResolution(
+                updatedResolution.UpsertCourseScheduleOverride(scheduleOverride)),
+            notifyWorkspaceStateChanged: false);
         await PersistPreferencesAsync(refreshPreview: true);
     }
 
@@ -2883,13 +3066,15 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        ApplyPreferences(CurrentPreferences.WithTimetableResolution(
-            CurrentPreferences.TimetableResolution.UpsertCoursePresentationOverride(
-                new CoursePresentationOverride(
-                    request.ClassName,
-                    request.CourseTitle,
-                    request.CalendarTimeZoneId,
-                    request.GoogleCalendarColorId))));
+        ApplyPreferences(
+            CurrentPreferences.WithTimetableResolution(
+                CurrentPreferences.TimetableResolution.UpsertCoursePresentationOverride(
+                    new CoursePresentationOverride(
+                        request.ClassName,
+                        request.CourseTitle,
+                        request.CalendarTimeZoneId,
+                        request.GoogleCalendarColorId))),
+            notifyWorkspaceStateChanged: false);
         await PersistPreferencesAsync(refreshPreview: true);
     }
 
@@ -2935,8 +3120,13 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        ApplyPreferences(CurrentPreferences.WithTimetableResolution(
-            CurrentPreferences.TimetableResolution.RemoveCourseScheduleOverride(request.ClassName, request.SourceFingerprint)));
+        ApplyPreferences(
+            CurrentPreferences.WithTimetableResolution(
+                CurrentPreferences.TimetableResolution.RemoveCourseScheduleOverride(
+                    request.ClassName,
+                    request.SourceFingerprint,
+                    request.SourceOccurrenceDate)),
+            notifyWorkspaceStateChanged: false);
         await PersistPreferencesAsync(refreshPreview: true);
     }
 
@@ -2944,17 +3134,34 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        ApplyPreferences(CurrentPreferences.WithTimetableResolution(
-            CurrentPreferences.TimetableResolution.RemoveCoursePresentationOverride(request.ClassName, request.CourseTitle)));
+        ApplyPreferences(
+            CurrentPreferences.WithTimetableResolution(
+                CurrentPreferences.TimetableResolution.RemoveCoursePresentationOverride(request.ClassName, request.CourseTitle)),
+            notifyWorkspaceStateChanged: false);
         await PersistPreferencesAsync(refreshPreview: true);
     }
 
-    private CourseEditorOpenRequest CreateEditorRequest(ResolvedOccurrence occurrence)
+    private CourseEditorOpenRequest CreateEditorRequest(
+        ResolvedOccurrence occurrence,
+        bool editSingleOccurrence,
+        DateOnly? sourceOccurrenceDate,
+        IReadOnlyList<ResolvedOccurrence>? linkedOccurrencesOverride = null)
     {
-        var linkedOccurrences = GetLinkedOccurrences(occurrence);
+        var linkedOccurrences = editSingleOccurrence
+            ? [occurrence]
+            : linkedOccurrencesOverride is { Count: > 0 }
+                ? linkedOccurrencesOverride
+                    .OrderBy(static item => item.OccurrenceDate)
+                    .ThenBy(static item => item.Start)
+                    .ToArray()
+                : GetLinkedOccurrences(occurrence);
         var first = linkedOccurrences[0];
         var last = linkedOccurrences[^1];
-        var storedOverride = CurrentPreferences.TimetableResolution.FindCourseScheduleOverride(first.ClassName, first.SourceFingerprint);
+        var storedOverride = CurrentPreferences.TimetableResolution.FindCourseScheduleOverride(
+            first.ClassName,
+            first.SourceFingerprint,
+            editSingleOccurrence ? sourceOccurrenceDate : null);
+        var repeatKind = InferRepeatKind(linkedOccurrences);
 
         return new CourseEditorOpenRequest(
             UiText.CourseEditorTitle,
@@ -2966,7 +3173,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             last.OccurrenceDate,
             TimeOnly.FromDateTime(first.Start.DateTime),
             TimeOnly.FromDateTime(first.End.DateTime),
-            InferRepeatKind(linkedOccurrences),
+            repeatKind,
             first.TimeProfileId,
             first.TargetKind,
             first.CourseType,
@@ -2977,9 +3184,15 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             first.Metadata.Notes,
             GoogleTimeZoneOptions.ToArray(),
             GoogleCalendarColorOptions.ToArray(),
-            storedOverride?.CalendarTimeZoneId ?? first.CalendarTimeZoneId,
+            ResolveEffectiveCalendarTimeZoneId(storedOverride?.CalendarTimeZoneId ?? first.CalendarTimeZoneId),
             storedOverride?.GoogleCalendarColorId ?? first.GoogleCalendarColorId,
-            storedOverride is not null);
+            storedOverride is not null,
+            editSingleOccurrence ? sourceOccurrenceDate : null,
+            CanSaveWithoutChanges: false,
+            RepeatUnit: storedOverride?.RepeatUnit ?? ResolveRepeatUnit(repeatKind),
+            RepeatInterval: storedOverride?.RepeatInterval ?? ResolveRepeatInterval(repeatKind),
+            RepeatWeekdays: storedOverride?.RepeatWeekdays ?? [first.OccurrenceDate.DayOfWeek],
+            MonthlyPattern: storedOverride?.MonthlyPattern ?? CourseScheduleMonthlyPattern.DayOfMonth);
     }
 
     private static RemoteCalendarEventEditorOpenRequest CreateRemoteCalendarEditorRequest(ProviderRemoteCalendarEvent remoteEvent) =>
@@ -3026,9 +3239,13 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                 storedOverride.Notes,
                 GoogleTimeZoneOptions.ToArray(),
                 GoogleCalendarColorOptions.ToArray(),
-                storedOverride.CalendarTimeZoneId,
+                ResolveEffectiveCalendarTimeZoneId(storedOverride.CalendarTimeZoneId),
                 storedOverride.GoogleCalendarColorId,
-                CanReset: true);
+                CanReset: true,
+                RepeatUnit: storedOverride.RepeatUnit,
+                RepeatInterval: storedOverride.RepeatInterval,
+                RepeatWeekdays: storedOverride.RepeatWeekdays,
+                MonthlyPattern: storedOverride.MonthlyPattern);
         }
 
         var metadata = ParseRawSourceMetadata(unresolvedItem.RawSourceText);
@@ -3058,9 +3275,14 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             metadata.TryGetValue("Notes", out var notes) ? notes : unresolvedItem.RawSourceText,
             GoogleTimeZoneOptions.ToArray(),
             GoogleCalendarColorOptions.ToArray(),
-            SelectedGooglePreferredTimeZoneId,
+            ResolveEffectiveCalendarTimeZoneId(null),
             CurrentPreferences.GetDefaults(DefaultProvider).DefaultCalendarColorId,
-            CanReset: false);
+            CanReset: false,
+            CanSaveWithoutChanges: true,
+            RepeatUnit: ResolveRepeatUnit(defaults.RepeatKind),
+            RepeatInterval: ResolveRepeatInterval(defaults.RepeatKind),
+            RepeatWeekdays: [defaults.StartDate.DayOfWeek],
+            MonthlyPattern: CourseScheduleMonthlyPattern.DayOfMonth);
     }
 
     private ResolvedOccurrence[] GetLinkedOccurrences(ResolvedOccurrence occurrence)
@@ -3105,18 +3327,35 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
         var intervals = occurrences
             .Zip(occurrences.Skip(1), static (first, second) => second.OccurrenceDate.DayNumber - first.OccurrenceDate.DayNumber)
-            .Distinct()
+            .Where(static interval => interval > 0)
             .ToArray();
 
-        return intervals.Length == 1
-            ? intervals[0] switch
-            {
-                7 => CourseScheduleRepeatKind.Weekly,
-                14 => CourseScheduleRepeatKind.Biweekly,
-                _ => CourseScheduleRepeatKind.None,
-            }
+        if (intervals.Length == 0)
+        {
+            return CourseScheduleRepeatKind.None;
+        }
+
+        if (intervals.All(static interval => interval % 14 == 0))
+        {
+            return CourseScheduleRepeatKind.Biweekly;
+        }
+
+        return intervals.All(static interval => interval % 7 == 0)
+            ? CourseScheduleRepeatKind.Weekly
             : CourseScheduleRepeatKind.None;
     }
+
+    private static CourseScheduleRepeatUnit ResolveRepeatUnit(CourseScheduleRepeatKind repeatKind) =>
+        repeatKind switch
+        {
+            CourseScheduleRepeatKind.Daily => CourseScheduleRepeatUnit.Day,
+            CourseScheduleRepeatKind.Monthly => CourseScheduleRepeatUnit.Month,
+            CourseScheduleRepeatKind.Yearly => CourseScheduleRepeatUnit.Year,
+            _ => CourseScheduleRepeatUnit.Week,
+        };
+
+    private static int ResolveRepeatInterval(CourseScheduleRepeatKind repeatKind) =>
+        repeatKind == CourseScheduleRepeatKind.Biweekly ? 2 : 1;
 
     private static Dictionary<string, string> ParseRawSourceMetadata(string rawSourceText)
     {
@@ -3346,16 +3585,21 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
         var intervals = occurrenceDates
             .Zip(occurrenceDates.Skip(1), static (first, second) => second.DayNumber - first.DayNumber)
-            .Distinct()
+            .Where(static interval => interval > 0)
             .ToArray();
 
-        return intervals.Length == 1
-            ? intervals[0] switch
-            {
-                7 => CourseScheduleRepeatKind.Weekly,
-                14 => CourseScheduleRepeatKind.Biweekly,
-                _ => CourseScheduleRepeatKind.None,
-            }
+        if (intervals.Length == 0)
+        {
+            return CourseScheduleRepeatKind.None;
+        }
+
+        if (intervals.All(static interval => interval % 14 == 0))
+        {
+            return CourseScheduleRepeatKind.Biweekly;
+        }
+
+        return intervals.All(static interval => interval % 7 == 0)
+            ? CourseScheduleRepeatKind.Weekly
             : CourseScheduleRepeatKind.None;
     }
 
@@ -3817,6 +4061,14 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         }
 
         selectedImportChangeIds = normalized;
+        if (!string.Equals(
+                CreateImportSelectionSignature(normalized),
+                lastAppliedImportSelectionSignature,
+                StringComparison.Ordinal))
+        {
+            CurrentImportWorkflowStage = ImportWorkflowStage.SelectChanges;
+        }
+
         OnPropertyChanged(nameof(EffectiveHomeOccurrences));
         OnPropertyChanged(nameof(HomeScheduleItems));
         ImportSelectionChanged?.Invoke(this, EventArgs.Empty);
@@ -4003,21 +4255,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         await preferencePersistenceGate.WaitAsync(CancellationToken.None);
         try
         {
-            await preferencesRepository.SaveAsync(CurrentPreferences, CancellationToken.None).ConfigureAwait(false);
-            if (refreshPreview)
-            {
-                if (System.Windows.Application.Current?.Dispatcher is { } dispatcher)
-                {
-                    await dispatcher.InvokeAsync(async () => await RefreshPreviewAsync()).Task.Unwrap();
-                }
-                else
-                {
-                    await InvokeOnCapturedContextAsync(
-                        synchronizationContext,
-                        () => RefreshPreviewAsync()).ConfigureAwait(false);
-                }
-            }
-            else
+            await preferencesRepository.SaveAsync(CurrentPreferences, CancellationToken.None);
+            if (!refreshPreview)
             {
                 if (System.Windows.Application.Current?.Dispatcher is { } dispatcher)
                 {
@@ -4043,6 +4282,67 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         finally
         {
             preferencePersistenceGate.Release();
+        }
+
+        if (refreshPreview)
+        {
+            await RefreshPreviewAfterPreferenceChangeAsync(synchronizationContext).ConfigureAwait(false);
+        }
+    }
+
+    private async Task RefreshPreviewAfterPreferenceChangeAsync(SynchronizationContext? synchronizationContext)
+    {
+        CancellationTokenSource cancellation;
+        lock (preferencePreviewRefreshSync)
+        {
+            preferencePreviewRefreshCancellation?.Cancel();
+            preferencePreviewRefreshCancellation?.Dispose();
+            preferencePreviewRefreshCancellation = new CancellationTokenSource();
+            cancellation = preferencePreviewRefreshCancellation;
+        }
+
+        try
+        {
+            if (System.Windows.Application.Current?.Dispatcher is { } dispatcher)
+            {
+                await dispatcher.InvokeAsync(
+                    async () => await RunTrackedTaskAsync(
+                        UiText.TaskRefreshLocalPreviewTitle,
+                        UiText.TaskRefreshLocalPreviewDetail,
+                        task => RefreshPreviewCoreAsync(
+                            task,
+                            UiText.TaskRefreshLocalPreviewDetail,
+                            cancellationToken: cancellation.Token)),
+                    System.Windows.Threading.DispatcherPriority.Background,
+                    cancellation.Token).Task.Unwrap();
+            }
+            else
+            {
+                await RunTrackedTaskAsync(
+                    UiText.TaskRefreshLocalPreviewTitle,
+                    UiText.TaskRefreshLocalPreviewDetail,
+                    task => InvokeOnCapturedContextAsync(
+                        synchronizationContext,
+                        () => RefreshPreviewCoreAsync(
+                            task,
+                            UiText.TaskRefreshLocalPreviewDetail,
+                            cancellationToken: cancellation.Token))).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            lock (preferencePreviewRefreshSync)
+            {
+                if (ReferenceEquals(preferencePreviewRefreshCancellation, cancellation))
+                {
+                    preferencePreviewRefreshCancellation = null;
+                }
+            }
+
+            cancellation.Dispose();
         }
     }
 
@@ -4249,6 +4549,12 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private string ResolveEffectiveCalendarTimeZoneId(string? calendarTimeZoneId) =>
+        Normalize(calendarTimeZoneId)
+        ?? Normalize(CurrentPreferences.GoogleSettings.PreferredCalendarTimeZoneId)
+        ?? WorkspacePreferenceDefaults.CreateGoogleSettings().PreferredCalendarTimeZoneId
+        ?? "Asia/Shanghai";
 
     private async Task AutoSyncGoogleCalendarPreviewAsync(
         string title,
@@ -4996,6 +5302,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        preferencePreviewRefreshCancellation?.Cancel();
+        preferencePreviewRefreshCancellation?.Dispose();
         preferencePersistenceGate.Dispose();
         refreshGate.Dispose();
     }

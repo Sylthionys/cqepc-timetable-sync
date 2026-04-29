@@ -75,6 +75,49 @@ public sealed class GooglePayloadBuildersTests
     }
 
     [Fact]
+    public void BuildRecurringEventAddsThreeWeekIntervalRule()
+    {
+        var firstOccurrence = CreateOccurrence(
+            new DateOnly(2026, 3, 2),
+            new TimeOnly(10, 0),
+            new TimeOnly(11, 40),
+            SyncTargetKind.CalendarEvent,
+            courseTitle: "Circuits",
+            sourceHash: "circuits");
+        var secondOccurrence = CreateOccurrence(
+            new DateOnly(2026, 3, 23),
+            new TimeOnly(10, 0),
+            new TimeOnly(11, 40),
+            SyncTargetKind.CalendarEvent,
+            courseTitle: "Circuits",
+            sourceHash: "circuits");
+        var exportGroup = new ExportGroup(ExportGroupKind.Recurring, [firstOccurrence, secondOccurrence], recurrenceIntervalDays: 21);
+
+        var payload = GooglePayloadBuilders.BuildRecurringEvent(exportGroup);
+
+        payload.Recurrence.Should().ContainSingle()
+            .Which.Should().Be("RRULE:FREQ=WEEKLY;INTERVAL=3;UNTIL=20260323T100000Z");
+    }
+
+    [Fact]
+    public void BuildSingleEventWritesMonthlyConcreteOccurrenceWithoutRecurrence()
+    {
+        var occurrence = CreateOccurrence(
+            new DateOnly(2026, 4, 26),
+            new TimeOnly(10, 0),
+            new TimeOnly(11, 40),
+            SyncTargetKind.CalendarEvent,
+            courseTitle: "Circuits",
+            sourceHash: "circuits-monthly");
+
+        var payload = GooglePayloadBuilders.BuildSingleEvent(occurrence);
+
+        payload.Recurrence.Should().BeNull();
+        payload.Start!.DateTimeDateTimeOffset.Should().Be(occurrence.Start);
+        payload.End!.DateTimeDateTimeOffset.Should().Be(occurrence.End);
+    }
+
+    [Fact]
     public void BuildRecurringEventAddsExDateWhenRecurringGroupContainsSkippedOccurrence()
     {
         var firstOccurrence = CreateOccurrence(

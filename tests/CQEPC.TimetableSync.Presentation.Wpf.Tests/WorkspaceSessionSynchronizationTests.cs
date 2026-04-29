@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using CQEPC.TimetableSync.Application.Abstractions.Onboarding;
@@ -115,6 +116,101 @@ public sealed class WorkspaceSessionSynchronizationTests
         });
     }
 
+    [Fact]
+    public void CourseEditorSaveAcceptsCompactTimeInput()
+    {
+        PumpingSynchronizationContext.Run(async () =>
+        {
+            var session = CreateYieldingSession();
+            await session.InitializeAsync();
+            var occurrence = session.CurrentOccurrences.Should().ContainSingle().Subject;
+            session.OpenCourseEditor(occurrence);
+            session.CourseEditor.StartTimeText = "0830";
+
+            await session.CourseEditor.SaveCommand.ExecuteAsync(null);
+
+            session.CurrentPreferences.TimetableResolution.CourseScheduleOverrides.Should().ContainSingle();
+            session.CurrentPreferences.TimetableResolution.CourseScheduleOverrides[0].StartTime.Should().Be(new TimeOnly(8, 30));
+            session.CourseEditor.IsOpen.Should().BeFalse();
+        });
+    }
+
+    [Fact]
+    public void CourseEditorSaveAcceptsSingleDigitHourInput()
+    {
+        PumpingSynchronizationContext.Run(async () =>
+        {
+            var session = CreateYieldingSession();
+            await session.InitializeAsync();
+            var occurrence = session.CurrentOccurrences.Should().ContainSingle().Subject;
+            session.OpenCourseEditor(occurrence);
+            session.CourseEditor.StartTimeText = "6";
+            session.CourseEditor.EndTimeText = "8";
+
+            await session.CourseEditor.SaveCommand.ExecuteAsync(null);
+
+            var savedOverride = session.CurrentPreferences.TimetableResolution.CourseScheduleOverrides.Should().ContainSingle().Subject;
+            savedOverride.StartTime.Should().Be(new TimeOnly(6, 0));
+            savedOverride.EndTime.Should().Be(new TimeOnly(8, 0));
+            session.CourseEditor.IsOpen.Should().BeFalse();
+        });
+    }
+
+    [Fact]
+    public void CourseEditorRepeatUnitSelectionUpdatesPreviewTextAndUnitVisibility()
+    {
+        var editor = CreateStandaloneCourseEditor();
+        editor.Open(CreateCourseEditorOpenRequest(
+            repeatKind: CourseScheduleRepeatKind.Weekly,
+            repeatUnit: CourseScheduleRepeatUnit.Week,
+            repeatInterval: 2,
+            repeatWeekdays: [DayOfWeek.Thursday]));
+
+        editor.IsWeeklyRepeatUnit.Should().BeTrue();
+        editor.ShowMonthlyPatternOptions.Should().BeFalse();
+        editor.SelectedRepeatUnitOption!.ToString().Should().Be(editor.SelectedRepeatUnitOption.Label);
+
+        editor.RepeatInterval = 3;
+        editor.RepeatSummary.Should().Contain("3");
+        editor.RepeatSummary.Should().Contain(editor.SelectedRepeatUnitOption.Label);
+        editor.RepeatSummary.Should().NotEndWith(DateOnly.FromDateTime(editor.StartDate!.Value).ToString("dddd", CultureInfo.CurrentCulture));
+        editor.OccurrenceCountSummary.Should().Contain("4");
+
+        editor.SelectedRepeatUnitOption = editor.RepeatUnitOptions.Single(option => option.RepeatUnit == CourseScheduleRepeatUnit.Month);
+
+        editor.IsWeeklyRepeatUnit.Should().BeFalse();
+        editor.ShowMonthlyPatternOptions.Should().BeTrue();
+        editor.RepeatSummary.Should().Contain(editor.SelectedMonthlyPatternOption!.Label);
+    }
+
+    [Fact]
+    public async Task CourseEditorSavePersistsMonthlyLastWeekdayPattern()
+    {
+        CourseEditorSaveRequest? saved = null;
+        var editor = CreateStandaloneCourseEditor(request =>
+        {
+            saved = request;
+            return Task.CompletedTask;
+        });
+        editor.Open(CreateCourseEditorOpenRequest(
+            startDate: new DateOnly(2026, 3, 29),
+            endDate: new DateOnly(2026, 5, 31),
+            repeatKind: CourseScheduleRepeatKind.Weekly,
+            repeatUnit: CourseScheduleRepeatUnit.Week,
+            repeatInterval: 1,
+            repeatWeekdays: [DayOfWeek.Sunday]));
+        editor.SelectedRepeatUnitOption = editor.RepeatUnitOptions.Single(option => option.RepeatUnit == CourseScheduleRepeatUnit.Month);
+        editor.SelectedMonthlyPatternOption = editor.MonthlyPatternOptions.Single(option => option.MonthlyPattern == CourseScheduleMonthlyPattern.LastWeekday);
+
+        await editor.SaveCommand.ExecuteAsync(null);
+
+        saved.Should().NotBeNull();
+        saved!.RepeatKind.Should().Be(CourseScheduleRepeatKind.Monthly);
+        saved.RepeatUnit.Should().Be(CourseScheduleRepeatUnit.Month);
+        saved.MonthlyPattern.Should().Be(CourseScheduleMonthlyPattern.LastWeekday);
+        saved.RepeatWeekdays.Should().Equal(DayOfWeek.Sunday);
+    }
+
     private static WorkspaceSessionViewModel CreateYieldingSession(
         Func<WorkspacePreviewRequest, WorkspacePreviewResult>? previewBuilder = null)
     {
@@ -130,6 +226,35 @@ public sealed class WorkspaceSessionSynchronizationTests
             new YieldingUserPreferencesRepository(WorkspacePreferenceDefaults.Create()),
             previewService);
     }
+
+    private static CourseEditorViewModel CreateStandaloneCourseEditor(
+        Func<CourseEditorSaveRequest, Task>? saveAsync = null) =>
+        new(
+            saveAsync ?? (_ => Task.CompletedTask),
+            _ => Task.CompletedTask);
+
+    private static CourseEditorOpenRequest CreateCourseEditorOpenRequest(
+        DateOnly? startDate = null,
+        DateOnly? endDate = null,
+        CourseScheduleRepeatKind repeatKind = CourseScheduleRepeatKind.None,
+        CourseScheduleRepeatUnit repeatUnit = CourseScheduleRepeatUnit.Week,
+        int repeatInterval = 1,
+        IReadOnlyList<DayOfWeek>? repeatWeekdays = null) =>
+        new(
+            "Edit",
+            "Summary",
+            "Class A",
+            new SourceFingerprint("pdf", "standalone"),
+            "Signals",
+            startDate ?? new DateOnly(2026, 4, 30),
+            endDate ?? new DateOnly(2026, 7, 9),
+            new TimeOnly(14, 30),
+            new TimeOnly(16, 0),
+            repeatKind,
+            "main-campus",
+            RepeatUnit: repeatUnit,
+            RepeatInterval: repeatInterval,
+            RepeatWeekdays: repeatWeekdays ?? [DayOfWeek.Thursday]);
 
     private static LocalSourceCatalogState CreateCatalogState() =>
         new(

@@ -96,6 +96,73 @@ public sealed class GoogleSyncProviderAdapterTests
     }
 
     [Fact]
+    public void ExpandDeletedChangeResultsForAcceptedChangesMarksEveryDeduplicatedSeriesMemberSuccessful()
+    {
+        var firstOccurrence = CreateOccurrence(new DateOnly(2026, 3, 16), "series-a");
+        var secondOccurrence = CreateOccurrence(new DateOnly(2026, 3, 23), "series-b");
+        var firstDeleteId = "remote|google-cal|instance-1|2026-03-16T06:30:00.0000000+00:00";
+        var secondDeleteId = "remote|google-cal|instance-2|2026-03-23T06:30:00.0000000+00:00";
+        var request = new ProviderApplyRequest(
+            new ProviderConnectionContext(ClientConfigurationPath: "client.json"),
+            "google-cal",
+            "Calendar",
+            "@default",
+            "Tasks",
+            new Dictionary<string, string>(StringComparer.Ordinal),
+            [
+                new PlannedSyncChange(
+                    SyncChangeKind.Deleted,
+                    SyncTargetKind.CalendarEvent,
+                    firstDeleteId,
+                    changeSource: SyncChangeSource.RemoteManaged,
+                    before: firstOccurrence,
+                    remoteEvent: new ProviderRemoteCalendarEvent(
+                        "instance-1",
+                        "google-cal",
+                        firstOccurrence.Metadata.CourseTitle,
+                        firstOccurrence.Start,
+                        firstOccurrence.End,
+                        isManagedByApp: true,
+                        localSyncId: "local-1",
+                        sourceFingerprintHash: firstOccurrence.SourceFingerprint.Hash,
+                        sourceKind: firstOccurrence.SourceFingerprint.SourceKind,
+                        parentRemoteItemId: "series-id",
+                        originalStartTimeUtc: firstOccurrence.Start.ToUniversalTime())),
+                new PlannedSyncChange(
+                    SyncChangeKind.Deleted,
+                    SyncTargetKind.CalendarEvent,
+                    secondDeleteId,
+                    changeSource: SyncChangeSource.RemoteManaged,
+                    before: secondOccurrence,
+                    remoteEvent: new ProviderRemoteCalendarEvent(
+                        "instance-2",
+                        "google-cal",
+                        secondOccurrence.Metadata.CourseTitle,
+                        secondOccurrence.Start,
+                        secondOccurrence.End,
+                        isManagedByApp: true,
+                        localSyncId: "local-2",
+                        sourceFingerprintHash: secondOccurrence.SourceFingerprint.Hash,
+                        sourceKind: secondOccurrence.SourceFingerprint.SourceKind,
+                        parentRemoteItemId: "series-id",
+                        originalStartTimeUtc: secondOccurrence.Start.ToUniversalTime())),
+            ],
+            [firstOccurrence, secondOccurrence],
+            Array.Empty<ExportGroup>(),
+            Array.Empty<SyncMapping>());
+        var normalized = GoogleSyncProviderAdapter.NormalizeAcceptedChangesForApply(request);
+
+        var expanded = GoogleSyncProviderAdapter.ExpandDeletedChangeResultsForAcceptedChanges(
+            request,
+            normalized.Where(static change => change.ChangeKind == SyncChangeKind.Deleted).ToArray(),
+            [new ProviderAppliedChangeResult(normalized[0].LocalStableId, true)]);
+
+        expanded.Should().HaveCount(2);
+        expanded.Should().OnlyContain(static result => result.Succeeded);
+        expanded.Select(static result => result.LocalStableId).Should().BeEquivalentTo([firstDeleteId, secondDeleteId]);
+    }
+
+    [Fact]
     public void NormalizeAcceptedChangesForApplyKeepsSingleEventDeleteSeparateFromStaleRecurringMappingDelete()
     {
         var occurrence = CreateOccurrence(new DateOnly(2026, 3, 16), "single-event");

@@ -31,6 +31,25 @@ public sealed class ExportGroupBuilderTests
     }
 
     [Fact]
+    public void BuildKeepsMatchingThreeWeekCalendarOccurrencesInOneRecurringGroup()
+    {
+        var builder = new ExportGroupBuilder();
+        var occurrences =
+            new[]
+            {
+                CreateOccurrence(1, new DateOnly(2026, 3, 2)),
+                CreateOccurrence(4, new DateOnly(2026, 3, 23)),
+                CreateOccurrence(7, new DateOnly(2026, 4, 13)),
+            };
+
+        var result = builder.Build(occurrences);
+
+        result.Should().ContainSingle();
+        result[0].GroupKind.Should().Be(ExportGroupKind.Recurring);
+        result[0].RecurrenceIntervalDays.Should().Be(21);
+    }
+
+    [Fact]
     public void BuildDoesNotMergeOccurrencesWhenStructuredNotesDiffer()
     {
         var builder = new ExportGroupBuilder();

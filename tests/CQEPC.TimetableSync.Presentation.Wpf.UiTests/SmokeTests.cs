@@ -1,6 +1,7 @@
 using CQEPC.TimetableSync.Presentation.Wpf.UiTests.Infrastructure;
 using FlaUI.Core.Definitions;
 using FluentAssertions;
+using System.Linq;
 using System.Text.Json;
 using Xunit;
 
@@ -97,17 +98,18 @@ public sealed class SmokeTests
     }
 
     [StaFact]
-    public async Task ImportParsedCoursesModeButtonsAreDiscoverableInBackgroundAutomationMode()
+    public async Task ImportChangeGroupsAndDetailPanelAreDiscoverableInBackgroundAutomationMode()
     {
-        await using var session = await UiAppSession.LaunchAsync(nameof(ImportParsedCoursesModeButtonsAreDiscoverableInBackgroundAutomationMode));
+        await using var session = await UiAppSession.LaunchAsync(nameof(ImportChangeGroupsAndDetailPanelAreDiscoverableInBackgroundAutomationMode));
         await session.RunAsync(
             async current =>
             {
                 current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
-                current.WaitForElement("Import.ParsedCourseGroups");
-                current.WaitForElement("Import.ParsedCourses.Mode.RepeatRules");
-                current.WaitForElement("Import.ParsedCourses.Mode.AllTimes");
                 current.WaitForElement("Import.ChangeGroups");
+                current.WaitForButton("Import.ApplySelected");
+
+                using var state = JsonDocument.Parse(await current.GetPlannedChangeStateAsync() ?? "{}");
+                state.RootElement.GetProperty("selectedOccurrence").ValueKind.Should().Be(JsonValueKind.Object);
 
                 var screenshotPath = await current.CaptureCurrentPageScreenshotAsync();
                 File.Exists(screenshotPath).Should().BeTrue();
@@ -128,6 +130,119 @@ public sealed class SmokeTests
                 await Task.Delay(TimeSpan.FromSeconds(2));
 
                 current.WaitForButton("Import.ApplySelected").IsEnabled.Should().BeFalse();
+            });
+    }
+
+    [StaFact]
+    public async Task ImportOccurrenceSelectionShowsDetailContentAndToggleCheckboxCommitsSelection()
+    {
+        await using var session = await UiAppSession.LaunchAsync(nameof(ImportOccurrenceSelectionShowsDetailContentAndToggleCheckboxCommitsSelection));
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+
+                using var initialState = JsonDocument.Parse(await current.GetPlannedChangeStateAsync() ?? "{}");
+                var firstGroup = initialState.RootElement.GetProperty("changeGroups").EnumerateArray().First();
+                var firstRuleGroup = firstGroup.GetProperty("ruleGroups").EnumerateArray().First();
+                var firstOccurrence = firstRuleGroup.GetProperty("occurrenceItems").EnumerateArray().First();
+
+                var selectAutomationId = firstOccurrence.GetProperty("selectAutomationId").GetString();
+                var toggleAutomationId = firstOccurrence.GetProperty("toggleAutomationId").GetString();
+                var localStableId = firstOccurrence.GetProperty("localStableId").GetString();
+                var ruleExpandAutomationId = firstRuleGroup.GetProperty("expandAutomationId").GetString();
+                var initialSelectionState = firstOccurrence.GetProperty("isSelected").GetBoolean();
+
+                selectAutomationId.Should().NotBeNullOrWhiteSpace();
+                toggleAutomationId.Should().NotBeNullOrWhiteSpace();
+                localStableId.Should().NotBeNullOrWhiteSpace();
+                ruleExpandAutomationId.Should().NotBeNullOrWhiteSpace();
+
+                current.InvokeFirstElementByAutomationIdPrefix("Import.ChangeCourse.Expand.");
+                current.InvokeFirstElementByAutomationIdPrefix("Import.ChangeRule.Expand.");
+                current.ClickButton(selectAutomationId!);
+
+                using var selectedState = JsonDocument.Parse(await current.GetPlannedChangeStateAsync() ?? "{}");
+                var selectedOccurrence = selectedState.RootElement.GetProperty("selectedOccurrence");
+                selectedOccurrence.ValueKind.Should().Be(JsonValueKind.Object);
+                selectedOccurrence.GetProperty("localStableId").GetString().Should().Be(localStableId);
+                selectedOccurrence.GetProperty("detailBadgeCount").GetInt32().Should().BeGreaterThan(0);
+                (selectedOccurrence.GetProperty("beforeDetailCount").GetInt32()
+                    + selectedOccurrence.GetProperty("afterDetailCount").GetInt32()
+                    + selectedOccurrence.GetProperty("sharedDetailCount").GetInt32())
+                    .Should()
+                    .BeGreaterThan(0);
+
+                current.InvokeElement(ruleExpandAutomationId!);
+
+                using var reselectedRuleState = JsonDocument.Parse(await current.GetPlannedChangeStateAsync() ?? "{}");
+                reselectedRuleState.RootElement.GetProperty("selectedRuleOccurrenceCount").GetInt32().Should().BeGreaterThan(0);
+
+                current.ToggleElement(toggleAutomationId!);
+
+                using var toggledState = JsonDocument.Parse(await current.GetPlannedChangeStateAsync() ?? "{}");
+                var toggledOccurrence = toggledState.RootElement
+                    .GetProperty("changeGroups").EnumerateArray().First()
+                    .GetProperty("ruleGroups").EnumerateArray().First()
+                    .GetProperty("occurrenceItems").EnumerateArray().First();
+                toggledOccurrence.GetProperty("isSelected").GetBoolean().Should().Be(!initialSelectionState);
+            });
+    }
+
+    [StaFact]
+    public async Task ImportSelectedCourseGroupExpandsToShowOccurrenceSelectionControls()
+    {
+        await using var session = await UiAppSession.LaunchAsync(nameof(ImportSelectedCourseGroupExpandsToShowOccurrenceSelectionControls));
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+
+                using var state = JsonDocument.Parse(await current.GetPlannedChangeStateAsync() ?? "{}");
+                var firstOccurrence = state.RootElement.GetProperty("changeGroups").EnumerateArray().First()
+                    .GetProperty("ruleGroups").EnumerateArray().First()
+                    .GetProperty("occurrenceItems").EnumerateArray().First();
+
+                var occurrenceToggleAutomationId = firstOccurrence.GetProperty("toggleAutomationId").GetString();
+                occurrenceToggleAutomationId.Should().NotBeNullOrWhiteSpace();
+                current.InvokeFirstElementByAutomationIdPrefix("Import.ChangeCourse.Expand.");
+                current.InvokeFirstElementByAutomationIdPrefix("Import.ChangeRule.Expand.");
+                current.WaitForElement(occurrenceToggleAutomationId!);
+            });
+    }
+
+    [StaFact]
+    public async Task ImportSelectCurrentPageToggleCommitsVisibleSelection()
+    {
+        await using var session = await UiAppSession.LaunchAsync(nameof(ImportSelectCurrentPageToggleCommitsVisibleSelection));
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+
+                using var initialState = JsonDocument.Parse(await current.GetPlannedChangeStateAsync() ?? "{}");
+                var firstOccurrence = initialState.RootElement.GetProperty("changeGroups").EnumerateArray().First()
+                    .GetProperty("ruleGroups").EnumerateArray().First()
+                    .GetProperty("occurrenceItems").EnumerateArray().First();
+                firstOccurrence.GetProperty("isSelected").GetBoolean().Should().BeTrue();
+
+                current.ToggleElement("Import.Toggle.SelectCurrentPage", ToggleState.Off);
+
+                using var clearedState = JsonDocument.Parse(await current.GetPlannedChangeStateAsync() ?? "{}");
+                clearedState.RootElement.GetProperty("changeGroups").EnumerateArray()
+                    .SelectMany(static group => group.GetProperty("ruleGroups").EnumerateArray())
+                    .SelectMany(static ruleGroup => ruleGroup.GetProperty("occurrenceItems").EnumerateArray())
+                    .Should()
+                    .OnlyContain(static item => item.GetProperty("isSelected").GetBoolean() == false);
+
+                current.ToggleElement("Import.Toggle.SelectCurrentPage", ToggleState.On);
+
+                using var restoredState = JsonDocument.Parse(await current.GetPlannedChangeStateAsync() ?? "{}");
+                restoredState.RootElement.GetProperty("changeGroups").EnumerateArray()
+                    .SelectMany(static group => group.GetProperty("ruleGroups").EnumerateArray())
+                    .SelectMany(static ruleGroup => ruleGroup.GetProperty("occurrenceItems").EnumerateArray())
+                    .Should()
+                    .OnlyContain(static item => item.GetProperty("isSelected").GetBoolean());
             });
     }
 
@@ -266,30 +381,101 @@ public sealed class SmokeTests
     }
 
     [StaFact]
-    public async Task ImportParsedCourseInfoButtonCanOpenCoursePresentationEditor()
+    public async Task ImportParsedCourseInfoButtonShowsInlineCourseSettings()
     {
-        await using var session = await UiAppSession.LaunchAsync(nameof(ImportParsedCourseInfoButtonCanOpenCoursePresentationEditor));
+        await using var session = await UiAppSession.LaunchAsync(nameof(ImportParsedCourseInfoButtonShowsInlineCourseSettings));
         await session.RunAsync(
-            current =>
+            async current =>
             {
                 current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
                 current.WaitForElementToDisappear("CoursePresentationEditorOverlay.Root", TimeSpan.FromSeconds(2));
                 current.WaitForElement("Import.ParsedCourseGroup.InfoButton");
-                current.ClickButton("Import.ParsedCourseGroup.InfoButton", "CoursePresentationEditorOverlay.Root");
-                current.WaitForElement("CoursePresentationEditor.TimeZoneCombo");
-                current.WaitForElement("CoursePresentationEditor.ColorCombo");
-                current.GetComboBoxItemCount("CoursePresentationEditor.TimeZoneCombo").Should().BeGreaterThan(1);
-                current.GetComboBoxItemCount("CoursePresentationEditor.ColorCombo").Should().BeGreaterThan(1);
-                current.SelectComboBoxItemByIndex("CoursePresentationEditor.TimeZoneCombo", 1);
-                current.SelectComboBoxItemByIndex("CoursePresentationEditor.ColorCombo", 1);
-                current.GetComboBoxSelectionText("CoursePresentationEditor.TimeZoneCombo").Should().NotBeNullOrWhiteSpace();
-                current.GetComboBoxSelectionText("CoursePresentationEditor.ColorCombo").Should().NotBeNullOrWhiteSpace();
-                current.WaitForButton("CoursePresentationEditor.SaveButton").IsEnabled.Should().BeTrue();
-                current.ClickButton("CoursePresentationEditor.Backdrop");
+                current.ClickButton("Import.ParsedCourseGroup.InfoButton", "Import.CourseSettings.TimeZoneCombo");
                 current.WaitForElementToDisappear("CoursePresentationEditorOverlay.Root");
-                current.ClickButton("Import.ParsedCourseGroup.InfoButton", "CoursePresentationEditorOverlay.Root");
-                current.ClickButton("CoursePresentationEditor.CloseButton");
+                current.WaitForElement("Import.CourseSettings.ColorCombo");
+                current.WaitForElement("Import.Detail.CourseRuleGroups");
+                current.WaitForElementToDisappear("Import.Detail.ChangeSummary", TimeSpan.FromSeconds(1));
+                current.WaitForElementToDisappear("Import.Detail.SharedDetails", TimeSpan.FromSeconds(1));
+                current.GetComboBoxItemCount("Import.CourseSettings.TimeZoneCombo").Should().BeGreaterThan(1);
+                current.GetComboBoxItemCount("Import.CourseSettings.ColorCombo").Should().BeGreaterThan(1);
+                current.SelectComboBoxItemByIndex("Import.CourseSettings.TimeZoneCombo", 1);
+                current.SelectComboBoxItemByIndex("Import.CourseSettings.ColorCombo", 1);
+                current.GetComboBoxSelectionText("Import.CourseSettings.TimeZoneCombo").Should().NotBeNullOrWhiteSpace();
+                current.GetComboBoxSelectionText("Import.CourseSettings.ColorCombo").Should().NotBeNullOrWhiteSpace();
+                current.WaitForButton("Import.CourseSettings.Save").IsEnabled.Should().BeTrue();
                 current.WaitForElementToDisappear("CoursePresentationEditorOverlay.Root");
+                var screenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(screenshotPath).Should().BeTrue();
+            });
+    }
+
+    [StaFact]
+    public async Task ImportEditSelectedShowsInlineCourseEditorInsteadOfPopup()
+    {
+        await using var session = await UiAppSession.LaunchAsync(nameof(ImportEditSelectedShowsInlineCourseEditorInsteadOfPopup));
+        await session.RunAsync(
+            current =>
+            {
+                current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+                current.InvokeFirstElementByAutomationIdPrefix("Import.ChangeCourse.Expand.");
+                current.InvokeFirstElementByAutomationIdPrefix("Import.ChangeRule.Expand.");
+                current.WaitForButton("Import.Detail.EditSelected").IsEnabled.Should().BeTrue();
+                current.ClickButton("Import.Detail.EditSelected", "Import.CourseEditor.Title");
+                current.WaitForElementToDisappear("CourseEditorOverlay.Root", TimeSpan.FromSeconds(2));
+                current.GetComboBoxSelectionText("Import.CourseEditor.TimeZoneCombo").Should().Be("UTC+8");
+                current.SetText("Import.CourseEditor.Title", "Signals Inline Edit");
+                current.WaitForButton("Import.CourseEditor.Save").IsEnabled.Should().BeTrue();
+                return Task.CompletedTask;
+            });
+    }
+
+    [StaFact]
+    public async Task ImportCompactWindowKeepsToolbarUsableAndRendersCompactLayout()
+    {
+        await using var session = await UiAppSession.LaunchAsync(
+            nameof(ImportCompactWindowKeepsToolbarUsableAndRendersCompactLayout),
+            width: 1080,
+            height: 820);
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+                current.WaitForButton("Import.ApplySelected").IsEnabled.Should().BeTrue();
+                current.MainWindow.FindFirstDescendant(cf => cf.ByAutomationId("Import.Filter.Type")).Should().BeNull();
+                current.MainWindow.FindFirstDescendant(cf => cf.ByAutomationId("Import.Filter.Status")).Should().BeNull();
+                current.WaitForElement("Import.ChangeGroups");
+
+                var screenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(screenshotPath).Should().BeTrue();
+            });
+    }
+
+    [StaFact]
+    public async Task ImportSelectedOnlyToggleSwitchesBetweenSelectedAndAllLabels()
+    {
+        await using var session = await UiAppSession.LaunchAsync(nameof(ImportSelectedOnlyToggleSwitchesBetweenSelectedAndAllLabels));
+        await session.RunAsync(
+            current =>
+            {
+                current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+                current.WaitForElement("Import.Filter.Type");
+                current.WaitForElement("Import.Toggle.SelectedOnly");
+                var addedStatus = "\u65b0\u589e";
+                var allStatuses = "\u5168\u90e8\u72b6\u6001";
+                var showSelectedOnly = "\u4ec5\u770b\u5df2\u9009";
+                var showAll = "\u663e\u793a\u5168\u90e8";
+
+                current.SelectComboBoxItem("Import.Filter.Status", addedStatus);
+                current.GetComboBoxSelectionText("Import.Filter.Status").Should().Be(addedStatus);
+                current.SelectComboBoxItem("Import.Filter.Status", allStatuses);
+                current.GetComboBoxSelectionText("Import.Filter.Status").Should().Be(allStatuses);
+                current.GetElementName("Import.Toggle.SelectedOnly").Should().Be(showSelectedOnly);
+
+                current.ClickButton("Import.Toggle.SelectedOnly");
+                current.GetElementName("Import.Toggle.SelectedOnly").Should().Be(showAll);
+
+                current.ClickButton("Import.Toggle.SelectedOnly");
+                current.GetElementName("Import.Toggle.SelectedOnly").Should().Be(showSelectedOnly);
                 return Task.CompletedTask;
             });
     }
@@ -429,6 +615,37 @@ public sealed class SmokeTests
 
                 current.ToggleElement("ProgramSettings.ThemeToggle");
                 current.GetToggleState("ProgramSettings.ThemeToggle").Should().Be(ToggleState.On);
+
+                var darkScreenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(darkScreenshotPath).Should().BeTrue();
+                new FileInfo(darkScreenshotPath).Length.Should().BeGreaterThan(0);
+            });
+    }
+
+    [StaFact]
+    public async Task ImportPageCanBeCapturedInLightAndDarkThemes()
+    {
+        await using var session = await UiAppSession.LaunchAsync(nameof(ImportPageCanBeCapturedInLightAndDarkThemes));
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+                current.WaitForElement("Import.ChangeGroups");
+
+                var lightScreenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(lightScreenshotPath).Should().BeTrue();
+                new FileInfo(lightScreenshotPath).Length.Should().BeGreaterThan(0);
+
+                current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+                current.ClickButton("Settings.ProgramSettingsButton", "ProgramSettingsOverlay.Root");
+                current.WaitForElement("ProgramSettings.ThemeToggle");
+                current.ToggleElement("ProgramSettings.ThemeToggle", ToggleState.On);
+                current.GetToggleState("ProgramSettings.ThemeToggle").Should().Be(ToggleState.On);
+                current.ClickButton("ProgramSettingsOverlay.Close");
+                current.WaitForElementToDisappear("ProgramSettingsOverlay.Root");
+
+                current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+                current.WaitForElement("Import.ChangeGroups");
 
                 var darkScreenshotPath = await current.CaptureCurrentPageScreenshotAsync();
                 File.Exists(darkScreenshotPath).Should().BeTrue();

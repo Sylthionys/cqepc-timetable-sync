@@ -44,7 +44,16 @@ internal sealed class UiAppSession : IAsyncDisposable
     public static Task<UiAppSession> LaunchAsync(string testName, string storageRoot) =>
         Task.FromResult(LaunchCore(testName, storageRoot, workspace: null));
 
-    private static UiAppSession LaunchCore(string testName, string storageRoot, UiTestWorkspace? workspace)
+    public static Task<UiAppSession> LaunchAsync(string testName, string storageRoot, int width, int height) =>
+        Task.FromResult(LaunchCore(testName, storageRoot, workspace: null, width, height));
+
+    public static async Task<UiAppSession> LaunchAsync(string testName, int width, int height, UiFixtureScenario scenario = UiFixtureScenario.Default)
+    {
+        var workspace = await UiTestWorkspace.CreateAsync(testName, scenario);
+        return LaunchCore(testName, workspace.RootDirectory, workspace, width, height);
+    }
+
+    private static UiAppSession LaunchCore(string testName, string storageRoot, UiTestWorkspace? workspace, int width = 1380, int height = 900)
     {
         var executablePath = UiTestPaths.AppExecutablePath;
         if (!File.Exists(executablePath))
@@ -58,7 +67,7 @@ internal sealed class UiAppSession : IAsyncDisposable
         {
             WorkingDirectory = Path.GetDirectoryName(executablePath)!,
             UseShellExecute = false,
-            Arguments = "--ui-automation --window-mode background",
+            Arguments = $"--ui-automation --window-mode background --width {width} --height {height}",
         };
         startInfo.EnvironmentVariables["CQEPC_TIMETABLESYNC_STORAGE_ROOT"] = storageRoot;
 
@@ -130,11 +139,38 @@ internal sealed class UiAppSession : IAsyncDisposable
     public void InvokeElement(string automationId, TimeSpan? timeout = null) =>
         InvokeElement(WaitForElement(automationId, timeout));
 
+    public void InvokeFirstElementByAutomationIdPrefix(string automationIdPrefix, TimeSpan? timeout = null)
+    {
+        var element = WaitForElementByAutomationIdPrefix(automationIdPrefix, timeout);
+        InvokeElement(element);
+    }
+
     public void ClickElement(string automationId, TimeSpan? timeout = null)
     {
         var element = WaitForElement(automationId, timeout);
         element.Focus();
         element.Click(false);
+    }
+
+    private AutomationElement WaitForElementByAutomationIdPrefix(string automationIdPrefix, TimeSpan? timeout = null)
+    {
+        var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(20);
+        var deadline = DateTime.UtcNow + effectiveTimeout;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            var element = GetActiveMainWindow()
+                .FindAllDescendants()
+                .FirstOrDefault(item => item.AutomationId.StartsWith(automationIdPrefix, StringComparison.Ordinal));
+            if (element is not null)
+            {
+                return element;
+            }
+
+            Thread.Sleep(200);
+        }
+
+        throw new XunitException($"Timed out waiting for automation element prefix '{automationIdPrefix}'.");
     }
 
     public void ToggleElement(string automationId, ToggleState? desiredState = null, TimeSpan? timeout = null)
@@ -363,7 +399,15 @@ internal sealed class UiAppSession : IAsyncDisposable
         {
             if (!Application.HasExited)
             {
-                MainWindow.Close();
+                try
+                {
+                    MainWindow.Close();
+                }
+                catch (FlaUI.Core.Exceptions.MethodNotSupportedException)
+                {
+                    Application.Kill();
+                }
+
                 await Task.Delay(1500);
             }
 
@@ -406,6 +450,22 @@ internal sealed class UiAppSession : IAsyncDisposable
     public Task OpenFirstHomeCourseEditorAsync() => SendAutomationCommandAsync("open-first-home-course-editor");
 
     public Task OpenDatePickerDropdownAsync(string automationId) => SendAutomationCommandAsync("open-date-picker-dropdown", automationId);
+
+    public async Task<string> GetDatePickerCalendarThemeStateAsync(string automationId)
+    {
+        var response = await SendAutomationRequestAsync("get-date-picker-calendar-theme-state", automationId);
+        if (response is null)
+        {
+            throw new XunitException($"The automation bridge returned no response for date-picker '{automationId}'.");
+        }
+
+        if (!response.Success)
+        {
+            throw new XunitException($"The automation bridge failed to inspect date-picker '{automationId}': {response.Error}");
+        }
+
+        return response.Value ?? "{}";
+    }
 
     public async Task SelectComboBoxItemByIndexViaBridge(string automationId, int index)
     {
@@ -642,6 +702,24 @@ internal sealed class UiAppSession : IAsyncDisposable
                 throw new XunitException("The WPF application exited before the main window was available.");
             }
 
+            try
+            {
+                var process = System.Diagnostics.Process.GetProcessById(application.ProcessId);
+                var mainWindowHandle = process.MainWindowHandle;
+                if (mainWindowHandle != IntPtr.Zero)
+                {
+                    var mainWindowByHandle = automation.FromHandle(mainWindowHandle)?.AsWindow();
+                    if (mainWindowByHandle is not null)
+                    {
+                        return mainWindowByHandle;
+                    }
+                }
+            }
+            catch
+            {
+                // Fall back to top-level window enumeration below.
+            }
+
             var mainWindow = application.GetAllTopLevelWindows(automation)
                 .FirstOrDefault(
                     window =>
@@ -682,6 +760,12 @@ internal sealed class UiAppSession : IAsyncDisposable
         if (element.Patterns.Invoke.IsSupported)
         {
             element.Patterns.Invoke.Pattern.Invoke();
+            return;
+        }
+
+        if (element.Patterns.ExpandCollapse.IsSupported)
+        {
+            element.Patterns.ExpandCollapse.Pattern.Expand();
             return;
         }
 
@@ -755,7 +839,11 @@ internal sealed class UiAppSession : IAsyncDisposable
 
     private Window GetActiveMainWindow()
     {
-        MainWindow = WaitForMainWindow(Application, Automation);
+        if (Application.HasExited)
+        {
+            throw new XunitException("The WPF application exited before the main window could be queried.");
+        }
+
         return MainWindow;
     }
 

@@ -895,6 +895,298 @@ public sealed class WorkspacePreviewServiceTests
     }
 
     [Fact]
+    public async Task BuildPreviewAsyncExpandsWeeklyCourseScheduleOverrideAcrossSelectedWeekdays()
+    {
+        var fingerprint = new SourceFingerprint("pdf", "override-multi-weekday");
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithTimetableResolution(new TimetableResolutionSettings(
+                manualFirstWeekStartOverride: null,
+                autoDerivedFirstWeekStart: null,
+                defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
+                explicitDefaultTimeProfileId: null,
+                courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
+                courseScheduleOverrides:
+                [
+                    new CourseScheduleOverride(
+                        "Class A",
+                        fingerprint,
+                        "Signals Manual",
+                        new DateOnly(2026, 3, 2),
+                        new DateOnly(2026, 3, 15),
+                        new TimeOnly(8, 0),
+                        new TimeOnly(9, 40),
+                        CourseScheduleRepeatKind.Weekly,
+                        "main-campus",
+                        repeatUnit: CourseScheduleRepeatUnit.Week,
+                        repeatInterval: 1,
+                        repeatWeekdays: [DayOfWeek.Monday, DayOfWeek.Wednesday]),
+                ]));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals", fingerprint)]),
+                ]),
+            new FakeAcademicCalendarParser(
+                [
+                    new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8)),
+                    new SchoolWeek(2, new DateOnly(2026, 3, 9), new DateOnly(2026, 3, 15)),
+                ]),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))]),
+                ]),
+            new FakeNormalizer(
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 2), new TimeOnly(8, 0), new TimeOnly(9, 40), fingerprint),
+                ]),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository());
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        result.NormalizationResult.Should().NotBeNull();
+        result.NormalizationResult!.Occurrences.Select(static occurrence => occurrence.OccurrenceDate)
+            .Should().Equal(
+                new DateOnly(2026, 3, 2),
+                new DateOnly(2026, 3, 4),
+                new DateOnly(2026, 3, 9),
+                new DateOnly(2026, 3, 11));
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsyncSingleOccurrenceOverrideSuppressesMatchingDateFromWholeRepeatOverride()
+    {
+        var fingerprint = new SourceFingerprint("pdf", "override-repeat-with-single-member");
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithTimetableResolution(new TimetableResolutionSettings(
+                manualFirstWeekStartOverride: null,
+                autoDerivedFirstWeekStart: null,
+                defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
+                explicitDefaultTimeProfileId: null,
+                courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
+                courseScheduleOverrides:
+                [
+                    new CourseScheduleOverride(
+                        "Class A",
+                        fingerprint,
+                        "Signals Manual",
+                        new DateOnly(2026, 3, 2),
+                        new DateOnly(2026, 3, 16),
+                        new TimeOnly(8, 0),
+                        new TimeOnly(9, 40),
+                        CourseScheduleRepeatKind.Weekly,
+                        "main-campus",
+                        location: "Room 301",
+                        repeatUnit: CourseScheduleRepeatUnit.Week,
+                        repeatInterval: 1,
+                        repeatWeekdays: [DayOfWeek.Monday]),
+                    new CourseScheduleOverride(
+                        "Class A",
+                        fingerprint,
+                        "Signals Single",
+                        new DateOnly(2026, 3, 10),
+                        new DateOnly(2026, 3, 10),
+                        new TimeOnly(10, 0),
+                        new TimeOnly(11, 40),
+                        CourseScheduleRepeatKind.None,
+                        "main-campus",
+                        location: "Room 999",
+                        sourceOccurrenceDate: new DateOnly(2026, 3, 9)),
+                ]));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals", fingerprint)]),
+                ]),
+            new FakeAcademicCalendarParser(
+                [
+                    new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8)),
+                    new SchoolWeek(2, new DateOnly(2026, 3, 9), new DateOnly(2026, 3, 15)),
+                    new SchoolWeek(3, new DateOnly(2026, 3, 16), new DateOnly(2026, 3, 22)),
+                ]),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [
+                            new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+                            new TimeProfileEntry(new PeriodRange(3, 4), new TimeOnly(10, 0), new TimeOnly(11, 40)),
+                        ]),
+                ]),
+            new FakeNormalizer(
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 2), new TimeOnly(8, 0), new TimeOnly(9, 40), fingerprint),
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 9), new TimeOnly(8, 0), new TimeOnly(9, 40), fingerprint),
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 16), new TimeOnly(8, 0), new TimeOnly(9, 40), fingerprint),
+                ]),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository());
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        result.NormalizationResult.Should().NotBeNull();
+        result.NormalizationResult!.Occurrences
+            .Select(static occurrence => (occurrence.Metadata.CourseTitle, occurrence.OccurrenceDate, occurrence.Metadata.Location))
+            .Should().Equal(
+                ("Signals Manual", new DateOnly(2026, 3, 2), "Room 301"),
+                ("Signals Single", new DateOnly(2026, 3, 10), "Room 999"),
+                ("Signals Manual", new DateOnly(2026, 3, 16), "Room 301"));
+        result.NormalizationResult.Occurrences.Should().NotContain(occurrence =>
+            occurrence.OccurrenceDate == new DateOnly(2026, 3, 9)
+            && occurrence.Metadata.CourseTitle == "Signals Manual");
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsyncExpandsMonthlyOverrideUsingLastWeekdayPattern()
+    {
+        var fingerprint = new SourceFingerprint("pdf", "override-monthly-last-weekday");
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithTimetableResolution(new TimetableResolutionSettings(
+                manualFirstWeekStartOverride: null,
+                autoDerivedFirstWeekStart: null,
+                defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
+                explicitDefaultTimeProfileId: null,
+                courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
+                courseScheduleOverrides:
+                [
+                    new CourseScheduleOverride(
+                        "Class A",
+                        fingerprint,
+                        "Signals Monthly",
+                        new DateOnly(2026, 3, 29),
+                        new DateOnly(2026, 5, 31),
+                        new TimeOnly(8, 0),
+                        new TimeOnly(9, 40),
+                        CourseScheduleRepeatKind.Monthly,
+                        "main-campus",
+                        repeatUnit: CourseScheduleRepeatUnit.Month,
+                        repeatInterval: 1,
+                        repeatWeekdays: [DayOfWeek.Sunday],
+                        monthlyPattern: CourseScheduleMonthlyPattern.LastWeekday),
+                ]));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals", fingerprint)]),
+                ]),
+            new FakeAcademicCalendarParser(
+                Enumerable.Range(0, 14)
+                    .Select(index =>
+                    {
+                        var start = new DateOnly(2026, 3, 2).AddDays(index * 7);
+                        return new SchoolWeek(index + 1, start, start.AddDays(6));
+                    })
+                    .ToArray()),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))]),
+                ]),
+            new FakeNormalizer(
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 29), new TimeOnly(8, 0), new TimeOnly(9, 40), fingerprint),
+                ]),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository());
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        result.NormalizationResult.Should().NotBeNull();
+        result.NormalizationResult!.Occurrences.Select(static occurrence => occurrence.OccurrenceDate)
+            .Should().Equal(
+                new DateOnly(2026, 3, 29),
+                new DateOnly(2026, 4, 26),
+                new DateOnly(2026, 5, 31));
+        result.NormalizationResult.ExportGroups.SelectMany(static group => group.Occurrences)
+            .Select(static occurrence => occurrence.OccurrenceDate)
+            .Should().BeEquivalentTo(
+            [
+                new DateOnly(2026, 3, 29),
+                new DateOnly(2026, 4, 26),
+                new DateOnly(2026, 5, 31),
+            ]);
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsyncExpandsDailyOverrideWithoutFilteringByWeekdaySelections()
+    {
+        var fingerprint = new SourceFingerprint("pdf", "override-daily");
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithTimetableResolution(new TimetableResolutionSettings(
+                manualFirstWeekStartOverride: null,
+                autoDerivedFirstWeekStart: null,
+                defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
+                explicitDefaultTimeProfileId: null,
+                courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
+                courseScheduleOverrides:
+                [
+                    new CourseScheduleOverride(
+                        "Class A",
+                        fingerprint,
+                        "Signals Daily",
+                        new DateOnly(2026, 3, 2),
+                        new DateOnly(2026, 3, 5),
+                        new TimeOnly(8, 0),
+                        new TimeOnly(9, 40),
+                        CourseScheduleRepeatKind.Daily,
+                        "main-campus",
+                        repeatUnit: CourseScheduleRepeatUnit.Day,
+                        repeatInterval: 1,
+                        repeatWeekdays: [DayOfWeek.Monday]),
+                ]));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals", fingerprint)]),
+                ]),
+            new FakeAcademicCalendarParser(
+                [
+                    new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8)),
+                ]),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))]),
+                ]),
+            new FakeNormalizer(
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 2), new TimeOnly(8, 0), new TimeOnly(9, 40), fingerprint),
+                ]),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository());
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        result.NormalizationResult.Should().NotBeNull();
+        result.NormalizationResult!.Occurrences.Select(static occurrence => occurrence.OccurrenceDate)
+            .Should().Equal(
+                new DateOnly(2026, 3, 2),
+                new DateOnly(2026, 3, 3),
+                new DateOnly(2026, 3, 4),
+                new DateOnly(2026, 3, 5));
+    }
+
+    [Fact]
     public async Task BuildPreviewAsyncUsesSingleOccurrenceCourseScheduleOverrideWhenRepeatKindIsNone()
     {
         var fingerprint = new SourceFingerprint("pdf", "override-single");
@@ -953,6 +1245,76 @@ public sealed class WorkspacePreviewServiceTests
         result.NormalizationResult.Occurrences[0].OccurrenceDate.Should().Be(new DateOnly(2026, 3, 5));
         result.NormalizationResult.ExportGroups.Should().ContainSingle();
         result.NormalizationResult.ExportGroups[0].GroupKind.Should().Be(ExportGroupKind.SingleOccurrence);
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsyncAppliesSingleOccurrenceOverrideWithoutRemovingSiblingRuleOccurrences()
+    {
+        var fingerprint = new SourceFingerprint("pdf", "override-single-in-rule");
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithTimetableResolution(new TimetableResolutionSettings(
+                manualFirstWeekStartOverride: null,
+                autoDerivedFirstWeekStart: null,
+                defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
+                explicitDefaultTimeProfileId: null,
+                courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
+                courseScheduleOverrides:
+                [
+                    new CourseScheduleOverride(
+                        "Class A",
+                        fingerprint,
+                        "Signals",
+                        new DateOnly(2026, 3, 12),
+                        new DateOnly(2026, 3, 12),
+                        new TimeOnly(18, 30),
+                        new TimeOnly(20, 0),
+                        CourseScheduleRepeatKind.None,
+                        "main-campus",
+                        location: "Room 509",
+                        sourceOccurrenceDate: new DateOnly(2026, 3, 12)),
+                ]));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals", fingerprint)]),
+                ]),
+            new FakeAcademicCalendarParser(
+                [
+                    new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8)),
+                    new SchoolWeek(2, new DateOnly(2026, 3, 9), new DateOnly(2026, 3, 15)),
+                    new SchoolWeek(3, new DateOnly(2026, 3, 16), new DateOnly(2026, 3, 22)),
+                ]),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))]),
+                ]),
+            new FakeNormalizer(
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 5), new TimeOnly(8, 0), new TimeOnly(9, 40), fingerprint),
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 12), new TimeOnly(8, 0), new TimeOnly(9, 40), fingerprint),
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40), fingerprint),
+                ]),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository());
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        result.NormalizationResult.Should().NotBeNull();
+        result.NormalizationResult!.Occurrences.Should().HaveCount(3);
+        result.NormalizationResult.Occurrences.Select(static occurrence => occurrence.OccurrenceDate)
+            .Should().Equal(new DateOnly(2026, 3, 5), new DateOnly(2026, 3, 12), new DateOnly(2026, 3, 19));
+        var edited = result.NormalizationResult.Occurrences.Single(static occurrence => occurrence.OccurrenceDate == new DateOnly(2026, 3, 12));
+        TimeOnly.FromDateTime(edited.Start.DateTime).Should().Be(new TimeOnly(18, 30));
+        edited.Metadata.Location.Should().Be("Room 509");
+        result.NormalizationResult.Occurrences
+            .Where(static occurrence => occurrence.OccurrenceDate != new DateOnly(2026, 3, 12))
+            .Should().OnlyContain(static occurrence => TimeOnly.FromDateTime(occurrence.Start.DateTime) == new TimeOnly(8, 0));
     }
 
     [Fact]
@@ -1036,6 +1398,129 @@ public sealed class WorkspacePreviewServiceTests
         result.NormalizationResult.Occurrences.Should().ContainSingle(occurrence =>
             occurrence.Metadata.CourseTitle == "Circuits"
             && occurrence.Metadata.PeriodRange == new PeriodRange(3, 4));
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsyncKeepsDistinctSourceOccurrencesThatShareScheduleSlots()
+    {
+        var editedFingerprint = new SourceFingerprint("pdf", "signals-edited");
+        var existingFingerprint = new SourceFingerprint("pdf", "signals-existing");
+        var duplicateDate = new DateOnly(2026, 3, 5);
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithTimetableResolution(new TimetableResolutionSettings(
+                manualFirstWeekStartOverride: null,
+                autoDerivedFirstWeekStart: null,
+                defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
+                explicitDefaultTimeProfileId: null,
+                courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
+                courseScheduleOverrides:
+                [
+                    new CourseScheduleOverride(
+                        "Class A",
+                        editedFingerprint,
+                        "Signals",
+                        duplicateDate,
+                        duplicateDate,
+                        new TimeOnly(8, 0),
+                        new TimeOnly(9, 40),
+                        CourseScheduleRepeatKind.None,
+                        "main-campus",
+                        location: "Room 301"),
+                ]));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule(
+                        "Class A",
+                        [
+                            CreateCourseBlock("Class A", "Signals", editedFingerprint),
+                            CreateCourseBlock("Class A", "Signals", existingFingerprint),
+                        ]),
+                ]),
+            new FakeAcademicCalendarParser(
+                [
+                    new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8)),
+                ]),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))]),
+                ]),
+            new FakeNormalizer(
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", duplicateDate, new TimeOnly(8, 0), new TimeOnly(9, 40), editedFingerprint),
+                    CreateOccurrence("Class A", "Signals", duplicateDate, new TimeOnly(8, 0), new TimeOnly(9, 40), existingFingerprint),
+                ]),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository());
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        result.NormalizationResult.Should().NotBeNull();
+        result.NormalizationResult!.Occurrences.Should().HaveCount(2);
+        result.NormalizationResult.Occurrences.Select(static occurrence => occurrence.SourceFingerprint)
+            .Should().BeEquivalentTo([editedFingerprint, existingFingerprint]);
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsyncDoesNotReviveSingleOccurrenceOverrideForDeletedSourceOccurrence()
+    {
+        var deletedFingerprint = new SourceFingerprint("pdf", "deleted-signals");
+        var deletedDate = new DateOnly(2026, 3, 5);
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithTimetableResolution(new TimetableResolutionSettings(
+                manualFirstWeekStartOverride: null,
+                autoDerivedFirstWeekStart: null,
+                defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
+                explicitDefaultTimeProfileId: null,
+                courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
+                courseScheduleOverrides:
+                [
+                    new CourseScheduleOverride(
+                        "Class A",
+                        deletedFingerprint,
+                        "Signals",
+                        deletedDate,
+                        deletedDate,
+                        new TimeOnly(8, 0),
+                        new TimeOnly(9, 40),
+                        CourseScheduleRepeatKind.None,
+                        "main-campus",
+                        sourceOccurrenceDate: deletedDate),
+                ]));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule("Class A", []),
+                ]),
+            new FakeAcademicCalendarParser(
+                [
+                    new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8)),
+                ]),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))]),
+                ]),
+            new FakeNormalizer(occurrences: []),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository());
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        result.NormalizationResult.Should().NotBeNull();
+        result.NormalizationResult!.Occurrences.Should().NotContain(occurrence =>
+            occurrence.SourceFingerprint == deletedFingerprint
+            && occurrence.OccurrenceDate == deletedDate);
     }
 
     [Fact]

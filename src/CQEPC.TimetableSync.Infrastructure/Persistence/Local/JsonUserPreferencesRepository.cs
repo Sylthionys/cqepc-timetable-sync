@@ -171,7 +171,12 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
                     scheduleOverride.Teacher,
                     scheduleOverride.TeachingClassComposition,
                     scheduleOverride.CalendarTimeZoneId,
-                    scheduleOverride.GoogleCalendarColorId))
+                    scheduleOverride.GoogleCalendarColorId,
+                    scheduleOverride.SourceOccurrenceDate,
+                    scheduleOverride.RepeatUnit,
+                    scheduleOverride.RepeatInterval,
+                    scheduleOverride.RepeatWeekdays,
+                    scheduleOverride.MonthlyPattern))
             .ToArray()
             ?? Array.Empty<CourseScheduleOverride>();
         var presentationOverrides = settings.CoursePresentationOverrides?
@@ -236,6 +241,11 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
                             TeachingClassComposition = scheduleOverride.TeachingClassComposition,
                             CalendarTimeZoneId = scheduleOverride.CalendarTimeZoneId,
                             GoogleCalendarColorId = scheduleOverride.GoogleCalendarColorId,
+                            SourceOccurrenceDate = scheduleOverride.SourceOccurrenceDate,
+                            RepeatUnit = scheduleOverride.RepeatUnit,
+                            RepeatInterval = scheduleOverride.RepeatInterval,
+                            RepeatWeekdays = scheduleOverride.RepeatWeekdays.ToArray(),
+                            MonthlyPattern = scheduleOverride.MonthlyPattern,
                         })
                 .ToArray(),
             CoursePresentationOverrides = settings.CoursePresentationOverrides
@@ -465,6 +475,16 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
         public string? CalendarTimeZoneId { get; set; }
 
         public string? GoogleCalendarColorId { get; set; }
+
+        public DateOnly? SourceOccurrenceDate { get; set; }
+
+        public CourseScheduleRepeatUnit? RepeatUnit { get; set; }
+
+        public int RepeatInterval { get; set; } = 1;
+
+        public IReadOnlyList<DayOfWeek>? RepeatWeekdays { get; set; }
+
+        public CourseScheduleMonthlyPattern MonthlyPattern { get; set; } = CourseScheduleMonthlyPattern.DayOfMonth;
     }
 
     private sealed class SerializedCoursePresentationOverride

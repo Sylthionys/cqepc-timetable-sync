@@ -1,4 +1,4 @@
-# SPEC
+﻿# SPEC
 
 ## 1. Product Summary
 
@@ -31,7 +31,7 @@ The current codebase defines:
 - startup-safe resource-dictionary localization with persisted language preference, `Follow System` / `zh-CN` / `en-US` support, and live language switching
 - the initial source, normalization, and sync concepts
 - structured onboarding state (`SourceAttentionReason`, ordered `CatalogActivityEntry`) and structured workspace preview/apply status models
-- a real CQEPC timetable PDF parser for regular timetable blocks, class discovery, same-template layout analysis, warnings, and unresolved practical-course summaries
+- a real CQEPC timetable PDF parser for regular timetable blocks, class discovery, same-template layout analysis, warnings, unresolved practical-course summaries, and tagged-metadata alias normalization so variants such as `鏁欏鐝?` and `鏁欏鐝粍鎴?` resolve to the same structured field
 - a real CQEPC teaching-progress XLS parser with diagnostics and first-week override fallback
 - a real CQEPC class-time DOCX parser with range-based period-time profiles and structured noon-window notes
 - a real normalization engine that expands week expressions, resolves exact local datetimes, preserves unresolved items, and derives lossless recurring export groups
@@ -63,8 +63,11 @@ The current codebase defines:
 - persisted Google connection summaries and selected calendars must never be treated as proof of a live connection by themselves; startup, Home sync, and Home apply must re-check the DPAPI token store and clear stale Google state before deciding whether the user is still connected
 - DPAPI-protected local Microsoft token storage and a separate Microsoft sync-mapping store stay reserved for the planned Microsoft rollout and are not yet part of the supported desktop flow
 - a preview-first apply flow where Import only saves the accepted local snapshot baseline and refreshes Home preview, while provider writes remain exclusive to the Home primary apply action
-- Import diff presentation groups must remain projection-only. The raw Added/Updated/Deleted identities stay authoritative for selection and apply, even when the UI hides unchanged child rows or regroups the changes by course and repeat rule.
+- Import diff presentation groups must remain projection-only. The raw Added/Updated/Deleted identities stay authoritative for selection and apply, even when the UI adds unchanged child occurrence rows for context or regroups the changes by course and repeat rule.
 - Import diff summaries must surface meaningful hidden drift such as provider color-only changes or metadata/source-only updates so the user can see why a row is classified as Added, Updated, or Deleted even when title/time/location look identical at first glance.
+- Import detail editing is scoped by the selected layer: course groups expose all parsed repeat rules directly from the currently uploaded timetable sources, repeat-rule groups expose aggregate edits for all child occurrences, concrete occurrence rows expose occurrence-only edits, pinned unresolved rows open the same right-detail inline editor for confirmation, and course `i` opens inline per-course time-zone/color settings with save/reset controls. Course-level detail must not reuse provider/diff group state or label parsed repeat rules as Added, Updated, Deleted, or Unchanged. Sparse week expressions such as `3-9,11-20` must stay split into separate continuous repeat-rule segments in Import details, and rule/occurrence edit forms must stay collapsed until the user invokes the detail-panel Edit action. Rule-level editing must infer weekly or biweekly rules from sparse same-weekday occurrence sets even when holiday/skipped weeks create larger 7-day or 14-day multiples.
+- Import time-profile fallback confirmations and unresolved time-profile course blocks must be pinned ahead of regular course diff groups, course time edits must use a masked `HH:mm` input with an immutable colon separator, unresolved edit defaults must use parsed metadata plus any matching week/date and time-profile evidence, and editor time-zone seeding must use the current Google default time zone when parsed occurrences do not carry an explicit provider zone.
+- Import note differences use the final Google Calendar description text as a single-column red/green line diff. Metadata already embedded in that description, such as class, campus, teacher, teaching class, and course type, must not be duplicated as separate field-diff rows.
 - presentation-owned localization of parser warnings, diagnostics, and unresolved-item copy by stable code, with fallback to stored parser text and preserved raw source content
 - the product behavior expected from the first real implementations
 
@@ -115,6 +118,7 @@ The current codebase does not yet include:
 - Home month cards and selected-day agenda cards must keep readable foreground contrast in dark mode.
 - Import parsed-course group titles and details must keep readable foreground contrast in dark mode.
 - Course-editor date inputs and their picker surfaces must keep readable foreground contrast in dark mode.
+- Opened DatePicker calendar popups must inherit application theme brushes rather than system light brushes; month navigation arrows, weekday labels, and day buttons must keep readable dark-mode foreground contrast, and UI regression coverage should verify day-button foreground/background contrast in dark mode.
 - Settings combinations that change language or time-profile resolution should bind by stable persisted values so selection is not lost when preview refresh rebuilds the option objects.
 - The language selector must bind by a stable persisted culture key so runtime language rebuilds cannot introduce duplicate options and switching to English or Chinese applies immediately.
 
@@ -148,11 +152,11 @@ If the CQEPC template spills a title-only fragment into the header page's footer
 
 The current parser maps CQEPC course markers as:
 
-- `★` => theory
-- `☆` => lab
-- `◆` => practical
-- `■` => computer
-- `〇` => extracurricular
+- `鈽卄 => theory
+- `鈽哷 => lab
+- `鈼哷 => practical
+- `鈻燻 => computer
+- `銆嘸 => extracurricular
 
 ### 4.2 Teaching Progress XLS
 
@@ -276,7 +280,7 @@ When the default provider is Google and Home preview import is enabled, Home als
 - keep the selected-day summary compact and rectangular, focusing on occurrence count and school week instead of repeating the selected date text already visible in the calendar
 - let the selected-day agenda pane scroll independently from the month board when many items are present
 - show the selected-day agenda event color as a small dot using the effective configured event color instead of repeating the course-type label chip
-- when the selected day has no occurrences, switch the summary to `No schedule / 无安排 | Week` and leave the agenda list empty instead of showing an extra placeholder card
+- when the selected day has no occurrences, switch the summary to `No schedule | Week` and leave the agenda list empty instead of showing an extra placeholder card
 - commit the Settings default Google Calendar color selector by stable color id so immediate preference refreshes cannot flip the visible choice to a neighboring palette entry
 - show the selected class context clearly
 - surface warnings and unresolved-item counts without mixing them into valid occurrences
@@ -289,7 +293,7 @@ When the default provider is Google and Home preview import is enabled, Home als
 
 ### Initial Bootstrap Expectation
 
-The current implementation uses an editor-style shell with a dedicated month workspace centered on the local computer date, honors Sunday/Monday week-start preference, keeps the Home board on a fixed-ratio scaled workspace, constrains normal-window resizing through native aspect-ratio sizing rather than `SizeChanged` bounce-back, shows selected-day occurrence details in a dedicated independently scrolling agenda pane beside the scheduling board, keeps the month header compressed to one title/context row plus one action row, lets the left month board scroll independently so the current month gets larger cells before the trailing overflow week appears, uses compact two-line colored-outline month-cell lessons with time above and course below, groups the month board by week so each horizontal row scales to that week's busiest visible day instead of using one fixed card height for the whole month, applies card minimum heights plus content-sized row growth so the last visible lesson card is not clipped while the busiest day also avoids excessive blank space below its final entry, switches the right-side agenda cards to a stacked compact template in narrow windows so the time block does not leave a large unused area beneath it, and leaves the right-side agenda list visually empty on no-schedule days while the summary strip switches to `No schedule / 无安排 | Week`.
+The current implementation uses an editor-style shell with a dedicated month workspace centered on the local computer date, honors Sunday/Monday week-start preference, keeps the Home board on a fixed-ratio scaled workspace, constrains normal-window resizing through native aspect-ratio sizing rather than `SizeChanged` bounce-back, shows selected-day occurrence details in a dedicated independently scrolling agenda pane beside the scheduling board, keeps the month header compressed to one title/context row plus one action row, lets the left month board scroll independently so the current month gets larger cells before the trailing overflow week appears, uses compact two-line colored-outline month-cell lessons with time above and course below, groups the month board by week so each horizontal row scales to that week's busiest visible day instead of using one fixed card height for the whole month, applies card minimum heights plus content-sized row growth so the last visible lesson card is not clipped while the busiest day also avoids excessive blank space below its final entry, switches the right-side agenda cards to a stacked compact template in narrow windows so the time block does not leave a large unused area beneath it, and leaves the right-side agenda list visually empty on no-schedule days while the summary strip switches to `No schedule | Week`.
 When an accepted update changes only non-layout provider-managed fields such as Google Calendar color, the Home selected-day agenda should render one orange update card rather than two visually identical before/after rows.
 If preview also carries an extra managed-remote cleanup row for the same visible lesson slot, Home should still render only one final selected-day card for that title/time/location combination and prefer the update representation over the cleanup duplicate.
 
@@ -314,6 +318,13 @@ The selected destination summary in that strip should use a compact rectangular 
 Ready import changes should default to selected, except items that require explicit fallback confirmation.
 After Import applies the current local selection, `Import.ApplySelected` should become disabled until another preview-driving option such as class or time-profile settings rebuilds the diff.
 Grouped course changes and their child occurrence rows should use matching round selection indicators so the visible checked state is unambiguous.
+The Import page must adapt explicitly across window sizes: compact, medium, and expanded widths all keep the primary split review/details layout, with the change list on the left and selected-occurrence details on the right.
+The step strip (`Select changes -> Preview -> Apply`) must remain visible in fullscreen layout, while medium widths use the localized `Change preview` heading and compact widths hide the step strip; selecting any course / repeat-rule / occurrence row must not be blocked by expander chrome or nested header hit targets.
+Compact and relatively small Import widths must downshift early enough that toolbar chips, filters, and action buttons stay proportional to the viewport; `Select current page` must actively toggle the currently visible diff rows instead of acting as a passive indicator, the header sync action must read `Sync Current Calendar` and invoke the current-calendar refresh flow, and course / repeat-rule cards must expand from the whole card body without rendering duplicate chevrons. Course `i` settings must open inline in the right detail panel, and any remaining legacy course-presentation overlay backdrop must remain visually transparent on hover so pointer movement outside it cannot tint the full background.
+Course and repeat-rule expander hover/selection visuals must use the same rounded muted highlight language as occurrence rows and must not let WPF default control highlights bleed past card corners.
+Compact widths must hide the step strip and remove non-essential provider/context labels from the top summary card so action controls remain tappable in the minimum supported window size.
+Time-profile fallback confirmation cards and unresolved regular-course cards must render at the top of the left review list before normal Added/Updated/Deleted course groups. They remain explicit user confirmation items rather than hidden parser warnings. Clicking an unresolved row opens the right-side inline course editor; saving a valid confirmation removes that item from the pinned unresolved area and lets the generated occurrence appear in the regular change/review flow.
+User-visible Import labels, fallbacks, filter options, and XAML headings must come from localization resource dictionaries through `UiText`; only parser/source metadata tokens are allowed to stay in parser lexicons or comparison helpers. This prevents mojibake from entering presentation code and keeps English and Chinese resource keys aligned. Import workflow filters, grouping, and sorting must not branch on localized display text; the UI may show localized strings, but ViewModel logic must use stable semantic state such as indexes or enum-like values.
 
 ### Required Diff Groups
 
@@ -324,13 +335,36 @@ Grouped course changes and their child occurrence rows should use matching round
 The `Changes` surface must merge added, updated, and deleted schedule diffs by course title instead of scattering them across separate repeated section layouts.
 Each course group should summarize the change mix compactly, show repeat-logic summaries at the group level, and expand first into repeat-rule groups before exposing concrete occurrence rows.
 Repeat-rule groups should preserve the raw Added / Updated / Deleted diff identity for apply logic, while the UI consumes a derived grouped presentation model.
+The right detail panel must not be limited to one concrete occurrence. Expanding a course group should select course-level detail and show all repeat logic parsed from the current uploaded source timetable, independent of Google Calendar remote state, saved local snapshot state, and the left-side diff projection. This level lists repeat rules only, not every concrete date inside each rule, and it must not show Added / Updated / Deleted / Unchanged badges or otherwise imply provider apply status. Expanding or clicking a repeat-rule group should select aggregate repeat-rule detail even when that group is already expanded, then let the left side list every concrete occurrence row for that rule. Rows backed by raw Added/Updated/Deleted changes remain selectable; unchanged rows are visible context and open occurrence detail but do not participate in apply selection. Selecting an occurrence should select concrete occurrence detail.
+The course-group `i` action must switch the right detail panel to inline course settings for that course instead of opening a modal, even when the previous right-detail selection belonged to another course/rule/occurrence. Inline settings must include independently changeable time zone and provider color values, show Save only when there are unsaved edits, show Reset only when a saved override exists, and persist those overrides through workspace preferences.
+Import inline editor text boxes should stay compact at one-line height and grow only when their content wraps. The top-level Reset Override action should be visible and executable whenever there is any saved course customization or unsaved editor/course-settings change, not only while the exact detail page containing that change is active.
+Import inline editor start/end time fields should use a time-specific `HH:mm` mask. The colon separator is not user-deletable; compact hour-only input such as `6` is valid and normalizes to `06:00`. Enter from the start-time field moves to the end-time field; Enter from the end-time field completes that field.
+Import inline editor repeat-mode controls must visibly distinguish the selected `one-time`, `weekly`, or `biweekly` shortcut. Recurring edits also support an explicit every-N `day/week/month/year` unit; weekly rules support multi-select weekdays and biweekly is represented as every 2 weeks. Non-weekly rules must hide weekday toggles. Monthly rules must expose a second selector for either the start-date day of month or the last selected weekday in each month.
+Schedule-detail edits should use the selected layer as their scope: course-level edits affect the parsed course/repeat source, repeat-rule edits affect every occurrence represented by that repeat rule, and occurrence edits affect only the selected concrete occurrence. If an occurrence edit changes its repeat kind from one-time to any recurring rule, the save is promoted to a rule-level override so the recurrence can be rebuilt instead of being forced back to one-time. Single-occurrence edits show one date only. Repeating edits show start and end dates, offer an explicit date-swap action, and auto-swap inverted start/end dates during save. Changing interval/unit/monthly pattern/weekday selections must immediately update the editor summary and occurrence count, persist into timetable-resolution preferences, rebuild the local preview, and then let export grouping write Google Calendar either as an exact weekly RRULE when lossless or as exact single events otherwise. When adding, deleting, or cancelling deletion of one concrete occurrence changes the shape of its parent recurrence, the saved result must rebuild the repeat-rule summary and occurrence list from the new source of truth.
+Deleted occurrence details should not expose the generic edit form first. Their right-panel action is Cancel Delete; it creates a one-time local schedule override for the deleted occurrence so the next preview can treat it as retained/unchanged and then allow normal detail editing.
+
+When a saved course-schedule override generates an occurrence that duplicates an existing occurrence with the same class, course title, local date/time, target kind, and location, the preview must merge that duplicate before building export groups or Import change groups. If different course titles share the same class, local date, and local time range, the Import page must pin those items as schedule conflicts above normal change groups. Pinned schedule conflicts and unresolved items are counted in the purple Conflict metric.
+If a concrete Added or Deleted occurrence belongs to a repeat rule that is still present in the parsed timetable and that rule still has other concrete occurrences, the repeat-rule group may render as an Updated rule while the child occurrence keeps its raw Added or Deleted status. If the repeat rule contains only that one occurrence and the occurrence is deleted, the rule must render as Deleted, not Updated. The accepted apply identity must still be the raw planned change id; the orange rule grouping is presentation-only and anticipates a lossless recurring-provider update.
 Expanded delete/add rows should stay compact and omit verbose metadata dumps. Expanded update rows should show matched `Before` / `After` structures with the same compact field set.
-Default Google time-zone values should render as `Not present / 不存在`; only an explicit per-course or per-occurrence time-zone override should surface a concrete `UTC±HH:mm` value in Import.
+Expanded update rows should also expose a dedicated changed-field list plus a separate unchanged-detail section so users can see the change focus before reading the full before/after values.
+Added and deleted occurrences must collapse to one populated detail block instead of showing an empty `Before` or `After` counterpart.
+Occurrence-level update details must include behaviorally meaningful differences such as course title, time, location, time zone, provider target, and provider color. Metadata already present in the Google Calendar description, such as class, campus, teacher, teaching-class composition, and course type, should not be repeated as standalone before/after fields; those values remain visible inside the Google note/description payload.
+Selecting an occurrence must always populate a visible detail surface with status badges plus `Before`, `After`, and shared-detail sections; all supported window sizes must keep the primary left-change/right-detail layout, while compact mode hides nonessential workflow chrome instead of moving the detail surface below the list.
+Course-group and repeat-rule headers should remain left-aligned and readable in dark theme, with selected and expanded states using high-contrast text/background combinations.
+Managed-note metadata shown in Import may arrive either as newline-delimited fields or slash-delimited fields; the presentation layer must split both forms back into stable `Teacher`, `Teaching Class`, and `Notes` values before rendering `Changed items`, `Shared details`, and `Before / After`.
+When parsed local metadata keeps the note tail only as slash-delimited tagged segments such as class size, assessment mode, hour composition, or credits, Import must still render that tail as the `After` notes value instead of collapsing it to `No notes`.
+Import change-summary badges must be driven by structured changed-field labels only. Context strings such as pending-location labels are allowed in the row title/detail context, but they must not be parsed as a location delta unless the structured localized `Location` comparison actually changed. Added and deleted occurrence summaries should remain status-only except for explicit conflict/source indicators.
+Import note display must normalize legacy CQEPC slash tails before comparison, including shorthand assessment and hour/credit forms such as assessment mode, theory-hours, and trailing credit numbers, so `Before / After` note rows use consistent labeled formatting.
+Occurrence note differences must show the complete Google Calendar description text as a single-column line-based red/green diff, using code-review style removed/added rows rather than a side-by-side before/after notes table. Structured note parsing may continue to support badges and fallback fields, but the provider-note diff must preserve the final description context instead of presenting only isolated note fragments. User-editable Google note payload lines should be edited inline inside that diff; deleted rows and app-managed metadata rows such as `managedBy`, `localSyncId`, `sourceFingerprint`, and `sourceKind` remain read-only. Added and deleted rows do not show a note diff because there is no comparable opposite side.
+If notes are the only changed payload, the right-side group/detail summary should say the notes changed without listing every parsed note subfield as an independent update.
+Default Google time-zone values should render as `Not present`; only an explicit per-course or per-occurrence time-zone override should surface a concrete `UTC+/-HH:mm` value in Import.
 
 Auxiliary sections such as time-profile fallback confirmations may follow after the primary groups.
 
 Parsed courses must expose direct local editing.
-The Parsed Courses section must remain available even when regular add/delete/update groups are empty.
+The Parsed Courses section must remain available when regular add/delete/update groups are empty, but it must not replace or push away the primary split review/details layout when regular changes exist.
+When regular changes exist, unchanged parsed courses should still be visible after the change list as the trailing parsed-course section. That trailing section should list only courses that are not already represented by the changed-course groups.
+When regular changes exist, the course-presentation `i` action remains available from the change-course header.
 
 It must support both:
 
@@ -340,7 +374,7 @@ When multiple valid parsed schedules share the same course name, Import should g
 Selecting one of those parsed-course rows should open the same local editor used by Home so the user can change name, date span, time range, location, notes, and repeat logic before apply.
 Editable parsed-course and unresolved-course rows should use card-click interaction directly; no extra trailing `Edit` badge is required when the entire row already opens the editor.
 
-Unresolved items must appear ahead of the regular diff groups when they require manual confirmation for export timing.
+Unresolved items must appear ahead of the regular diff groups when they require manual confirmation for export timing. Opening an unresolved item in the right-side editor must allow Save even when the seeded default fields have not changed, because Save is the explicit confirmation that converts the unresolved source fingerprint into concrete occurrences.
 When multiple unresolved items share the same course name, Import should group them under one course header and list each distinct time/source line clearly.
 Selecting one of those unresolved time lines should open a local editor that can confirm the course by changing name, date, time, location, notes, and repeat logic.
 
@@ -348,6 +382,7 @@ Deleted and Added items must group by course title, with one course header per t
 
 Diff pairing must prefer stable source identity over mutable display fields.
 If a parser fix changes a title, location, teacher, or other editable metadata while the underlying source block is still the same, the item should classify as `Updated` rather than a synthetic `Deleted` plus `Added` pair.
+If the source fingerprint changes but class, date, period/time shape, title, location, or nearby metadata still prove that the old and new rows represent the same occurrence, local snapshot diff should still pair them one-to-one before considering Added/Deleted fallbacks. Duplicate previous-snapshot rows that differ only by source fingerprint should be deduplicated for comparison.
 If the previously saved snapshot belongs to a different selected class than the current preview, that snapshot must not produce delete candidates for the current class review.
 When the user applies accepted changes for one selected class, the saved snapshot baseline must replace only that class slice and keep other class slices out of the next review for the current class.
 When Google preview resolves a managed remote event through app metadata or conflict matching but the stored Google mapping points at a stale remote item id, apply must repair the preview-resolved remote event and rebind the local mapping instead of writing to the stale id.
@@ -375,7 +410,7 @@ Same-title same-time suppression must not hide a newly parsed occurrence behind 
 - cancel and return
 
 No destructive remote change may bypass this page or an equivalent confirmation surface.
-`Apply` always updates the accepted local snapshot baseline. When the selected provider is configured, the accepted changes are also written to that provider's managed calendar and task surfaces. On Home, the Google sync action is responsible for refreshing existing remote events into the preview, while the Google apply action is responsible only for writing the accepted changes. A later preview must still repair any accepted occurrence that no longer has either a saved Google mapping or a matching managed Google event.
+`Import.ApplySelected` always updates only the accepted local snapshot baseline plus the Home preview; it must not write Google Calendar, Google Tasks, or any other provider directly. Provider writes belong to the Home primary apply action after the user has already accepted the local Import review. A later preview must still repair any accepted occurrence that no longer has either a saved Google mapping or a matching managed Google event.
 When Google already contains an exact managed match for a current occurrence, apply must also backfill the local snapshot and local Google mapping state for that exact match instead of leaving it unmanaged locally.
 Preview must also repair missing local Google mappings for already-exact managed matches when the remote event can be bound confidently by managed metadata or recurring-instance identity (`parentRemoteItemId` + `originalStartTimeUtc`). A stale mapping file must not leave later Google repairs blocked until another write succeeds.
 Preview must also normalize stale Google mapping collisions. If multiple local sync ids point at the same managed Google event or recurring instance, preview must keep one binding for that remote identity, prefer the currently parsed occurrence when it still exists, and drop the stale duplicate mapping before diff classification so Home can return to white after apply.
@@ -517,7 +552,7 @@ Important constraints:
 - assign stable parser and normalization codes so Presentation can localize warnings, diagnostics, and unresolved summaries/reasons by code with fallback text
 - auto-select time profiles conservatively only after checking class-scoped per-course overrides and an explicit default profile
 - when automatic selection falls back to another same-campus profile because the preferred profile family lacks the requested periods, keep the occurrences exportable but surface the fallback as a structured confirmation item instead of `NRM004`
-- map profile course types as `理论 -> Theory`, `实验/实训/实践/上机 -> PracticalTraining`, and `体育/体育场地` title or location matches -> `SportsVenue`
+- map profile course types from source labels into domain types, including theory labels -> `Theory`, experiment/training/practical/computer-room labels -> `PracticalTraining`, and sports title or location matches -> `SportsVenue`
 - if a configured override points to a missing profile or missing periods, keep the course unresolved instead of silently falling back
 
 ## 15. Sync Rules

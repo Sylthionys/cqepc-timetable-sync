@@ -280,8 +280,25 @@ public enum TimeProfileDefaultMode
 public enum CourseScheduleRepeatKind
 {
     None,
+    Daily,
     Weekly,
     Biweekly,
+    Monthly,
+    Yearly,
+}
+
+public enum CourseScheduleRepeatUnit
+{
+    Day,
+    Week,
+    Month,
+    Year,
+}
+
+public enum CourseScheduleMonthlyPattern
+{
+    DayOfMonth,
+    LastWeekday,
 }
 
 public sealed record CourseTimeProfileOverride
@@ -335,7 +352,12 @@ public sealed record CourseScheduleOverride
         string? teacher = null,
         string? teachingClassComposition = null,
         string? calendarTimeZoneId = null,
-        string? googleCalendarColorId = null)
+        string? googleCalendarColorId = null,
+        DateOnly? sourceOccurrenceDate = null,
+        CourseScheduleRepeatUnit? repeatUnit = null,
+        int repeatInterval = 1,
+        IReadOnlyList<DayOfWeek>? repeatWeekdays = null,
+        CourseScheduleMonthlyPattern monthlyPattern = CourseScheduleMonthlyPattern.DayOfMonth)
     {
         if (string.IsNullOrWhiteSpace(className))
         {
@@ -356,6 +378,13 @@ public sealed record CourseScheduleOverride
         {
             throw new ArgumentException("End time must be later than start time.", nameof(endTime));
         }
+
+        RepeatUnit = repeatUnit ?? ResolveDefaultRepeatUnit(repeatKind);
+        RepeatInterval = NormalizeRepeatInterval(repeatKind, repeatInterval);
+        RepeatWeekdays = NormalizeRepeatWeekdays(repeatKind, repeatWeekdays, startDate);
+        MonthlyPattern = repeatKind == CourseScheduleRepeatKind.Monthly
+            ? monthlyPattern
+            : CourseScheduleMonthlyPattern.DayOfMonth;
 
         if (repeatKind == CourseScheduleRepeatKind.None && endDate != startDate)
         {
@@ -385,6 +414,7 @@ public sealed record CourseScheduleOverride
         TeachingClassComposition = Normalize(teachingClassComposition);
         CalendarTimeZoneId = Normalize(calendarTimeZoneId);
         GoogleCalendarColorId = Normalize(googleCalendarColorId);
+        SourceOccurrenceDate = sourceOccurrenceDate;
     }
 
     public string ClassName { get; }
@@ -402,6 +432,14 @@ public sealed record CourseScheduleOverride
     public TimeOnly EndTime { get; }
 
     public CourseScheduleRepeatKind RepeatKind { get; }
+
+    public CourseScheduleRepeatUnit RepeatUnit { get; }
+
+    public int RepeatInterval { get; }
+
+    public IReadOnlyList<DayOfWeek> RepeatWeekdays { get; }
+
+    public CourseScheduleMonthlyPattern MonthlyPattern { get; }
 
     public string TimeProfileId { get; }
 
@@ -423,8 +461,47 @@ public sealed record CourseScheduleOverride
 
     public string? GoogleCalendarColorId { get; }
 
+    public DateOnly? SourceOccurrenceDate { get; }
+
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static CourseScheduleRepeatUnit ResolveDefaultRepeatUnit(CourseScheduleRepeatKind repeatKind) =>
+        repeatKind switch
+        {
+            CourseScheduleRepeatKind.Daily => CourseScheduleRepeatUnit.Day,
+            CourseScheduleRepeatKind.Monthly => CourseScheduleRepeatUnit.Month,
+            CourseScheduleRepeatKind.Yearly => CourseScheduleRepeatUnit.Year,
+            _ => CourseScheduleRepeatUnit.Week,
+        };
+
+    private static int NormalizeRepeatInterval(CourseScheduleRepeatKind repeatKind, int repeatInterval) =>
+        repeatKind switch
+        {
+            CourseScheduleRepeatKind.None => 1,
+            CourseScheduleRepeatKind.Biweekly => 2,
+            _ => Math.Max(1, repeatInterval),
+        };
+
+    private static DayOfWeek[] NormalizeRepeatWeekdays(
+        CourseScheduleRepeatKind repeatKind,
+        IReadOnlyList<DayOfWeek>? repeatWeekdays,
+        DateOnly startDate)
+    {
+        if (repeatKind == CourseScheduleRepeatKind.None)
+        {
+            return [startDate.DayOfWeek];
+        }
+
+        var selected = (repeatWeekdays ?? Array.Empty<DayOfWeek>())
+            .Distinct()
+            .OrderBy(GetWeekdayOrder)
+            .ToArray();
+        return selected.Length == 0 ? [startDate.DayOfWeek] : selected;
+    }
+
+    private static int GetWeekdayOrder(DayOfWeek dayOfWeek) =>
+        dayOfWeek == DayOfWeek.Sunday ? 7 : (int)dayOfWeek;
 }
 
 public sealed record CoursePresentationOverride
@@ -522,7 +599,8 @@ public sealed record TimetableResolutionSettings
             DefaultTimeProfileMode,
             ExplicitDefaultTimeProfileId,
             CourseTimeProfileOverrides,
-            CourseScheduleOverrides);
+            CourseScheduleOverrides,
+            CoursePresentationOverrides);
 
     public TimetableResolutionSettings WithDefaultTimeProfile(TimeProfileDefaultMode defaultTimeProfileMode, string? explicitDefaultTimeProfileId) =>
         new(
@@ -616,7 +694,8 @@ public sealed record TimetableResolutionSettings
         var overrides = CourseScheduleOverrides
             .Where(existing =>
                 !string.Equals(existing.ClassName, scheduleOverride.ClassName, StringComparison.Ordinal)
-                || existing.SourceFingerprint != scheduleOverride.SourceFingerprint)
+                || existing.SourceFingerprint != scheduleOverride.SourceFingerprint
+                || existing.SourceOccurrenceDate != scheduleOverride.SourceOccurrenceDate)
             .Concat([scheduleOverride])
             .ToArray();
 
@@ -637,7 +716,10 @@ public sealed record TimetableResolutionSettings
         return WithCoursePresentationOverrides(overrides);
     }
 
-    public TimetableResolutionSettings RemoveCourseScheduleOverride(string className, SourceFingerprint sourceFingerprint)
+    public TimetableResolutionSettings RemoveCourseScheduleOverride(
+        string className,
+        SourceFingerprint sourceFingerprint,
+        DateOnly? sourceOccurrenceDate = null)
     {
         if (string.IsNullOrWhiteSpace(className))
         {
@@ -650,7 +732,8 @@ public sealed record TimetableResolutionSettings
         var overrides = CourseScheduleOverrides
             .Where(existing =>
                 !string.Equals(existing.ClassName, normalizedClassName, StringComparison.Ordinal)
-                || existing.SourceFingerprint != sourceFingerprint)
+                || existing.SourceFingerprint != sourceFingerprint
+                || existing.SourceOccurrenceDate != sourceOccurrenceDate)
             .ToArray();
 
         return WithCourseScheduleOverrides(overrides);
@@ -674,7 +757,10 @@ public sealed record TimetableResolutionSettings
         return WithCoursePresentationOverrides(overrides);
     }
 
-    public CourseScheduleOverride? FindCourseScheduleOverride(string className, SourceFingerprint sourceFingerprint)
+    public CourseScheduleOverride? FindCourseScheduleOverride(
+        string className,
+        SourceFingerprint sourceFingerprint,
+        DateOnly? sourceOccurrenceDate = null)
     {
         if (string.IsNullOrWhiteSpace(className))
         {
@@ -687,7 +773,8 @@ public sealed record TimetableResolutionSettings
         return CourseScheduleOverrides.FirstOrDefault(
             existing =>
                 string.Equals(existing.ClassName, normalizedClassName, StringComparison.Ordinal)
-                && existing.SourceFingerprint == sourceFingerprint);
+                && existing.SourceFingerprint == sourceFingerprint
+                && existing.SourceOccurrenceDate == sourceOccurrenceDate);
     }
 
     public CoursePresentationOverride? FindCoursePresentationOverride(string className, string courseTitle)
@@ -723,7 +810,7 @@ public sealed record TimetableResolutionSettings
         source
             .Where(static scheduleOverride => scheduleOverride is not null)
             .GroupBy(
-                static scheduleOverride => $"{scheduleOverride.ClassName}\u001F{scheduleOverride.SourceFingerprint.SourceKind}\u001F{scheduleOverride.SourceFingerprint.Hash}",
+                static scheduleOverride => $"{scheduleOverride.ClassName}\u001F{scheduleOverride.SourceFingerprint.SourceKind}\u001F{scheduleOverride.SourceFingerprint.Hash}\u001F{scheduleOverride.SourceOccurrenceDate:yyyy-MM-dd}",
                 StringComparer.Ordinal)
             .Select(static group => group.Last())
             .OrderBy(static scheduleOverride => scheduleOverride.ClassName, StringComparer.Ordinal)

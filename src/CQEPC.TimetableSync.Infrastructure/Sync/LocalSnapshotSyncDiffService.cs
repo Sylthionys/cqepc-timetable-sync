@@ -108,12 +108,15 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
         changes.AddRange(BuildLocalSnapshotChanges(previousOccurrences, currentOccurrences));
         if (provider == ProviderKind.Google)
         {
-            EnrichLocalSnapshotDeletesWithManagedRemoteEvents(changes, managedRemoteEvents, deletionWindow);
+            EnrichLocalSnapshotChangesWithManagedRemoteEvents(changes, managedRemoteEvents, deletionWindow);
         }
 
         var locallyPlannedCalendarChangeIds = changes
             .Where(static change => change.TargetKind == SyncTargetKind.CalendarEvent)
-            .Select(static change => change.LocalStableId)
+            .SelectMany(static change =>
+                change.After is null
+                    ? [change.LocalStableId]
+                    : new[] { change.LocalStableId, SyncIdentity.CreateOccurrenceId(change.After) })
             .ToHashSet(StringComparer.Ordinal);
         if (provider == ProviderKind.Google && existingMappings.Count > 0)
         {
@@ -467,76 +470,237 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
         IReadOnlyList<ResolvedOccurrence> previousOccurrences,
         IReadOnlyList<ResolvedOccurrence> currentOccurrences)
     {
-        var matchKeys = previousOccurrences
-            .Select(CreateMatchKey)
-            .Concat(currentOccurrences.Select(CreateMatchKey))
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(static key => key, StringComparer.Ordinal)
+        var previousItems = DeduplicateComparableOccurrences(previousOccurrences)
+            .OrderBy(static occurrence => occurrence.Start)
+            .ThenBy(static occurrence => occurrence.End)
+            .ThenBy(static occurrence => occurrence.ClassName, StringComparer.Ordinal)
+            .ThenBy(static occurrence => occurrence.Metadata.CourseTitle, StringComparer.Ordinal)
             .ToArray();
+        var currentItems = currentOccurrences
+            .OrderBy(static occurrence => occurrence.Start)
+            .ThenBy(static occurrence => occurrence.End)
+            .ThenBy(static occurrence => occurrence.ClassName, StringComparer.Ordinal)
+            .ThenBy(static occurrence => occurrence.Metadata.CourseTitle, StringComparer.Ordinal)
+            .ToArray();
+        var consumedPrevious = new HashSet<int>();
+        var consumedCurrent = new HashSet<int>();
+        var matchedPairs = new List<(int PreviousIndex, int CurrentIndex)>();
+
+        MatchLocalSnapshotOccurrences(
+            previousItems,
+            currentItems,
+            consumedPrevious,
+            consumedCurrent,
+            matchedPairs);
 
         var changes = new List<PlannedSyncChange>();
-
-        foreach (var matchKey in matchKeys)
+        foreach (var (previousIndex, currentIndex) in matchedPairs
+                     .OrderBy(static pair => pair.PreviousIndex)
+                     .ThenBy(static pair => pair.CurrentIndex))
         {
-            var previousGroup = previousOccurrences
-                .Where(occurrence => string.Equals(CreateMatchKey(occurrence), matchKey, StringComparison.Ordinal))
-                .OrderBy(static occurrence => occurrence.Start)
-                .ThenBy(static occurrence => occurrence.End)
-                .ThenBy(static occurrence => occurrence.Metadata.Location, StringComparer.Ordinal)
-                .ToArray();
-            var currentGroup = currentOccurrences
-                .Where(occurrence => string.Equals(CreateMatchKey(occurrence), matchKey, StringComparison.Ordinal))
-                .OrderBy(static occurrence => occurrence.Start)
-                .ThenBy(static occurrence => occurrence.End)
-                .ThenBy(static occurrence => occurrence.Metadata.Location, StringComparer.Ordinal)
-                .ToArray();
-
-            var sharedCount = Math.Min(previousGroup.Length, currentGroup.Length);
-            for (var index = 0; index < sharedCount; index++)
+            var before = previousItems[previousIndex];
+            var after = currentItems[currentIndex];
+            if (string.Equals(CreatePayloadFingerprint(before), CreatePayloadFingerprint(after), StringComparison.Ordinal))
             {
-                var before = previousGroup[index];
-                var after = currentGroup[index];
-                if (string.Equals(CreatePayloadFingerprint(before), CreatePayloadFingerprint(after), StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                changes.Add(new PlannedSyncChange(
-                    SyncChangeKind.Updated,
-                    after.TargetKind,
-                    CreateLocalStableId(before, after),
-                    SyncChangeSource.LocalSnapshot,
-                    before,
-                    after));
+                continue;
             }
 
-            for (var index = sharedCount; index < currentGroup.Length; index++)
+            changes.Add(new PlannedSyncChange(
+                SyncChangeKind.Updated,
+                after.TargetKind,
+                CreateLocalStableId(before, after),
+                SyncChangeSource.LocalSnapshot,
+                before,
+                after));
+        }
+
+        for (var index = 0; index < currentItems.Length; index++)
+        {
+            if (consumedCurrent.Contains(index))
             {
-                var after = currentGroup[index];
-                changes.Add(new PlannedSyncChange(
-                    SyncChangeKind.Added,
-                    after.TargetKind,
-                    CreateLocalStableId(before: null, after),
-                    SyncChangeSource.LocalSnapshot,
-                    after: after));
+                continue;
             }
 
-            for (var index = sharedCount; index < previousGroup.Length; index++)
+            var after = currentItems[index];
+            changes.Add(new PlannedSyncChange(
+                SyncChangeKind.Added,
+                after.TargetKind,
+                CreateLocalStableId(before: null, after),
+                SyncChangeSource.LocalSnapshot,
+                after: after));
+        }
+
+        for (var index = 0; index < previousItems.Length; index++)
+        {
+            if (consumedPrevious.Contains(index))
             {
-                var before = previousGroup[index];
-                changes.Add(new PlannedSyncChange(
-                    SyncChangeKind.Deleted,
-                    before.TargetKind,
-                    CreateLocalStableId(before, after: null),
-                    SyncChangeSource.LocalSnapshot,
-                    before: before));
+                continue;
             }
+
+            var before = previousItems[index];
+            changes.Add(new PlannedSyncChange(
+                SyncChangeKind.Deleted,
+                before.TargetKind,
+                CreateLocalStableId(before, after: null),
+                SyncChangeSource.LocalSnapshot,
+                before: before));
         }
 
         return changes;
     }
 
-    private static void EnrichLocalSnapshotDeletesWithManagedRemoteEvents(
+    private static void MatchLocalSnapshotOccurrences(
+        ResolvedOccurrence[] previousItems,
+        ResolvedOccurrence[] currentItems,
+        HashSet<int> consumedPrevious,
+        HashSet<int> consumedCurrent,
+        List<(int PreviousIndex, int CurrentIndex)> matchedPairs)
+    {
+        MatchLocalSnapshotOccurrencesByScore(
+            previousItems,
+            currentItems,
+            consumedPrevious,
+            consumedCurrent,
+            matchedPairs,
+            static (before, after) => string.Equals(SyncIdentity.CreateOccurrenceId(before), SyncIdentity.CreateOccurrenceId(after), StringComparison.Ordinal) ? 1_000 : 0);
+        MatchLocalSnapshotOccurrencesByScore(
+            previousItems,
+            currentItems,
+            consumedPrevious,
+            consumedCurrent,
+            matchedPairs,
+            ScoreComparableLocalSnapshotMatch);
+    }
+
+    private static void MatchLocalSnapshotOccurrencesByScore(
+        ResolvedOccurrence[] previousItems,
+        ResolvedOccurrence[] currentItems,
+        HashSet<int> consumedPrevious,
+        HashSet<int> consumedCurrent,
+        List<(int PreviousIndex, int CurrentIndex)> matchedPairs,
+        Func<ResolvedOccurrence, ResolvedOccurrence, int> scoreFactory)
+    {
+        while (true)
+        {
+            var bestPreviousIndex = -1;
+            var bestCurrentIndex = -1;
+            var bestScore = 0;
+
+            for (var previousIndex = 0; previousIndex < previousItems.Length; previousIndex++)
+            {
+                if (consumedPrevious.Contains(previousIndex))
+                {
+                    continue;
+                }
+
+                for (var currentIndex = 0; currentIndex < currentItems.Length; currentIndex++)
+                {
+                    if (consumedCurrent.Contains(currentIndex))
+                    {
+                        continue;
+                    }
+
+                    var score = scoreFactory(previousItems[previousIndex], currentItems[currentIndex]);
+                    if (score <= bestScore)
+                    {
+                        continue;
+                    }
+
+                    bestPreviousIndex = previousIndex;
+                    bestCurrentIndex = currentIndex;
+                    bestScore = score;
+                }
+            }
+
+            if (bestPreviousIndex < 0 || bestCurrentIndex < 0)
+            {
+                return;
+            }
+
+            consumedPrevious.Add(bestPreviousIndex);
+            consumedCurrent.Add(bestCurrentIndex);
+            matchedPairs.Add((bestPreviousIndex, bestCurrentIndex));
+        }
+    }
+
+    private static int ScoreComparableLocalSnapshotMatch(ResolvedOccurrence before, ResolvedOccurrence after)
+    {
+        if (before.TargetKind != after.TargetKind
+            || !string.Equals(before.ClassName, after.ClassName, StringComparison.Ordinal))
+        {
+            return 0;
+        }
+
+        var sameDate = before.OccurrenceDate == after.OccurrenceDate;
+        var sameTitle = string.Equals(before.Metadata.CourseTitle, after.Metadata.CourseTitle, StringComparison.Ordinal);
+        var sameSource = before.SourceFingerprint == after.SourceFingerprint;
+        var sameTimeRange = before.Start.ToUniversalTime() == after.Start.ToUniversalTime()
+            && before.End.ToUniversalTime() == after.End.ToUniversalTime();
+        var samePeriodRange = before.Metadata.PeriodRange == after.Metadata.PeriodRange;
+        var sameLocation = string.Equals(before.Metadata.Location ?? string.Empty, after.Metadata.Location ?? string.Empty, StringComparison.Ordinal);
+
+        if (!(sameDate && (sameSource || (sameTitle && (sameTimeRange || samePeriodRange || sameLocation)))))
+        {
+            return 0;
+        }
+
+        var score = 100;
+        if (sameSource)
+        {
+            score += 80;
+        }
+
+        if (sameTitle)
+        {
+            score += 60;
+        }
+
+        if (sameTimeRange)
+        {
+            score += 50;
+        }
+
+        if (samePeriodRange)
+        {
+            score += 30;
+        }
+
+        if (sameLocation)
+        {
+            score += 20;
+        }
+
+        if (before.Weekday == after.Weekday)
+        {
+            score += 10;
+        }
+
+        if (before.SchoolWeekNumber == after.SchoolWeekNumber)
+        {
+            score += 10;
+        }
+
+        if (string.Equals(before.Metadata.Teacher ?? string.Empty, after.Metadata.Teacher ?? string.Empty, StringComparison.Ordinal))
+        {
+            score += 5;
+        }
+
+        if (string.Equals(before.TimeProfileId, after.TimeProfileId, StringComparison.Ordinal))
+        {
+            score += 5;
+        }
+
+        return score;
+    }
+
+    private static ResolvedOccurrence[] DeduplicateComparableOccurrences(
+        IEnumerable<ResolvedOccurrence> occurrences) =>
+        occurrences
+            .GroupBy(CreateComparableOccurrenceKey, StringComparer.Ordinal)
+            .Select(static group => group.First())
+            .ToArray();
+
+    private static void EnrichLocalSnapshotChangesWithManagedRemoteEvents(
         List<PlannedSyncChange> changes,
         IReadOnlyList<ProviderRemoteCalendarEvent> managedRemoteEvents,
         PreviewDateWindow? deletionWindow)
@@ -544,8 +708,7 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
         for (var index = 0; index < changes.Count; index++)
         {
             var change = changes[index];
-            if (change.ChangeKind != SyncChangeKind.Deleted
-                || change.ChangeSource != SyncChangeSource.LocalSnapshot
+            if (change.ChangeSource != SyncChangeSource.LocalSnapshot
                 || change.TargetKind != SyncTargetKind.CalendarEvent
                 || change.Before is null
                 || change.RemoteEvent is not null)
@@ -554,7 +717,13 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
             }
 
             var remoteEvent = ResolveDirectManagedRemoteEvent(change.Before, managedRemoteEvents);
-            if (remoteEvent is null || !IsWithinDeletionWindow(remoteEvent, deletionWindow))
+            if (remoteEvent is null)
+            {
+                continue;
+            }
+
+            if (change.ChangeKind == SyncChangeKind.Deleted
+                && !IsWithinDeletionWindow(remoteEvent, deletionWindow))
             {
                 continue;
             }
@@ -589,6 +758,19 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
             occurrence.CourseType ?? string.Empty,
             occurrence.TimeProfileId,
             occurrence.GoogleCalendarColorId ?? string.Empty);
+
+    private static string CreateComparableOccurrenceKey(ResolvedOccurrence occurrence) =>
+        string.Join(
+            "|",
+            occurrence.TargetKind,
+            occurrence.ClassName,
+            occurrence.OccurrenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            occurrence.Start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            occurrence.End.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            occurrence.Metadata.CourseTitle,
+            occurrence.Metadata.Location ?? string.Empty,
+            occurrence.Metadata.Teacher ?? string.Empty,
+            occurrence.TimeProfileId);
 
     private static ResolvedOccurrence[] ResolveComparablePreviousOccurrences(
         ImportedScheduleSnapshot? previousSnapshot,
