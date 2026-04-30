@@ -1537,6 +1537,63 @@ public sealed class WorkspacePreviewServiceTests
     }
 
     [Fact]
+    public async Task BuildPreviewAsyncRetainsCanceledDeletedSingleOccurrenceOverride()
+    {
+        var deletedFingerprint = new SourceFingerprint("pdf", "deleted-signals-retained");
+        var deletedDate = new DateOnly(2026, 3, 5);
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithTimetableResolution(new TimetableResolutionSettings(
+                manualFirstWeekStartOverride: null,
+                autoDerivedFirstWeekStart: null,
+                defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
+                explicitDefaultTimeProfileId: null,
+                courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
+                courseScheduleOverrides:
+                [
+                    new CourseScheduleOverride(
+                        "Class A",
+                        deletedFingerprint,
+                        "Signals",
+                        deletedDate,
+                        deletedDate,
+                        new TimeOnly(8, 0),
+                        new TimeOnly(9, 40),
+                        CourseScheduleRepeatKind.None,
+                        "main-campus",
+                        sourceOccurrenceDate: deletedDate,
+                        retainsDeletedOccurrence: true),
+                ]));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule("Class A", []),
+                ]),
+            new FakeAcademicCalendarParser(
+                [
+                    new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8)),
+                ]),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))]),
+                ]),
+            new FakeNormalizer(occurrences: []),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository());
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        result.NormalizationResult.Should().NotBeNull();
+        result.NormalizationResult!.Occurrences.Should().Contain(occurrence =>
+            occurrence.SourceFingerprint == deletedFingerprint
+            && occurrence.OccurrenceDate == deletedDate);
+    }
+
+    [Fact]
     public async Task BuildPreviewAsyncDoesNotReviveSingleOccurrenceOverrideForDeletedSourceOccurrence()
     {
         var deletedFingerprint = new SourceFingerprint("pdf", "deleted-signals");

@@ -75,10 +75,7 @@ public sealed class ImportChangeOccurrenceItemViewModel : ObservableObject
 
     public ResolvedOccurrence? Occurrence => source?.PlannedChange.After ?? source?.PlannedChange.Before ?? unchangedOccurrence;
 
-    public DateOnly? SourceOccurrenceDate =>
-        source?.PlannedChange.Before?.OccurrenceDate
-        ?? unchangedOccurrence?.OccurrenceDate
-        ?? source?.PlannedChange.After?.OccurrenceDate;
+    public DateOnly? SourceOccurrenceDate => Occurrence?.OccurrenceDate;
 
     public string Summary { get; }
 

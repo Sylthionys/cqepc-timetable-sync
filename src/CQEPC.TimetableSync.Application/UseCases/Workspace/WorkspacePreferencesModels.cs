@@ -357,7 +357,8 @@ public sealed record CourseScheduleOverride
         CourseScheduleRepeatUnit? repeatUnit = null,
         int repeatInterval = 1,
         IReadOnlyList<DayOfWeek>? repeatWeekdays = null,
-        CourseScheduleMonthlyPattern monthlyPattern = CourseScheduleMonthlyPattern.DayOfMonth)
+        CourseScheduleMonthlyPattern monthlyPattern = CourseScheduleMonthlyPattern.DayOfMonth,
+        bool retainsDeletedOccurrence = false)
     {
         if (string.IsNullOrWhiteSpace(className))
         {
@@ -415,6 +416,7 @@ public sealed record CourseScheduleOverride
         CalendarTimeZoneId = Normalize(calendarTimeZoneId);
         GoogleCalendarColorId = Normalize(googleCalendarColorId);
         SourceOccurrenceDate = sourceOccurrenceDate;
+        RetainsDeletedOccurrence = retainsDeletedOccurrence;
     }
 
     public string ClassName { get; }
@@ -462,6 +464,8 @@ public sealed record CourseScheduleOverride
     public string? GoogleCalendarColorId { get; }
 
     public DateOnly? SourceOccurrenceDate { get; }
+
+    public bool RetainsDeletedOccurrence { get; }
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

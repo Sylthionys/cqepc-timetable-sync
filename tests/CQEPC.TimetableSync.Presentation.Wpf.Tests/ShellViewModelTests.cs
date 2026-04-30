@@ -930,6 +930,43 @@ public sealed class ShellViewModelTests
     }
 
     [Fact]
+    public void ImportChangeOccurrenceItemViewModelUsesCurrentDateForUpdatedOccurrenceSourceDate()
+    {
+        var fingerprint = new SourceFingerprint("pdf", "moved-signals");
+        var beforeOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            fingerprint);
+        var afterOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 26),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            fingerprint);
+        var change = new DiffChangeItemViewModel(new PlannedSyncChange(
+            SyncChangeKind.Updated,
+            SyncTargetKind.CalendarEvent,
+            "chg-moved",
+            before: beforeOccurrence,
+            after: afterOccurrence));
+
+        var item = new ImportChangeOccurrenceItemViewModel(
+            change,
+            "Signals moved",
+            Array.Empty<string>(),
+            Array.Empty<ImportDetailFieldViewModel>(),
+            Array.Empty<ImportDetailFieldViewModel>(),
+            Array.Empty<ImportDetailFieldViewModel>());
+
+        item.Occurrence.Should().Be(afterOccurrence);
+        item.SourceOccurrenceDate.Should().Be(afterOccurrence.OccurrenceDate);
+    }
+
+    [Fact]
     public async Task ImportDiffPageViewModelTracksSelectionState()
     {
         var session = CreateSession(

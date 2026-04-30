@@ -176,7 +176,8 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
                     scheduleOverride.RepeatUnit,
                     scheduleOverride.RepeatInterval,
                     scheduleOverride.RepeatWeekdays,
-                    scheduleOverride.MonthlyPattern))
+                    scheduleOverride.MonthlyPattern,
+                    scheduleOverride.RetainsDeletedOccurrence))
             .ToArray()
             ?? Array.Empty<CourseScheduleOverride>();
         var presentationOverrides = settings.CoursePresentationOverrides?
@@ -246,6 +247,7 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
                             RepeatInterval = scheduleOverride.RepeatInterval,
                             RepeatWeekdays = scheduleOverride.RepeatWeekdays.ToArray(),
                             MonthlyPattern = scheduleOverride.MonthlyPattern,
+                            RetainsDeletedOccurrence = scheduleOverride.RetainsDeletedOccurrence,
                         })
                 .ToArray(),
             CoursePresentationOverrides = settings.CoursePresentationOverrides
@@ -485,6 +487,8 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
         public IReadOnlyList<DayOfWeek>? RepeatWeekdays { get; set; }
 
         public CourseScheduleMonthlyPattern MonthlyPattern { get; set; } = CourseScheduleMonthlyPattern.DayOfMonth;
+
+        public bool RetainsDeletedOccurrence { get; set; }
     }
 
     private sealed class SerializedCoursePresentationOverride

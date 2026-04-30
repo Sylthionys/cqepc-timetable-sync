@@ -1493,7 +1493,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             occurrence.CalendarTimeZoneId,
             occurrence.GoogleCalendarColorId,
             sourceOccurrenceDate: occurrenceDate,
-            repeatWeekdays: [occurrenceDate.DayOfWeek]);
+            repeatWeekdays: [occurrenceDate.DayOfWeek],
+            retainsDeletedOccurrence: true);
 
         ApplyPreferences(
             CurrentPreferences.WithTimetableResolution(
@@ -3021,6 +3022,10 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         var endDate = repeatKind == CourseScheduleRepeatKind.None
             ? request.StartDate
             : request.EndDate;
+        var existingOverride = CurrentPreferences.TimetableResolution.FindCourseScheduleOverride(
+            request.ClassName,
+            request.SourceFingerprint,
+            request.SourceOccurrenceDate);
         var scheduleOverride = new CourseScheduleOverride(
             request.ClassName,
             request.SourceFingerprint,
@@ -3044,7 +3049,8 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             request.RepeatUnit,
             request.RepeatInterval,
             request.RepeatWeekdays,
-            request.MonthlyPattern);
+            request.MonthlyPattern,
+            existingOverride?.RetainsDeletedOccurrence == true);
 
         var updatedResolution = CurrentPreferences.TimetableResolution;
         if (request.SourceOccurrenceDate.HasValue && !sourceOccurrenceDate.HasValue)
