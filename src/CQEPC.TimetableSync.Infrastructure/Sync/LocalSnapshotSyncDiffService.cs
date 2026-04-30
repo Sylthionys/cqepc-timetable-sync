@@ -470,7 +470,7 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
         IReadOnlyList<ResolvedOccurrence> previousOccurrences,
         IReadOnlyList<ResolvedOccurrence> currentOccurrences)
     {
-        var previousItems = DeduplicateComparableOccurrences(previousOccurrences, currentOccurrences)
+        var previousItems = DeduplicateComparableOccurrences(previousOccurrences)
             .OrderBy(static occurrence => occurrence.Start)
             .ThenBy(static occurrence => occurrence.End)
             .ThenBy(static occurrence => occurrence.ClassName, StringComparer.Ordinal)
@@ -694,26 +694,14 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
     }
 
     private static ResolvedOccurrence[] DeduplicateComparableOccurrences(
-        IEnumerable<ResolvedOccurrence> previousOccurrences,
-        IEnumerable<ResolvedOccurrence> currentOccurrences)
+        IEnumerable<ResolvedOccurrence> previousOccurrences)
     {
-        var currentComparableCounts = currentOccurrences
-            .GroupBy(CreateComparableOccurrenceShapeKey, StringComparer.Ordinal)
-            .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
-
         return previousOccurrences
             .GroupBy(CreateComparableOccurrenceShapeKey, StringComparer.Ordinal)
             .SelectMany(group =>
-            {
-                if (currentComparableCounts.GetValueOrDefault(group.Key) > 1)
-                {
-                    return group
-                        .GroupBy(CreateComparableOccurrenceKey, StringComparer.Ordinal)
-                        .Select(static duplicateGroup => duplicateGroup.First());
-                }
-
-                return group.Take(1);
-            })
+                group
+                    .GroupBy(CreateComparableOccurrenceKey, StringComparer.Ordinal)
+                    .Select(static duplicateGroup => duplicateGroup.First()))
             .ToArray();
     }
 

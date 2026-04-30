@@ -574,7 +574,7 @@ public sealed class LocalSnapshotSyncDiffServiceTests
     }
 
     [Fact]
-    public async Task CreatePreviewAsyncIgnoresDuplicatePreviousSnapshotOccurrencesWhenOnlySourceFingerprintDiffers()
+    public async Task CreatePreviewAsyncDeletesSurplusPreviousSnapshotOccurrencesWhenCurrentHasFewerComparableItems()
     {
         var previousOccurrenceA = CreateOccurrence(
             "Signals",
@@ -626,7 +626,10 @@ public sealed class LocalSnapshotSyncDiffServiceTests
             deletionWindow: null,
             CancellationToken.None);
 
-        plan.PlannedChanges.Should().BeEmpty();
+        plan.PlannedChanges.Should().ContainSingle(change =>
+            change.ChangeKind == SyncChangeKind.Deleted
+            && change.Before == previousOccurrenceB);
+        plan.PlannedChanges.Should().NotContain(change => change.ChangeKind == SyncChangeKind.Added);
     }
 
     [Fact]
