@@ -605,8 +605,8 @@ public sealed class CourseEditorViewModel : ObservableObject
             return;
         }
 
-        Close();
         await resetAsync(new CourseEditorResetRequest(currentClassName, currentSourceFingerprint, currentSourceOccurrenceDate));
+        Close();
     }
 
     private void SelectRepeat(CourseScheduleRepeatKind repeatKind)

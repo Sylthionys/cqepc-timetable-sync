@@ -3622,9 +3622,9 @@ public sealed class ManualGoogleWorkflowTests
         && string.Equals(occurrence.ClassName, className, StringComparison.Ordinal)
         && occurrence.SourceFingerprint == sourceFingerprint;
 
-    private static PreviewDateWindow CreatePreviewWindowForOccurrences(IReadOnlyList<ResolvedOccurrence> occurrences)
+    private static PreviewDateWindow CreatePreviewWindowForOccurrences(ResolvedOccurrence[] occurrences)
     {
-        occurrences.Count.Should().BeGreaterThan(0);
+        occurrences.Length.Should().BeGreaterThan(0);
         var start = occurrences.Min(static occurrence => occurrence.Start).AddDays(-2);
         var end = occurrences.Max(static occurrence => occurrence.End).AddDays(2);
         return new PreviewDateWindow(start, end);
@@ -4370,4 +4370,3 @@ public sealed class ManualGoogleWorkflowTests
         string TeachingProgressXls,
         string ClassTimeDocx);
 }
-

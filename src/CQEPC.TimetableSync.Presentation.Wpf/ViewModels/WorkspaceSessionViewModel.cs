@@ -3162,6 +3162,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             first.SourceFingerprint,
             editSingleOccurrence ? sourceOccurrenceDate : null);
         var repeatKind = InferRepeatKind(linkedOccurrences);
+        var repeatInterval = ResolveRepeatInterval(linkedOccurrences, repeatKind);
 
         return new CourseEditorOpenRequest(
             UiText.CourseEditorTitle,
@@ -3190,7 +3191,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             editSingleOccurrence ? sourceOccurrenceDate : null,
             CanSaveWithoutChanges: false,
             RepeatUnit: storedOverride?.RepeatUnit ?? ResolveRepeatUnit(repeatKind),
-            RepeatInterval: storedOverride?.RepeatInterval ?? ResolveRepeatInterval(repeatKind),
+            RepeatInterval: storedOverride?.RepeatInterval ?? repeatInterval,
             RepeatWeekdays: storedOverride?.RepeatWeekdays ?? [first.OccurrenceDate.DayOfWeek],
             MonthlyPattern: storedOverride?.MonthlyPattern ?? CourseScheduleMonthlyPattern.DayOfMonth);
     }
@@ -3280,7 +3281,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             CanReset: false,
             CanSaveWithoutChanges: true,
             RepeatUnit: ResolveRepeatUnit(defaults.RepeatKind),
-            RepeatInterval: ResolveRepeatInterval(defaults.RepeatKind),
+            RepeatInterval: defaults.RepeatInterval,
             RepeatWeekdays: [defaults.StartDate.DayOfWeek],
             MonthlyPattern: CourseScheduleMonthlyPattern.DayOfMonth);
     }
@@ -3320,9 +3321,18 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     private static CourseScheduleRepeatKind InferRepeatKind(ResolvedOccurrence[] occurrences)
     {
+        var intervalDays = InferConstantIntervalDays(occurrences);
+        return InferRepeatKind(intervalDays);
+    }
+
+    private static int ResolveRepeatInterval(ResolvedOccurrence[] occurrences, CourseScheduleRepeatKind repeatKind) =>
+        ResolveRepeatInterval(InferConstantIntervalDays(occurrences), repeatKind);
+
+    private static int? InferConstantIntervalDays(ResolvedOccurrence[] occurrences)
+    {
         if (occurrences.Length <= 1)
         {
-            return CourseScheduleRepeatKind.None;
+            return null;
         }
 
         var intervals = occurrences
@@ -3330,19 +3340,9 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             .Where(static interval => interval > 0)
             .ToArray();
 
-        if (intervals.Length == 0)
-        {
-            return CourseScheduleRepeatKind.None;
-        }
-
-        if (intervals.All(static interval => interval % 14 == 0))
-        {
-            return CourseScheduleRepeatKind.Biweekly;
-        }
-
-        return intervals.All(static interval => interval % 7 == 0)
-            ? CourseScheduleRepeatKind.Weekly
-            : CourseScheduleRepeatKind.None;
+        return intervals.Length > 0 && intervals.All(interval => interval == intervals[0])
+            ? intervals[0]
+            : null;
     }
 
     private static CourseScheduleRepeatUnit ResolveRepeatUnit(CourseScheduleRepeatKind repeatKind) =>
@@ -3356,6 +3356,35 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     private static int ResolveRepeatInterval(CourseScheduleRepeatKind repeatKind) =>
         repeatKind == CourseScheduleRepeatKind.Biweekly ? 2 : 1;
+
+    private static int ResolveRepeatInterval(int? intervalDays, CourseScheduleRepeatKind repeatKind)
+    {
+        if (intervalDays.HasValue
+            && intervalDays.Value % 7 == 0
+            && repeatKind is CourseScheduleRepeatKind.Weekly or CourseScheduleRepeatKind.Biweekly)
+        {
+            return Math.Max(1, intervalDays.Value / 7);
+        }
+
+        return ResolveRepeatInterval(repeatKind);
+    }
+
+    private static CourseScheduleRepeatKind InferRepeatKind(int? intervalDays)
+    {
+        if (!intervalDays.HasValue)
+        {
+            return CourseScheduleRepeatKind.None;
+        }
+
+        if (intervalDays.Value == 14)
+        {
+            return CourseScheduleRepeatKind.Biweekly;
+        }
+
+        return intervalDays.Value % 7 == 0
+            ? CourseScheduleRepeatKind.Weekly
+            : CourseScheduleRepeatKind.None;
+    }
 
     private static Dictionary<string, string> ParseRawSourceMetadata(string rawSourceText)
     {
@@ -3403,6 +3432,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
         var occurrenceDates = ResolveUnresolvedOccurrenceDates(metadata);
         var repeatKind = InferRepeatKind(occurrenceDates);
+        var repeatInterval = ResolveRepeatInterval(occurrenceDates, repeatKind);
         var startDate = occurrenceDates.FirstOrDefault();
         if (startDate == default)
         {
@@ -3427,6 +3457,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             profileEntry?.StartTime ?? fallbackStartTime,
             profileEntry?.EndTime ?? fallbackEndTime,
             repeatKind,
+            repeatInterval,
             resolvedProfile?.ProfileId ?? fallbackTimeProfileId);
     }
 
@@ -3578,9 +3609,18 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     private static CourseScheduleRepeatKind InferRepeatKind(DateOnly[] occurrenceDates)
     {
+        var intervalDays = InferConstantIntervalDays(occurrenceDates);
+        return InferRepeatKind(intervalDays);
+    }
+
+    private static int ResolveRepeatInterval(DateOnly[] occurrenceDates, CourseScheduleRepeatKind repeatKind) =>
+        ResolveRepeatInterval(InferConstantIntervalDays(occurrenceDates), repeatKind);
+
+    private static int? InferConstantIntervalDays(DateOnly[] occurrenceDates)
+    {
         if (occurrenceDates.Length <= 1)
         {
-            return CourseScheduleRepeatKind.None;
+            return null;
         }
 
         var intervals = occurrenceDates
@@ -3588,19 +3628,9 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             .Where(static interval => interval > 0)
             .ToArray();
 
-        if (intervals.Length == 0)
-        {
-            return CourseScheduleRepeatKind.None;
-        }
-
-        if (intervals.All(static interval => interval % 14 == 0))
-        {
-            return CourseScheduleRepeatKind.Biweekly;
-        }
-
-        return intervals.All(static interval => interval % 7 == 0)
-            ? CourseScheduleRepeatKind.Weekly
-            : CourseScheduleRepeatKind.None;
+        return intervals.Length > 0 && intervals.All(interval => interval == intervals[0])
+            ? intervals[0]
+            : null;
     }
 
     private static bool TryParseWeekday(string value, out DayOfWeek weekday)
@@ -3809,6 +3839,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         TimeOnly StartTime,
         TimeOnly EndTime,
         CourseScheduleRepeatKind RepeatKind,
+        int RepeatInterval,
         string TimeProfileId);
 
     private void UpdateTimetableResolution(

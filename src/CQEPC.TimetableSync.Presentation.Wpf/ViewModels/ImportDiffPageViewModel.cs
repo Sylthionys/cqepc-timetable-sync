@@ -3835,7 +3835,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             return CourseScheduleRepeatKind.None;
         }
 
-        if (intervals.All(static interval => interval % 14 == 0))
+        if (intervals.All(static interval => interval == 14))
         {
             return CourseScheduleRepeatKind.Biweekly;
         }

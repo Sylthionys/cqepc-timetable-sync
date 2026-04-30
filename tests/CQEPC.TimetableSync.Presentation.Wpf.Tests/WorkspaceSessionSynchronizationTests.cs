@@ -211,6 +211,20 @@ public sealed class WorkspaceSessionSynchronizationTests
         saved.RepeatWeekdays.Should().Equal(DayOfWeek.Sunday);
     }
 
+    [Fact]
+    public async Task CourseEditorResetKeepsEditorOpenWhenResetFails()
+    {
+        var resetFailure = new InvalidOperationException("Reset failed.");
+        var editor = CreateStandaloneCourseEditor(
+            resetAsync: _ => Task.FromException(resetFailure));
+        editor.Open(CreateCourseEditorOpenRequest(canReset: true));
+
+        Func<Task> reset = () => editor.ResetCommand.ExecuteAsync(null);
+
+        await reset.Should().ThrowAsync<InvalidOperationException>();
+        editor.IsOpen.Should().BeTrue();
+    }
+
     private static WorkspaceSessionViewModel CreateYieldingSession(
         Func<WorkspacePreviewRequest, WorkspacePreviewResult>? previewBuilder = null)
     {
@@ -228,10 +242,11 @@ public sealed class WorkspaceSessionSynchronizationTests
     }
 
     private static CourseEditorViewModel CreateStandaloneCourseEditor(
-        Func<CourseEditorSaveRequest, Task>? saveAsync = null) =>
+        Func<CourseEditorSaveRequest, Task>? saveAsync = null,
+        Func<CourseEditorResetRequest, Task>? resetAsync = null) =>
         new(
             saveAsync ?? (_ => Task.CompletedTask),
-            _ => Task.CompletedTask);
+            resetAsync ?? (_ => Task.CompletedTask));
 
     private static CourseEditorOpenRequest CreateCourseEditorOpenRequest(
         DateOnly? startDate = null,
@@ -239,7 +254,8 @@ public sealed class WorkspaceSessionSynchronizationTests
         CourseScheduleRepeatKind repeatKind = CourseScheduleRepeatKind.None,
         CourseScheduleRepeatUnit repeatUnit = CourseScheduleRepeatUnit.Week,
         int repeatInterval = 1,
-        IReadOnlyList<DayOfWeek>? repeatWeekdays = null) =>
+        IReadOnlyList<DayOfWeek>? repeatWeekdays = null,
+        bool canReset = false) =>
         new(
             "Edit",
             "Summary",
@@ -252,6 +268,7 @@ public sealed class WorkspaceSessionSynchronizationTests
             new TimeOnly(16, 0),
             repeatKind,
             "main-campus",
+            CanReset: canReset,
             RepeatUnit: repeatUnit,
             RepeatInterval: repeatInterval,
             RepeatWeekdays: repeatWeekdays ?? [DayOfWeek.Thursday]);
