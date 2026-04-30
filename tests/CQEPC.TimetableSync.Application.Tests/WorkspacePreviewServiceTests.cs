@@ -895,6 +895,75 @@ public sealed class WorkspacePreviewServiceTests
     }
 
     [Fact]
+    public async Task BuildPreviewAsyncAnchorsWeeklyIntervalFromFirstSelectedWeekdayOccurrence()
+    {
+        var fingerprint = new SourceFingerprint("pdf", "override-monday-after-sunday-start");
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithTimetableResolution(new TimetableResolutionSettings(
+                manualFirstWeekStartOverride: null,
+                autoDerivedFirstWeekStart: null,
+                defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
+                explicitDefaultTimeProfileId: null,
+                courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
+                courseScheduleOverrides:
+                [
+                    new CourseScheduleOverride(
+                        "Class A",
+                        fingerprint,
+                        "Circuits Manual",
+                        new DateOnly(2026, 3, 8),
+                        new DateOnly(2026, 4, 6),
+                        new TimeOnly(15, 0),
+                        new TimeOnly(16, 40),
+                        CourseScheduleRepeatKind.Weekly,
+                        "main-campus",
+                        location: "Lab 301",
+                        repeatUnit: CourseScheduleRepeatUnit.Week,
+                        repeatInterval: 2,
+                        repeatWeekdays: [DayOfWeek.Monday]),
+                ]));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Circuits", fingerprint)]),
+                ]),
+            new FakeAcademicCalendarParser(
+                Enumerable.Range(0, 6)
+                    .Select(index =>
+                    {
+                        var start = new DateOnly(2026, 3, 2).AddDays(index * 7);
+                        return new SchoolWeek(index + 1, start, start.AddDays(6));
+                    })
+                    .ToArray()),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))]),
+                ]),
+            new FakeNormalizer(
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Circuits", new DateOnly(2026, 3, 8), new TimeOnly(8, 0), new TimeOnly(9, 40), fingerprint),
+                ]),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository());
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        result.NormalizationResult.Should().NotBeNull();
+        result.NormalizationResult!.Occurrences.Should().HaveCount(3);
+        result.NormalizationResult.Occurrences.Select(static occurrence => occurrence.OccurrenceDate)
+            .Should().Equal(new DateOnly(2026, 3, 9), new DateOnly(2026, 3, 23), new DateOnly(2026, 4, 6));
+        result.NormalizationResult.ExportGroups.Should().ContainSingle();
+        result.NormalizationResult.ExportGroups[0].GroupKind.Should().Be(ExportGroupKind.Recurring);
+        result.NormalizationResult.ExportGroups[0].RecurrenceIntervalDays.Should().Be(14);
+    }
+
+    [Fact]
     public async Task BuildPreviewAsyncExpandsWeeklyCourseScheduleOverrideAcrossSelectedWeekdays()
     {
         var fingerprint = new SourceFingerprint("pdf", "override-multi-weekday");

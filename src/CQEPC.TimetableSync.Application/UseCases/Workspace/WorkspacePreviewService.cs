@@ -1517,18 +1517,21 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
             ? [scheduleOverride.StartDate.DayOfWeek]
             : scheduleOverride.RepeatWeekdays.OrderBy(GetWeekdayOrder).ToArray();
 
-        for (var weekStart = scheduleOverride.StartDate.AddDays(-GetWeekdayOffset(scheduleOverride.StartDate.DayOfWeek));
-             weekStart <= scheduleOverride.EndDate;
-             weekStart = weekStart.AddDays(interval * 7))
+        var dates = new SortedSet<DateOnly>();
+        foreach (var weekday in selectedWeekdays)
         {
-            foreach (var weekday in selectedWeekdays)
+            var daysUntilWeekday =
+                (GetWeekdayOffset(weekday) - GetWeekdayOffset(scheduleOverride.StartDate.DayOfWeek) + 7) % 7;
+            var firstDate = scheduleOverride.StartDate.AddDays(daysUntilWeekday);
+            for (var date = firstDate; date <= scheduleOverride.EndDate; date = date.AddDays(interval * 7))
             {
-                var date = weekStart.AddDays(GetWeekdayOffset(weekday));
-                if (date >= scheduleOverride.StartDate && date <= scheduleOverride.EndDate)
-                {
-                    yield return date;
-                }
+                dates.Add(date);
             }
+        }
+
+        foreach (var date in dates)
+        {
+            yield return date;
         }
     }
 
