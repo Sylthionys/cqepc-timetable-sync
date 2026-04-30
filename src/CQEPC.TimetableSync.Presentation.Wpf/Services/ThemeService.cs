@@ -47,6 +47,25 @@ internal sealed class ThemeService : IThemeService
         "PopupHighlightBrush",
         "PopupSelectedBrush",
         "WarningSurfaceBrush",
+        "ImportPageBackgroundBrush",
+        "ImportPageSurfaceBrush",
+        "ImportPageSurfaceAltBrush",
+        "ImportPageSurfaceMutedBrush",
+        "ImportPageBorderBrush",
+        "ImportPageTextBrush",
+        "ImportPageSubtleTextBrush",
+        "ImportPageTrackBrush",
+        "ImportPageSelectionBrush",
+        "ImportAddBrush",
+        "ImportAddSurfaceBrush",
+        "ImportUpdateBrush",
+        "ImportUpdateSurfaceBrush",
+        "ImportDeleteBrush",
+        "ImportDeleteSurfaceBrush",
+        "ImportConflictBrush",
+        "ImportConflictSurfaceBrush",
+        "ImportNeutralBrush",
+        "ImportNeutralSurfaceBrush",
     ];
 
     private readonly ResourceDictionary resources;
@@ -105,6 +124,25 @@ internal sealed class ThemeService : IThemeService
         SetBrushColor("PopupHighlightBrush", palette.PopupHighlight);
         SetBrushColor("PopupSelectedBrush", palette.PopupSelected);
         SetBrushColor("WarningSurfaceBrush", palette.WarningSurface);
+        SetBrushColor("ImportPageBackgroundBrush", palette.ImportPageBackground);
+        SetBrushColor("ImportPageSurfaceBrush", palette.ImportPageSurface);
+        SetBrushColor("ImportPageSurfaceAltBrush", palette.ImportPageSurfaceAlt);
+        SetBrushColor("ImportPageSurfaceMutedBrush", palette.ImportPageSurfaceMuted);
+        SetBrushColor("ImportPageBorderBrush", palette.ImportPageBorder);
+        SetBrushColor("ImportPageTextBrush", palette.ImportPageText);
+        SetBrushColor("ImportPageSubtleTextBrush", palette.ImportPageSubtleText);
+        SetBrushColor("ImportPageTrackBrush", palette.ImportPageTrack);
+        SetBrushColor("ImportPageSelectionBrush", palette.ImportPageSelection);
+        SetBrushColor("ImportAddBrush", palette.ImportAdd);
+        SetBrushColor("ImportAddSurfaceBrush", palette.ImportAddSurface);
+        SetBrushColor("ImportUpdateBrush", palette.ImportUpdate);
+        SetBrushColor("ImportUpdateSurfaceBrush", palette.ImportUpdateSurface);
+        SetBrushColor("ImportDeleteBrush", palette.ImportDelete);
+        SetBrushColor("ImportDeleteSurfaceBrush", palette.ImportDeleteSurface);
+        SetBrushColor("ImportConflictBrush", palette.ImportConflict);
+        SetBrushColor("ImportConflictSurfaceBrush", palette.ImportConflictSurface);
+        SetBrushColor("ImportNeutralBrush", palette.ImportNeutral);
+        SetBrushColor("ImportNeutralSurfaceBrush", palette.ImportNeutralSurface);
 
         ActiveTheme = themeMode;
         RefreshOpenWindows();
@@ -213,7 +251,26 @@ internal sealed class ThemeService : IThemeService
         Color PopupAltSurface,
         Color PopupHighlight,
         Color PopupSelected,
-        Color WarningSurface)
+        Color WarningSurface,
+        Color ImportPageBackground,
+        Color ImportPageSurface,
+        Color ImportPageSurfaceAlt,
+        Color ImportPageSurfaceMuted,
+        Color ImportPageBorder,
+        Color ImportPageText,
+        Color ImportPageSubtleText,
+        Color ImportPageTrack,
+        Color ImportPageSelection,
+        Color ImportAdd,
+        Color ImportAddSurface,
+        Color ImportUpdate,
+        Color ImportUpdateSurface,
+        Color ImportDelete,
+        Color ImportDeleteSurface,
+        Color ImportConflict,
+        Color ImportConflictSurface,
+        Color ImportNeutral,
+        Color ImportNeutralSurface)
     {
         public static ThemePalette Light { get; } = new(
             Color.FromRgb(0xF3, 0xF6, 0xFA),
@@ -255,7 +312,26 @@ internal sealed class ThemeService : IThemeService
             Color.FromRgb(0xF7, 0xF9, 0xFC),
             Color.FromRgb(0xEA, 0xF2, 0xFF),
             Color.FromRgb(0xD9, 0xE8, 0xFF),
-            Color.FromRgb(0xFE, 0xF4, 0xDD));
+            Color.FromRgb(0xFE, 0xF4, 0xDD),
+            Color.FromRgb(0xF4, 0xF7, 0xFB),
+            Color.FromRgb(0xFF, 0xFF, 0xFF),
+            Color.FromRgb(0xF2, 0xF6, 0xFB),
+            Color.FromRgb(0xE9, 0xF0, 0xF8),
+            Color.FromRgb(0xD6, 0xE1, 0xED),
+            Color.FromRgb(0x17, 0x21, 0x31),
+            Color.FromRgb(0x61, 0x71, 0x85),
+            Color.FromRgb(0xED, 0xF3, 0xFA),
+            Color.FromRgb(0x16, 0x68, 0xC7),
+            Color.FromRgb(0x2F, 0x8A, 0x56),
+            Color.FromRgb(0xE8, 0xF4, 0xEC),
+            Color.FromRgb(0xB3, 0x6A, 0x09),
+            Color.FromRgb(0xFF, 0xF3, 0xE1),
+            Color.FromRgb(0xC1, 0x4A, 0x57),
+            Color.FromRgb(0xFC, 0xEB, 0xED),
+            Color.FromRgb(0x7A, 0x55, 0xD3),
+            Color.FromRgb(0xF2, 0xEC, 0xFF),
+            Color.FromRgb(0x5D, 0x73, 0x89),
+            Color.FromRgb(0xEA, 0xF0, 0xF6));
 
         public static ThemePalette Dark { get; } = new(
             Color.FromRgb(0x09, 0x10, 0x16),
@@ -266,7 +342,7 @@ internal sealed class ThemeService : IThemeService
             Color.FromRgb(0x17, 0x23, 0x32),
             Color.FromRgb(0x1D, 0x2C, 0x3E),
             Color.FromRgb(0x26, 0x38, 0x4C),
-            Color.FromRgb(0x14, 0x20, 0x2F),
+            Color.FromRgb(0x1A, 0x2D, 0x42),
             Color.FromRgb(0x22, 0x34, 0x48),
             Color.FromRgb(0x0D, 0x15, 0x1F),
             Color.FromArgb(0x96, 0x05, 0x0A, 0x10),
@@ -295,9 +371,28 @@ internal sealed class ThemeService : IThemeService
             Color.FromRgb(0x1A, 0x2A, 0x3B),
             Color.FromRgb(0x18, 0x28, 0x39),
             Color.FromRgb(0x20, 0x34, 0x48),
-            Color.FromRgb(0x2C, 0x47, 0x62),
-            Color.FromRgb(0x21, 0x5E, 0x90),
-            Color.FromRgb(0x52, 0x3D, 0x18));
+            Color.FromRgb(0x38, 0x5B, 0x7C),
+            Color.FromRgb(0x4B, 0x82, 0xB6),
+            Color.FromRgb(0x52, 0x3D, 0x18),
+            Color.FromRgb(0x0D, 0x17, 0x25),
+            Color.FromRgb(0x11, 0x1F, 0x31),
+            Color.FromRgb(0x16, 0x28, 0x3D),
+            Color.FromRgb(0x1A, 0x2E, 0x45),
+            Color.FromRgb(0x27, 0x3A, 0x54),
+            Color.FromRgb(0xF3, 0xF7, 0xFD),
+            Color.FromRgb(0x8F, 0xA6, 0xC1),
+            Color.FromRgb(0x0E, 0x1A, 0x29),
+            Color.FromRgb(0x21, 0x5F, 0xD7),
+            Color.FromRgb(0x67, 0xD3, 0x7E),
+            Color.FromRgb(0x1A, 0x35, 0x28),
+            Color.FromRgb(0xFF, 0xAA, 0x3C),
+            Color.FromRgb(0x37, 0x2B, 0x1D),
+            Color.FromRgb(0xFF, 0x6D, 0x6D),
+            Color.FromRgb(0x3A, 0x20, 0x28),
+            Color.FromRgb(0xB1, 0x83, 0xFF),
+            Color.FromRgb(0x2F, 0x25, 0x44),
+            Color.FromRgb(0xA5, 0xB9, 0xD4),
+            Color.FromRgb(0x24, 0x34, 0x46));
     }
 
     private static void RefreshOpenWindows()

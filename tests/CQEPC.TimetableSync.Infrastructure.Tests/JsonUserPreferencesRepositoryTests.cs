@@ -1,5 +1,6 @@
 using CQEPC.TimetableSync.Application.UseCases.Workspace;
 using CQEPC.TimetableSync.Domain.Enums;
+using CQEPC.TimetableSync.Domain.Model;
 using CQEPC.TimetableSync.Infrastructure.Persistence.Local;
 using FluentAssertions;
 using Xunit;
@@ -164,6 +165,42 @@ public sealed class JsonUserPreferencesRepositoryTests
         loaded.MicrosoftSettings.TaskLists.Should().ContainSingle(item => item.Id == "tasks-456" && item.IsDefault);
         loaded.MicrosoftSettings.TaskRules.Should().ContainSingle(item => item.RuleId == MicrosoftTaskRuleIds.FirstMorningClass && item.Enabled);
         loaded.MicrosoftSettings.TaskRules.Should().ContainSingle(item => item.RuleId == MicrosoftTaskRuleIds.FirstAfternoonClass && !item.Enabled);
+    }
+
+    [Fact]
+    public async Task SaveAsyncAndLoadAsyncRoundTripRetainedDeletedCourseScheduleOverride()
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        var repository = new JsonUserPreferencesRepository(new LocalStoragePaths(tempDirectory.DirectoryPath));
+        var deletedDate = new DateOnly(2026, 3, 5);
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithTimetableResolution(new TimetableResolutionSettings(
+                manualFirstWeekStartOverride: null,
+                autoDerivedFirstWeekStart: null,
+                defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
+                explicitDefaultTimeProfileId: null,
+                courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
+                courseScheduleOverrides:
+                [
+                    new CourseScheduleOverride(
+                        "Class A",
+                        new SourceFingerprint("pdf", "deleted-signals-retained"),
+                        "Signals",
+                        deletedDate,
+                        deletedDate,
+                        new TimeOnly(8, 0),
+                        new TimeOnly(9, 40),
+                        CourseScheduleRepeatKind.None,
+                        "main-campus",
+                        sourceOccurrenceDate: deletedDate,
+                        retainsDeletedOccurrence: true),
+                ]));
+
+        await repository.SaveAsync(preferences, CancellationToken.None);
+        var loaded = await repository.LoadAsync(CancellationToken.None);
+
+        loaded.TimetableResolution.CourseScheduleOverrides.Should().ContainSingle();
+        loaded.TimetableResolution.CourseScheduleOverrides[0].RetainsDeletedOccurrence.Should().BeTrue();
     }
 
     [Fact]

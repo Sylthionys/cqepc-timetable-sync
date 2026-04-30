@@ -601,8 +601,8 @@ public sealed class WorkspaceSessionResolutionTests
         session.CourseEditor.CourseTitle = "Signals Updated";
         session.CourseEditor.StartDate = new DateTime(2026, 3, 2);
         session.CourseEditor.EndDate = new DateTime(2026, 3, 16);
-        session.CourseEditor.StartTimeText = "09:00";
-        session.CourseEditor.EndTimeText = "10:10";
+        session.CourseEditor.StartTimeText = "0900";
+        session.CourseEditor.EndTimeText = "1010";
         session.CourseEditor.Location = "Lab 204";
         session.CourseEditor.SelectWeeklyRepeatCommand.Execute(null);
         await session.CourseEditor.SaveCommand.ExecuteAsync(null);
@@ -618,6 +618,156 @@ public sealed class WorkspaceSessionResolutionTests
         savedOverride.EndTime.Should().Be(new TimeOnly(10, 10));
         savedOverride.Location.Should().Be("Lab 204");
         savedOverride.RepeatKind.Should().Be(CourseScheduleRepeatKind.Weekly);
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionSavesSingleOccurrenceEditorChangesWithSourceOccurrenceDate()
+    {
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            preferencesRepository,
+            new DynamicWorkspacePreviewService());
+
+        await session.InitializeAsync();
+
+        var occurrence = session.CurrentOccurrences.Single();
+        session.OpenCourseOccurrenceEditor(occurrence, occurrence.OccurrenceDate);
+        session.CourseEditor.StartTimeText = "18:30";
+        session.CourseEditor.EndTimeText = "20:00";
+        session.CourseEditor.Location = "Lab 509";
+        session.CourseEditor.SelectNoneRepeatCommand.Execute(null);
+        await session.CourseEditor.SaveCommand.ExecuteAsync(null);
+        await WaitForAsyncWorkAsync();
+
+        preferencesRepository.SavedPreferences.TimetableResolution.CourseScheduleOverrides.Should().ContainSingle();
+        var savedOverride = preferencesRepository.SavedPreferences.TimetableResolution.CourseScheduleOverrides[0];
+        savedOverride.SourceOccurrenceDate.Should().Be(occurrence.OccurrenceDate);
+        savedOverride.StartDate.Should().Be(occurrence.OccurrenceDate);
+        savedOverride.EndDate.Should().Be(occurrence.OccurrenceDate);
+        savedOverride.StartTime.Should().Be(new TimeOnly(18, 30));
+        savedOverride.EndTime.Should().Be(new TimeOnly(20, 0));
+        savedOverride.Location.Should().Be("Lab 509");
+        savedOverride.RepeatKind.Should().Be(CourseScheduleRepeatKind.None);
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionPromotesSingleOccurrenceEditorToRuleOverrideWhenRepeatIsSelected()
+    {
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            preferencesRepository,
+            new DynamicWorkspacePreviewService());
+
+        await session.InitializeAsync();
+
+        var occurrence = session.CurrentOccurrences.Single();
+        session.OpenCourseOccurrenceEditor(occurrence, occurrence.OccurrenceDate);
+        session.CourseEditor.StartDate = new DateTime(2026, 3, 2);
+        session.CourseEditor.EndDate = new DateTime(2026, 3, 16);
+        session.CourseEditor.StartTimeText = "18:30";
+        session.CourseEditor.EndTimeText = "20:00";
+        session.CourseEditor.Location = "Lab 509";
+        session.CourseEditor.SelectWeeklyRepeatCommand.Execute(null);
+        await session.CourseEditor.SaveCommand.ExecuteAsync(null);
+        await WaitForAsyncWorkAsync();
+
+        preferencesRepository.SavedPreferences.TimetableResolution.CourseScheduleOverrides.Should().ContainSingle();
+        var savedOverride = preferencesRepository.SavedPreferences.TimetableResolution.CourseScheduleOverrides[0];
+        savedOverride.SourceOccurrenceDate.Should().BeNull();
+        savedOverride.StartDate.Should().Be(new DateOnly(2026, 3, 2));
+        savedOverride.EndDate.Should().Be(new DateOnly(2026, 3, 16));
+        savedOverride.RepeatKind.Should().Be(CourseScheduleRepeatKind.Weekly);
+        savedOverride.Location.Should().Be("Lab 509");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionCourseEditorSaveSwapsInvertedRepeatDates()
+    {
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            preferencesRepository,
+            new DynamicWorkspacePreviewService());
+
+        await session.InitializeAsync();
+
+        var occurrence = session.CurrentOccurrences.Single();
+        session.OpenCourseEditor(occurrence);
+        session.CourseEditor.StartDate = new DateTime(2026, 3, 16);
+        session.CourseEditor.EndDate = new DateTime(2026, 3, 2);
+        session.CourseEditor.SelectWeeklyRepeatCommand.Execute(null);
+        await session.CourseEditor.SaveCommand.ExecuteAsync(null);
+        await WaitForAsyncWorkAsync();
+
+        var savedOverride = preferencesRepository.SavedPreferences.TimetableResolution.CourseScheduleOverrides.Should().ContainSingle().Subject;
+        savedOverride.StartDate.Should().Be(new DateOnly(2026, 3, 2));
+        savedOverride.EndDate.Should().Be(new DateOnly(2026, 3, 16));
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionDoesNotInferBiweeklyForSparseFourWeekCadence()
+    {
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var sparseFingerprint = new SourceFingerprint("pdf", "signals-sparse-four-week");
+        var previewService = new DynamicWorkspacePreviewService(
+            request =>
+            {
+                var classSchedules = CreateClassSchedules();
+                var schoolWeeks = new[]
+                {
+                    new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8)),
+                    new SchoolWeek(5, new DateOnly(2026, 3, 30), new DateOnly(2026, 4, 5)),
+                    new SchoolWeek(9, new DateOnly(2026, 4, 27), new DateOnly(2026, 5, 3)),
+                };
+                var timeProfiles = CreateTimeProfiles();
+                var occurrences = new[]
+                {
+                    CreateOccurrence("Class A", "Signals", "main-campus", sparseFingerprint, new DateOnly(2026, 3, 2), schoolWeekNumber: 1),
+                    CreateOccurrence("Class A", "Signals", "main-campus", sparseFingerprint, new DateOnly(2026, 3, 30), schoolWeekNumber: 5),
+                    CreateOccurrence("Class A", "Signals", "main-campus", sparseFingerprint, new DateOnly(2026, 4, 27), schoolWeekNumber: 9),
+                };
+                var normalization = new CQEPC.TimetableSync.Application.Abstractions.Normalization.NormalizationResult(
+                    classSchedules.SelectMany(static schedule => schedule.CourseBlocks).ToArray(),
+                    occurrences,
+                    occurrences.Select(static occurrence => new ExportGroup(ExportGroupKind.SingleOccurrence, [occurrence])).ToArray(),
+                    Array.Empty<UnresolvedItem>());
+                var syncPlan = new SyncPlan(occurrences, Array.Empty<PlannedSyncChange>(), Array.Empty<UnresolvedItem>());
+
+                return new WorkspacePreviewResult(
+                    request.CatalogState,
+                    request.Preferences,
+                    PreviousSnapshot: null,
+                    ParsedClassSchedules: classSchedules,
+                    SchoolWeeks: schoolWeeks,
+                    TimeProfiles: timeProfiles,
+                    ParserWarnings: Array.Empty<CQEPC.TimetableSync.Application.Abstractions.Parsing.ParseWarning>(),
+                    ParserDiagnostics: Array.Empty<CQEPC.TimetableSync.Application.Abstractions.Parsing.ParseDiagnostic>(),
+                    ParserUnresolvedItems: Array.Empty<UnresolvedItem>(),
+                    EffectiveSelectedClassName: "Class A",
+                    DerivedFirstWeekStart: schoolWeeks[0].StartDate,
+                    EffectiveFirstWeekStart: schoolWeeks[0].StartDate,
+                    EffectiveFirstWeekSource: FirstWeekStartValueSource.AutoDerivedFromXls,
+                    EffectiveTimeProfileDefaultMode: TimeProfileDefaultMode.Automatic,
+                    EffectiveExplicitDefaultTimeProfileId: null,
+                    EffectiveSelectedTimeProfileId: "main-campus",
+                    AppliedTimeProfileOverrideCount: 0,
+                    TaskGenerationRules: Array.Empty<RuleBasedTaskGenerationRule>(),
+                    GeneratedTaskCount: 0,
+                    NormalizationResult: normalization,
+                    SyncPlan: syncPlan,
+                    Status: new WorkspacePreviewStatus(WorkspacePreviewStatusKind.UpToDate));
+            });
+        var session = CreateSession(CreateReadyCatalogState(), preferencesRepository, previewService);
+
+        await session.InitializeAsync();
+
+        session.OpenCourseEditor(session.CurrentOccurrences[0]);
+
+        session.CourseEditor.IsRepeatBiweeklySelected.Should().BeFalse();
+        session.CourseEditor.SelectedRepeatOption!.RepeatKind.Should().Be(CourseScheduleRepeatKind.Weekly);
+        session.CourseEditor.RepeatInterval.Should().Be(4);
     }
 
     [Fact]
@@ -1641,6 +1791,31 @@ public sealed class WorkspaceSessionResolutionTests
                 location: $"{className}-101",
                 teacher: "Teacher A"),
             sourceFingerprint: new SourceFingerprint("pdf", $"{className}-{courseTitle}-20260302"),
+            courseType: "Theory");
+
+    private static ResolvedOccurrence CreateOccurrence(
+        string className,
+        string courseTitle,
+        string profileId,
+        SourceFingerprint sourceFingerprint,
+        DateOnly date,
+        int schoolWeekNumber) =>
+        new(
+            className,
+            schoolWeekNumber,
+            date,
+            new DateTimeOffset(date.ToDateTime(new TimeOnly(8, 0)), TimeSpan.FromHours(8)),
+            new DateTimeOffset(date.ToDateTime(new TimeOnly(9, 40)), TimeSpan.FromHours(8)),
+            profileId,
+            date.DayOfWeek,
+            new CourseMetadata(
+                courseTitle,
+                new WeekExpression("1,5,9"),
+                new PeriodRange(1, 2),
+                campus: "Main Campus",
+                location: $"{className}-101",
+                teacher: "Teacher A"),
+            sourceFingerprint,
             courseType: "Theory");
 
     private static WorkspacePreviewResult CreatePreviewWithOnePlannedChange(WorkspacePreviewRequest request)

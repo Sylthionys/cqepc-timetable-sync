@@ -65,8 +65,11 @@ For regular timetable blocks, `SourceFingerprint` is intentionally block-local. 
 ## Tagged Metadata Rules
 
 Tagged metadata is extracted from label markers inside the block payload. See the companion token file for the exact Chinese labels.
+Known label aliases must be canonicalized before structured-field assignment. In particular, the shorter `/教学班:` form must be treated the same as `/教学班组成:` so teacher values do not accidentally absorb the teaching-class payload.
 
 Unknown trailing labeled metadata is preserved in `Notes` instead of being guessed into new structured fields.
+
+When the parser keeps that trailing metadata only as slash-delimited tagged note segments, downstream Import diff rendering must preserve the recovered tail as `After` notes even when there is no explicit `Notes:` label in the payload.
 
 The parser also tolerates short metadata-tail fragments such as split credit/hour suffixes when they can be attached losslessly to the immediately preceding block in the same weekday column or the previous page carryover target.
 

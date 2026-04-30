@@ -120,6 +120,8 @@ public static class UiText
     public static string TaskSyncGoogleExistingEventsTitle => GetString(nameof(TaskSyncGoogleExistingEventsTitle), "Syncing existing Google events");
     public static string TaskSyncGoogleExistingEventsDetail => GetString(nameof(TaskSyncGoogleExistingEventsDetail), "Refreshing existing Google Calendar events in the preview.");
     public static string TaskSyncGoogleExistingEventsRefreshingDetail => GetString(nameof(TaskSyncGoogleExistingEventsRefreshingDetail), "Reading current Google Calendar events and rebuilding the local preview.");
+    public static string TaskRefreshLocalPreviewTitle => GetString(nameof(TaskRefreshLocalPreviewTitle), "Refreshing local preview");
+    public static string TaskRefreshLocalPreviewDetail => GetString(nameof(TaskRefreshLocalPreviewDetail), "Saving the latest timetable override and rebuilding the Import/Home preview.");
     public static string TaskStartupGoogleSyncTitle => GetString(nameof(TaskStartupGoogleSyncTitle), "Startup Google event sync");
     public static string TaskStartupGoogleSyncDetail => GetString(nameof(TaskStartupGoogleSyncDetail), "Syncing existing Google events automatically after startup.");
     public static string TaskPostConnectGoogleSyncTitle => GetString(nameof(TaskPostConnectGoogleSyncTitle), "Post-connect Google event sync");
@@ -183,8 +185,18 @@ public static class UiText
         nameof(CourseEditorOccurrenceSummaryFormat),
         "Editing {0} linked occurrence(s). Changes here update the local preview and upcoming sync diff.");
     public static string CourseEditorRepeatNone => GetString(nameof(CourseEditorRepeatNone), "One time");
+    public static string CourseEditorRepeatDaily => GetString(nameof(CourseEditorRepeatDaily), "Daily");
     public static string CourseEditorRepeatWeekly => GetString(nameof(CourseEditorRepeatWeekly), "Weekly");
     public static string CourseEditorRepeatBiweekly => GetString(nameof(CourseEditorRepeatBiweekly), "Biweekly");
+    public static string CourseEditorRepeatMonthly => GetString(nameof(CourseEditorRepeatMonthly), "Monthly");
+    public static string CourseEditorRepeatYearly => GetString(nameof(CourseEditorRepeatYearly), "Yearly");
+    public static string CourseEditorRepeatUnitDay => GetString(nameof(CourseEditorRepeatUnitDay), "day");
+    public static string CourseEditorRepeatUnitWeek => GetString(nameof(CourseEditorRepeatUnitWeek), "week");
+    public static string CourseEditorRepeatUnitMonth => GetString(nameof(CourseEditorRepeatUnitMonth), "month");
+    public static string CourseEditorRepeatUnitYear => GetString(nameof(CourseEditorRepeatUnitYear), "year");
+    public static string CourseEditorRepeatEveryIntervalFormat => GetString(nameof(CourseEditorRepeatEveryIntervalFormat), "Every {0} {1}");
+    public static string CourseEditorMonthlyPatternDayOfMonthFormat => GetString(nameof(CourseEditorMonthlyPatternDayOfMonthFormat), "Monthly on day {0}");
+    public static string CourseEditorMonthlyPatternLastWeekdayFormat => GetString(nameof(CourseEditorMonthlyPatternLastWeekdayFormat), "Monthly on the last {0}");
     public static string CourseEditorValidationTitle => GetString(nameof(CourseEditorValidationTitle), "Course name is required.");
     public static string CourseEditorValidationDate => GetString(nameof(CourseEditorValidationDate), "Start date and end date are required.");
     public static string CourseEditorValidationTime => GetString(nameof(CourseEditorValidationTime), "Enter valid start and end times in HH:mm format.");
@@ -305,19 +317,91 @@ public static class UiText
     public static string ImportAddedTitle => GetString(nameof(ImportAddedTitle), "Added");
     public static string ImportUpdatedTitle => GetString(nameof(ImportUpdatedTitle), "Updated");
     public static string ImportDeletedTitle => GetString(nameof(ImportDeletedTitle), "Deleted");
+    public static string ImportConflictTitle => GetString(nameof(ImportConflictTitle), "Conflict");
+    public static string ImportShowSelectedOnlyButton => GetString(nameof(ImportShowSelectedOnlyButton), "Show Selected");
+    public static string ImportShowAllButton => GetString(nameof(ImportShowAllButton), "Show All");
+    public static string ImportFooterAllChangesFormat => GetString(nameof(ImportFooterAllChangesFormat), "Showing all {0} / {1} changes");
+    public static string ImportFooterSelectedChangesFormat => GetString(nameof(ImportFooterSelectedChangesFormat), "Showing selected {0} / {1} changes");
+    public static string ImportWorkflowSelectTitle => GetString(nameof(ImportWorkflowSelectTitle), "Select Changes");
+    public static string ImportWorkflowSelectSummary => GetString(nameof(ImportWorkflowSelectSummary), "Filter and select changes to apply");
+    public static string ImportWorkflowPreviewTitle => GetString(nameof(ImportWorkflowPreviewTitle), "Preview Apply");
+    public static string ImportWorkflowPreviewSummary => GetString(nameof(ImportWorkflowPreviewSummary), "Confirm the local write set");
+    public static string ImportWorkflowSyncTitle => GetString(nameof(ImportWorkflowSyncTitle), "Apply and Sync");
+    public static string ImportWorkflowSyncSummary => GetString(nameof(ImportWorkflowSyncSummary), "Update target calendars and task lists");
+    public static string ImportCurrentStepSelectTitle => GetString(nameof(ImportCurrentStepSelectTitle), "Current step: Select Changes");
+    public static string ImportCurrentStepPreviewTitle => GetString(nameof(ImportCurrentStepPreviewTitle), "Current step: Preview Apply");
+    public static string ImportCurrentStepSyncTitle => GetString(nameof(ImportCurrentStepSyncTitle), "Current step: Apply and Sync");
+    public static string ImportCurrentStepCompletedTitle => GetString(nameof(ImportCurrentStepCompletedTitle), "Current step: Completed");
+    public static string ImportCurrentStepSelectSummary => GetString(nameof(ImportCurrentStepSelectSummary), "Filter and select the changes to apply first.");
+    public static string ImportCurrentStepPreviewSummary => GetString(nameof(ImportCurrentStepPreviewSummary), "Local changes are confirmed; next sync them to the target calendar.");
+    public static string ImportCurrentStepSyncSummary => GetString(nameof(ImportCurrentStepSyncSummary), "Syncing confirmed changes to the target calendar.");
+    public static string ImportCurrentStepCompletedSummary => GetString(nameof(ImportCurrentStepCompletedSummary), "Changes have synced; continue reviewing the result.");
+    public static string ImportTypeFilterAll => GetString(nameof(ImportTypeFilterAll), "All Types");
+    public static string ImportTypeFilterCourses => GetString(nameof(ImportTypeFilterCourses), "Courses Only");
+    public static string ImportTypeFilterTasks => GetString(nameof(ImportTypeFilterTasks), "Tasks Only");
+    public static string ImportStatusFilterAll => GetString(nameof(ImportStatusFilterAll), "All Statuses");
+    public static string ImportGroupByCourse => GetString(nameof(ImportGroupByCourse), "Group by Course");
+    public static string ImportGroupByStatus => GetString(nameof(ImportGroupByStatus), "Group by Status");
+    public static string ImportSortByDate => GetString(nameof(ImportSortByDate), "Sort by Date");
+    public static string ImportSortByCourse => GetString(nameof(ImportSortByCourse), "Sort by Course");
+    public static string ImportStatusOtherTitle => GetString(nameof(ImportStatusOtherTitle), "Change");
+    public static string ImportHeaderContextSummaryFormat => GetString(nameof(ImportHeaderContextSummaryFormat), "Source: {0} | Timeline: {1} | Warnings: {2} | Unresolved: {3}");
+    public static string ImportHeaderCompactSummaryFormat => GetString(nameof(ImportHeaderCompactSummaryFormat), "{0} | Warnings: {1} | Unresolved: {2}");
+    public static string ImportSelectedCountFormat => GetString(nameof(ImportSelectedCountFormat), "Selected {0}");
+    public static string ImportCourseAndRangeSummaryFormat => GetString(nameof(ImportCourseAndRangeSummaryFormat), "{0} course(s) | {1}");
+    public static string ImportNoOccurrenceSelected => GetString(nameof(ImportNoOccurrenceSelected), "No item selected");
+    public static string ImportDatePending => GetString(nameof(ImportDatePending), "Date pending");
+    public static string ImportTimePending => GetString(nameof(ImportTimePending), "Time pending");
+    public static string ImportTeacherNotListed => GetString(nameof(ImportTeacherNotListed), "Teacher: Not listed");
+    public static string ImportTeacherSummaryNotListed => GetString(nameof(ImportTeacherSummaryNotListed), "Teacher: Not listed");
+    public static string ImportTeacherSummaryFormat => GetString(nameof(ImportTeacherSummaryFormat), "Teacher: {0}");
+    public static string ImportDetailInfoTitle => GetString(nameof(ImportDetailInfoTitle), "Details");
+    public static string ImportFooterSelectionFormat => GetString(nameof(ImportFooterSelectionFormat), "Selected {0} item(s)");
+    public static string ImportFooterCrossPageLinked => GetString(nameof(ImportFooterCrossPageLinked), "Current page selection is linked");
+    public static string ImportFooterCrossPageUnlinked => GetString(nameof(ImportFooterCrossPageUnlinked), "Current page selection is not linked");
+    public static string ImportDateRangePending => GetString(nameof(ImportDateRangePending), "Time pending");
+    public static string ImportRequiredCourseType => GetString(nameof(ImportRequiredCourseType), "Required");
+    public static string ImportInlineListSeparator => GetString(nameof(ImportInlineListSeparator), ", ");
+    public static string ImportChangedBadgeFormat => GetString(nameof(ImportChangedBadgeFormat), "{0} changed");
+    public static string ImportChangePreviewHeading => GetString(nameof(ImportChangePreviewHeading), "Change Preview");
+    public static string ImportChangePreviewSummary => GetString(nameof(ImportChangePreviewSummary), "Review timetable change details and selectively apply them to the target calendar.");
+    public static string ImportMetricTotalLabel => GetString(nameof(ImportMetricTotalLabel), "Total");
+    public static string ImportUnchangedTitle => GetString(nameof(ImportUnchangedTitle), "Unchanged");
+    public static string ImportChangesUnitLabel => GetString(nameof(ImportChangesUnitLabel), "changes");
+    public static string ImportCurrentSelectedLabel => GetString(nameof(ImportCurrentSelectedLabel), "Current selection");
+    public static string ImportSelectCurrentPageToggle => GetString(nameof(ImportSelectCurrentPageToggle), "Select current page");
+    public static string ImportChangedFieldsOnlyToggle => GetString(nameof(ImportChangedFieldsOnlyToggle), "Changed fields only");
+    public static string ImportChangeSummaryTitle => GetString(nameof(ImportChangeSummaryTitle), "Change summary");
     public static string ImportTimeProfileFallbackTitle => GetString(nameof(ImportTimeProfileFallbackTitle), "Time-Profile Fallbacks");
     public static string ImportTimeProfileFallbackHint => GetString(
         nameof(ImportTimeProfileFallbackHint),
         "Automatic matching fell back to another same-campus time profile because the preferred profile did not define the requested periods. Review and explicitly confirm these changes before applying them.");
     public static string ImportUnresolvedTitle => GetString(nameof(ImportUnresolvedTitle), "Unresolved");
+    public static string ImportScheduleConflictTitle => GetString(nameof(ImportScheduleConflictTitle), "Schedule Conflict");
     public static string ImportBeforeTitle => GetString(nameof(ImportBeforeTitle), "Before");
     public static string ImportAfterTitle => GetString(nameof(ImportAfterTitle), "After");
     public static string ImportFieldTime => GetString(nameof(ImportFieldTime), "Time");
     public static string ImportFieldLocation => GetString(nameof(ImportFieldLocation), "Location");
     public static string ImportFieldTimeZone => GetString(nameof(ImportFieldTimeZone), "Time zone");
     public static string ImportFieldColor => GetString(nameof(ImportFieldColor), "Color");
+    public static string ImportFieldCalendar => GetString(nameof(ImportFieldCalendar), "Calendar");
     public static string ImportFieldChangeSource => GetString(nameof(ImportFieldChangeSource), "Source");
+    public static string ImportFieldCourseTitle => GetString(nameof(ImportFieldCourseTitle), "Course");
+    public static string ImportFieldClass => GetString(nameof(ImportFieldClass), "Class");
+    public static string ImportFieldCampus => GetString(nameof(ImportFieldCampus), "Campus");
+    public static string ImportFieldTeacher => GetString(nameof(ImportFieldTeacher), "Teacher");
+    public static string ImportFieldTeachingClass => GetString(nameof(ImportFieldTeachingClass), "Teaching Class");
+    public static string ImportFieldCourseType => GetString(nameof(ImportFieldCourseType), "Course Type");
+    public static string ImportSharedDetailsTitle => GetString(nameof(ImportSharedDetailsTitle), "Shared details");
+    public static string ImportChangedFieldsTitle => GetString(nameof(ImportChangedFieldsTitle), "Changed items");
     public static string ImportFieldRepeat => GetString(nameof(ImportFieldRepeat), "Repeat");
+    public static string ImportDetailNotesDiffTitle => GetString(nameof(ImportDetailNotesDiffTitle), "Google Calendar notes diff");
+    public static string ImportDetailSettingsTitle => GetString(nameof(ImportDetailSettingsTitle), "Course settings");
+    public static string ImportDetailSettingsInlineSummary => GetString(nameof(ImportDetailSettingsInlineSummary), "Inline settings");
+    public static string ImportDetailParsedOnlySummary => GetString(nameof(ImportDetailParsedOnlySummary), "Parsed timetable only");
+    public static string ImportDetailNoPopupSummary => GetString(nameof(ImportDetailNoPopupSummary), "Shown in detail panel");
+    public static string ImportDetailWriteOptionsSlotTitle => GetString(nameof(ImportDetailWriteOptionsSlotTitle), "Write options");
+    public static string ImportDetailWriteOptionsSlotSummary => GetString(nameof(ImportDetailWriteOptionsSlotSummary), "Reserved for final Google Calendar payload overrides.");
     public static string ImportCalendarDestinationFormat => GetString(nameof(ImportCalendarDestinationFormat), "Calendar: {0}");
     public static string ImportTaskListDestinationFormat => GetString(nameof(ImportTaskListDestinationFormat), "Task list: {0}");
     public static string ImportTimeProfileFormat => GetString(nameof(ImportTimeProfileFormat), "Time profile: {0}");
@@ -335,14 +419,21 @@ public static class UiText
     public static string ImportParsedGroupSummaryFormat => GetString(nameof(ImportParsedGroupSummaryFormat), "{0} editable schedule(s).");
     public static string ImportParsedOccurrenceGroupSummaryFormat => GetString(nameof(ImportParsedOccurrenceGroupSummaryFormat), "{0} parsed occurrence(s).");
     public static string ImportUnresolvedGroupSummaryFormat => GetString(nameof(ImportUnresolvedGroupSummaryFormat), "{0} time item(s) need manual confirmation.");
+    public static string ImportScheduleConflictGroupSummaryFormat => GetString(nameof(ImportScheduleConflictGroupSummaryFormat), "{0} course item(s) share this time.");
+    public static string ImportUnresolvedPeriodsFormat => GetString(nameof(ImportUnresolvedPeriodsFormat), "Periods {0}");
+    public static string ImportUnresolvedWeeksFormat => GetString(nameof(ImportUnresolvedWeeksFormat), "Weeks {0}");
     public static string ImportEditDetailsButton => GetString(nameof(ImportEditDetailsButton), "Edit Details");
+    public static string ImportCancelDeleteButton => GetString(nameof(ImportCancelDeleteButton), "Cancel Delete");
     public static string CourseEditorPendingBadge => GetString(nameof(CourseEditorPendingBadge), "Manual confirmation");
     public static string CourseEditorNameLabel => GetString(nameof(CourseEditorNameLabel), "Course Name");
+    public static string CourseEditorDateLabel => GetString(nameof(CourseEditorDateLabel), "Date");
     public static string CourseEditorStartDateLabel => GetString(nameof(CourseEditorStartDateLabel), "Start Date");
     public static string CourseEditorEndDateLabel => GetString(nameof(CourseEditorEndDateLabel), "End Date");
     public static string CourseEditorStartTimeLabel => GetString(nameof(CourseEditorStartTimeLabel), "Start Time");
     public static string CourseEditorEndTimeLabel => GetString(nameof(CourseEditorEndTimeLabel), "End Time");
     public static string CourseEditorRepeatLabel => GetString(nameof(CourseEditorRepeatLabel), "Repeat");
+    public static string CourseEditorRepeatEveryLabel => GetString(nameof(CourseEditorRepeatEveryLabel), "Every");
+    public static string CourseEditorRepeatDateRangeLabel => GetString(nameof(CourseEditorRepeatDateRangeLabel), "Date Range");
     public static string CourseEditorLocationLabel => GetString(nameof(CourseEditorLocationLabel), "Location");
     public static string CourseEditorNotesLabel => GetString(nameof(CourseEditorNotesLabel), "Notes");
     public static string CourseEditorOccurrenceCountFormat => GetString(nameof(CourseEditorOccurrenceCountFormat), "{0} linked occurrence(s)");
@@ -637,8 +728,44 @@ public static class UiText
     public static string FormatApplySelectedButton(int count) =>
         Format(ImportApplySelectedFormat, count);
 
+    public static string FormatImportFooterAllChanges(int visibleCount, int totalCount) =>
+        Format(ImportFooterAllChangesFormat, visibleCount, totalCount);
+
+    public static string FormatImportFooterSelectedChanges(int visibleCount, int totalCount) =>
+        Format(ImportFooterSelectedChangesFormat, visibleCount, totalCount);
+
+    public static string FormatImportHeaderContextSummary(string className, string timeProfile, int warningCount, int unresolvedCount) =>
+        Format(ImportHeaderContextSummaryFormat, className, timeProfile, warningCount, unresolvedCount);
+
+    public static string FormatImportHeaderCompactSummary(object provider, int warningCount, int unresolvedCount) =>
+        Format(ImportHeaderCompactSummaryFormat, provider, warningCount, unresolvedCount);
+
+    public static string FormatImportSelectedCount(int count) =>
+        Format(ImportSelectedCountFormat, count);
+
+    public static string FormatImportCourseAndRangeSummary(int count, string rangeSummary) =>
+        Format(ImportCourseAndRangeSummaryFormat, count, rangeSummary);
+
+    public static string FormatImportTeacherSummary(string value) =>
+        Format(ImportTeacherSummaryFormat, value);
+
+    public static string FormatImportFooterSelection(int count) =>
+        Format(ImportFooterSelectionFormat, count);
+
+    public static string FormatImportChangedBadge(string label) =>
+        Format(ImportChangedBadgeFormat, label);
+
     public static string FormatImportUnresolvedGroupSummary(int count) =>
         Format(ImportUnresolvedGroupSummaryFormat, count);
+
+    public static string FormatImportScheduleConflictGroupSummary(int count) =>
+        Format(ImportScheduleConflictGroupSummaryFormat, count);
+
+    public static string FormatImportUnresolvedPeriods(string periods) =>
+        Format(ImportUnresolvedPeriodsFormat, periods);
+
+    public static string FormatImportUnresolvedWeeks(string weeks) =>
+        Format(ImportUnresolvedWeeksFormat, weeks);
 
     public static string FormatImportParsedGroupSummary(int count) =>
         Format(ImportParsedGroupSummaryFormat, count);

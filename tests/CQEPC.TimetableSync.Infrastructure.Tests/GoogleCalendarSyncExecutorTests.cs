@@ -340,6 +340,57 @@ public sealed class GoogleCalendarSyncExecutorTests
     }
 
     [Fact]
+    public async Task ApplyChangeAsyncRemovesAllMappingsWhenRecurringMasterIsDeleted()
+    {
+        var fakeClient = new FakeGoogleCalendarSyncClient();
+        var executor = new GoogleCalendarSyncExecutor(fakeClient);
+        var firstOccurrence = CreateOccurrence(new DateOnly(2026, 3, 16), new TimeOnly(14, 30), new TimeOnly(16, 0), "Signals");
+        var secondOccurrence = CreateOccurrence(new DateOnly(2026, 3, 23), new TimeOnly(14, 30), new TimeOnly(16, 0), "Signals");
+        var firstLocalSyncId = SyncIdentity.CreateOccurrenceId(firstOccurrence);
+        var secondLocalSyncId = SyncIdentity.CreateOccurrenceId(secondOccurrence);
+        var mappings = new Dictionary<string, SyncMapping>(StringComparer.Ordinal)
+        {
+            [firstLocalSyncId] = new SyncMapping(
+                ProviderKind.Google,
+                SyncTargetKind.CalendarEvent,
+                SyncMappingKind.RecurringMember,
+                firstLocalSyncId,
+                "old-calendar",
+                "old-instance-1",
+                parentRemoteItemId: "series-id",
+                originalStartTimeUtc: firstOccurrence.Start.ToUniversalTime(),
+                firstOccurrence.SourceFingerprint,
+                DateTimeOffset.UtcNow),
+            [secondLocalSyncId] = new SyncMapping(
+                ProviderKind.Google,
+                SyncTargetKind.CalendarEvent,
+                SyncMappingKind.RecurringMember,
+                secondLocalSyncId,
+                "old-calendar",
+                "old-instance-2",
+                parentRemoteItemId: "series-id",
+                originalStartTimeUtc: secondOccurrence.Start.ToUniversalTime(),
+                secondOccurrence.SourceFingerprint,
+                DateTimeOffset.UtcNow),
+        };
+
+        await executor.ApplyChangeAsync(
+            "new-calendar",
+            new PlannedSyncChange(
+                SyncChangeKind.Deleted,
+                SyncTargetKind.CalendarEvent,
+                firstLocalSyncId,
+                changeSource: SyncChangeSource.RemoteManaged,
+                before: firstOccurrence),
+            mappings,
+            CancellationToken.None);
+
+        fakeClient.DeleteRequests.Should().HaveCount(2);
+        fakeClient.DeleteRequests[0].RemoteItemId.Should().Be("series-id");
+        mappings.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task ApplyChangeAsyncDeletesRecurringInstanceAfterRecurringMasterForRemoteManagedDeleteWhenMappingExists()
     {
         var occurrence = CreateOccurrence(new DateOnly(2026, 3, 16), new TimeOnly(14, 30), new TimeOnly(16, 0), "Signals");

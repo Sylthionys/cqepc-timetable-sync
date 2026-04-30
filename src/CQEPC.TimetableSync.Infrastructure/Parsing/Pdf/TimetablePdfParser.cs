@@ -1385,6 +1385,11 @@ public sealed partial class TimetablePdfParser : ITimetableParser
         {
             var labelMatch = labelMatches[index];
             var label = labelMatch.Groups["label"].Value;
+            if (string.Equals(label, TimetablePdfLexicon.TeachingClass, StringComparison.Ordinal))
+            {
+                label = TimetablePdfLexicon.TeachingClassComposition;
+            }
+
             var valueStart = labelMatch.Index + labelMatch.Length;
             var valueEnd = index == labelMatches.Count - 1 ? payload.Length : labelMatches[index + 1].Index;
             var value = NormalizeText(payload[valueStart..valueEnd]);

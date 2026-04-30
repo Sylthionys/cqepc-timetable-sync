@@ -157,3 +157,8 @@ public sealed record CoursePresentationEditorSaveRequest(
     string? GoogleCalendarColorId);
 
 public sealed record CoursePresentationEditorResetRequest(string ClassName, string CourseTitle);
+
+public sealed record CoursePresentationSelection(
+    string? SelectedTimeZoneId,
+    string? SelectedColorId,
+    bool CanReset);

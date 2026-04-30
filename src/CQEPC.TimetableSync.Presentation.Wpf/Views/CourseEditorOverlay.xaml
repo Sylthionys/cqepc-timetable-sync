@@ -1,6 +1,7 @@
 ﻿<UserControl x:Class="CQEPC.TimetableSync.Presentation.Wpf.Views.CourseEditorOverlay"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Controls"
              AutomationProperties.AutomationId="CourseEditorOverlay.Root">
     <UserControl.Resources>
         <DataTemplate x:Key="CourseEditorTimeZoneOptionTemplate">
@@ -40,6 +41,14 @@
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        </Style>
+        <Style x:Key="CourseEditorTimeTextBoxStyle" TargetType="controls:TimeTextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="Padding" Value="14,11" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
         <Style x:Key="CourseEditorPreviewCardStyle" TargetType="Border" BasedOn="{StaticResource CourseEditorSectionStyle}">
             <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
@@ -261,14 +270,14 @@
 
                                     <StackPanel Grid.Row="1" Margin="0,16,0,0">
                                         <TextBlock Style="{StaticResource CourseEditorFieldLabelStyle}" Text="{DynamicResource CourseEditorStartTimeLabel}" />
-                                        <TextBox Style="{StaticResource CourseEditorTextBoxStyle}"
-                                                 Text="{Binding StartTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        <controls:TimeTextBox Style="{StaticResource CourseEditorTimeTextBoxStyle}"
+                                                              Text="{Binding StartTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                     </StackPanel>
 
                                     <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,16,0,0">
                                         <TextBlock Style="{StaticResource CourseEditorFieldLabelStyle}" Text="{DynamicResource CourseEditorEndTimeLabel}" />
-                                        <TextBox Style="{StaticResource CourseEditorTextBoxStyle}"
-                                                 Text="{Binding EndTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        <controls:TimeTextBox Style="{StaticResource CourseEditorTimeTextBoxStyle}"
+                                                              Text="{Binding EndTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                     </StackPanel>
                                 </Grid>
                             </StackPanel>

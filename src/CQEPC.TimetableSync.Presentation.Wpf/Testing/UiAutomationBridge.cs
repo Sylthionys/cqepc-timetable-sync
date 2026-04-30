@@ -5,6 +5,8 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using System.Windows.Threading;
 using System.Globalization;
 using CQEPC.TimetableSync.Domain.Model;
@@ -156,6 +158,15 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
                     return await ExecuteUiFuncAsync(GetLocalizationState, cancellationToken).ConfigureAwait(false);
                 case "get-title-bar-theme-state":
                     return await ExecuteUiFuncAsync(GetTitleBarThemeState, cancellationToken).ConfigureAwait(false);
+                case "get-date-picker-calendar-theme-state":
+                    if (string.IsNullOrWhiteSpace(request.AutomationId))
+                    {
+                        return new UiAutomationBridgeResponse(false, "The date-picker theme-state request was incomplete.");
+                    }
+
+                    return await ExecuteUiFuncAsync(
+                        () => GetDatePickerCalendarThemeState(request.AutomationId),
+                        cancellationToken).ConfigureAwait(false);
                 case "select-home-date":
                     if (string.IsNullOrWhiteSpace(request.Value))
                     {
@@ -260,6 +271,40 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
 
         datePicker.IsDropDownOpen = true;
         datePicker.UpdateLayout();
+    }
+
+    private UiAutomationBridgeResponse GetDatePickerCalendarThemeState(string automationId)
+    {
+        if (FindElementByAutomationId(window, automationId) is not DatePicker datePicker)
+        {
+            return new UiAutomationBridgeResponse(false, $"The automation bridge could not find date-picker '{automationId}'.");
+        }
+
+        datePicker.IsDropDownOpen = true;
+        datePicker.ApplyTemplate();
+        datePicker.UpdateLayout();
+
+        if (datePicker.Template.FindName("PART_Popup", datePicker) is not Popup { Child: DependencyObject popupChild })
+        {
+            return new UiAutomationBridgeResponse(false, $"Date-picker '{automationId}' did not expose a popup calendar.");
+        }
+
+        if (FindDescendant<CalendarDayButton>(popupChild, button => !button.IsInactive) is not { } dayButton)
+        {
+            return new UiAutomationBridgeResponse(false, $"Date-picker '{automationId}' did not expose an active day button.");
+        }
+
+        var foreground = ExtractColor(dayButton.Foreground);
+        var background = ExtractColor(dayButton.Background);
+        var payload = JsonSerializer.Serialize(
+            new
+            {
+                foreground,
+                background,
+                contrastRatio = CalculateContrastRatio(foreground, background),
+            },
+            JsonOptions);
+        return new UiAutomationBridgeResponse(true, null, payload);
     }
 
     private void SelectComboBoxItemByIndex(string automationId, int index)
@@ -413,6 +458,16 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
         }
 
         var preview = shellViewModel.Settings.Workspace.CurrentPreviewResult;
+        var importDiff = shellViewModel.ImportDiff;
+        var selectedOccurrence = importDiff.SelectedOccurrence
+            ?? importDiff.SelectedRuleOccurrenceItems.FirstOrDefault()
+            ?? importDiff.SelectedCourseRuleGroups
+                .SelectMany(static ruleGroup => ruleGroup.OccurrenceItems)
+                .FirstOrDefault()
+            ?? importDiff.ChangeGroups
+                .SelectMany(static group => group.RuleGroups)
+                .SelectMany(static ruleGroup => ruleGroup.OccurrenceItems)
+                .FirstOrDefault();
         var payload = JsonSerializer.Serialize(
             new
             {
@@ -427,6 +482,52 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
                         AfterLocation = change.After?.Metadata.Location,
                         RemoteLocation = change.RemoteEvent?.Location,
                     }),
+                ChangeGroups = importDiff.ChangeGroups.Select(
+                    static group => new
+                    {
+                        group.Title,
+                        group.ToggleAutomationId,
+                        group.IsSelected,
+                        group.HasPartialSelection,
+                        RuleGroups = group.RuleGroups.Select(
+                            static ruleGroup => new
+                            {
+                                ruleGroup.Summary,
+                                ruleGroup.ToggleAutomationId,
+                                ruleGroup.ExpandAutomationId,
+                                ruleGroup.IsSelected,
+                                ruleGroup.HasPartialSelection,
+                                OccurrenceItems = ruleGroup.OccurrenceItems.Select(
+                                    static occurrence => new
+                                    {
+                                        occurrence.LocalStableId,
+                                        occurrence.CourseTitle,
+                                        occurrence.DateText,
+                                        occurrence.TimeText,
+                                        occurrence.IsSelected,
+                                        occurrence.SelectAutomationId,
+                                        occurrence.ToggleAutomationId,
+                                    }),
+                            }),
+                    }),
+                SelectedOccurrence = selectedOccurrence is null
+                    ? null
+                    : new
+                    {
+                        selectedOccurrence.LocalStableId,
+                        selectedOccurrence.CourseTitle,
+                        selectedOccurrence.DateText,
+                        selectedOccurrence.TimeText,
+                        DetailBadgeCount = selectedOccurrence.DetailBadges.Count,
+                        BeforeDetailCount = selectedOccurrence.BeforeDetails.Count,
+                        AfterDetailCount = selectedOccurrence.AfterDetails.Count,
+                        SharedDetailCount = selectedOccurrence.SharedDetails.Count,
+                    },
+                SelectedCourseRuleGroupCount = importDiff.SelectedCourseRuleGroups.Count,
+                SelectedRuleOccurrenceCount = importDiff.SelectedRuleOccurrenceItems.Count,
+                UnresolvedCourseGroupCount = importDiff.UnresolvedCourseGroups.Count,
+                TimeProfileFallbackConfirmationCount = importDiff.TimeProfileFallbackConfirmations.Count,
+                WorkflowStage = shellViewModel.Settings.Workspace.CurrentImportWorkflowStage.ToString(),
             },
             JsonOptions);
         return new UiAutomationBridgeResponse(true, null, payload);
@@ -661,6 +762,78 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
         }
 
         return null;
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root, Func<T, bool> predicate)
+        where T : DependencyObject
+    {
+        if (root is T typedRoot && predicate(typedRoot))
+        {
+            return typedRoot;
+        }
+
+        var childrenCount = VisualTreeHelper.GetChildrenCount(root);
+        for (var index = 0; index < childrenCount; index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (FindDescendant(child, predicate) is { } match)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private static string ExtractColor(Brush brush)
+    {
+        if (brush is SolidColorBrush solidColorBrush)
+        {
+            var color = solidColorBrush.Color;
+            return $"#{color.A:X2}{color.R:X2}{color.G:X2}{color.B:X2}";
+        }
+
+        return "#00000000";
+    }
+
+    private static double CalculateContrastRatio(string foreground, string background)
+    {
+        var foregroundColor = ParseHexColor(foreground);
+        var backgroundColor = ParseHexColor(background);
+        var foregroundLuminance = CalculateRelativeLuminance(foregroundColor);
+        var backgroundLuminance = CalculateRelativeLuminance(backgroundColor);
+        var lighter = Math.Max(foregroundLuminance, backgroundLuminance);
+        var darker = Math.Min(foregroundLuminance, backgroundLuminance);
+        return Math.Round((lighter + 0.05) / (darker + 0.05), 2);
+    }
+
+    private static Color ParseHexColor(string hex)
+    {
+        var value = hex.StartsWith('#') ? hex[1..] : hex;
+        if (value.Length == 8)
+        {
+            value = value[2..];
+        }
+
+        return Color.FromRgb(
+            Convert.ToByte(value[..2], 16),
+            Convert.ToByte(value[2..4], 16),
+            Convert.ToByte(value[4..6], 16));
+    }
+
+    private static double CalculateRelativeLuminance(Color color)
+    {
+        static double ConvertChannel(byte channel)
+        {
+            var value = channel / 255.0;
+            return value <= 0.03928
+                ? value / 12.92
+                : Math.Pow((value + 0.055) / 1.055, 2.4);
+        }
+
+        return 0.2126 * ConvertChannel(color.R)
+            + 0.7152 * ConvertChannel(color.G)
+            + 0.0722 * ConvertChannel(color.B);
     }
 
     private sealed record UiAutomationBridgeRequest(string Action, string? AutomationId, string? OutputPath, int? Index = null, string? Value = null);

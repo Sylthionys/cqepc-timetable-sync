@@ -79,4 +79,44 @@ public sealed class TimetableResolutionSettingsTests
         updated.FindCourseScheduleOverride("Class A", removedFingerprint).Should().BeNull();
         updated.FindCourseScheduleOverride("Class A", retainedFingerprint).Should().NotBeNull();
     }
+
+    [Fact]
+    public void CourseScheduleOverrideCanTargetOneSourceOccurrenceDate()
+    {
+        var fingerprint = new SourceFingerprint("pdf", "signals");
+        var firstDate = new DateOnly(2026, 3, 5);
+        var secondDate = new DateOnly(2026, 3, 12);
+        var settings = WorkspacePreferenceDefaults.CreateTimetableResolutionSettings()
+            .UpsertCourseScheduleOverride(new CourseScheduleOverride(
+                "Class A",
+                fingerprint,
+                "Signals First",
+                firstDate,
+                firstDate,
+                new TimeOnly(8, 0),
+                new TimeOnly(9, 40),
+                CourseScheduleRepeatKind.None,
+                "main-campus",
+                sourceOccurrenceDate: firstDate))
+            .UpsertCourseScheduleOverride(new CourseScheduleOverride(
+                "Class A",
+                fingerprint,
+                "Signals Second",
+                secondDate,
+                secondDate,
+                new TimeOnly(10, 0),
+                new TimeOnly(11, 40),
+                CourseScheduleRepeatKind.None,
+                "main-campus",
+                sourceOccurrenceDate: secondDate));
+
+        settings.CourseScheduleOverrides.Should().HaveCount(2);
+        settings.FindCourseScheduleOverride("Class A", fingerprint, firstDate)!.CourseTitle.Should().Be("Signals First");
+
+        var updated = settings.RemoveCourseScheduleOverride("Class A", fingerprint, firstDate);
+
+        updated.CourseScheduleOverrides.Should().ContainSingle();
+        updated.FindCourseScheduleOverride("Class A", fingerprint, firstDate).Should().BeNull();
+        updated.FindCourseScheduleOverride("Class A", fingerprint, secondDate).Should().NotBeNull();
+    }
 }

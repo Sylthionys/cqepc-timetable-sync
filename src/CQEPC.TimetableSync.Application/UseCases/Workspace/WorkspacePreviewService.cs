@@ -1,3 +1,4 @@
+using System.Globalization;
 using CQEPC.TimetableSync.Application.Abstractions.Normalization;
 using CQEPC.TimetableSync.Application.Abstractions.Parsing;
 using CQEPC.TimetableSync.Application.Abstractions.Persistence;
@@ -1189,40 +1190,88 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
         }
 
         var activeOverrideBindings = normalizationResult.Occurrences
-            .Select(occurrence => CreateCourseScheduleOverrideBindingKey(occurrence.ClassName, occurrence.SourceFingerprint))
+            .SelectMany(occurrence => new[]
+            {
+                CreateCourseScheduleOverrideBindingKey(occurrence.ClassName, occurrence.SourceFingerprint, null),
+                CreateCourseScheduleOverrideBindingKey(occurrence.ClassName, occurrence.SourceFingerprint, occurrence.OccurrenceDate),
+            })
             .Concat(normalizationResult.UnresolvedItems
                 .Where(static item => !string.IsNullOrWhiteSpace(item.ClassName))
-                .Select(item => CreateCourseScheduleOverrideBindingKey(item.ClassName!, item.SourceFingerprint)))
+                .Select(item => CreateCourseScheduleOverrideBindingKey(item.ClassName!, item.SourceFingerprint, null)))
             .ToHashSet(StringComparer.Ordinal);
         var activeScheduleOverrides = timetableResolution.CourseScheduleOverrides
-            .Where(scheduleOverride => activeOverrideBindings.Contains(CreateCourseScheduleOverrideBindingKey(scheduleOverride.ClassName, scheduleOverride.SourceFingerprint)))
+            .Where(scheduleOverride => scheduleOverride.RetainsDeletedOccurrence
+                || activeOverrideBindings.Contains(CreateCourseScheduleOverrideBindingKey(
+                    scheduleOverride.ClassName,
+                    scheduleOverride.SourceFingerprint,
+                    scheduleOverride.SourceOccurrenceDate)))
             .ToArray();
         if (activeScheduleOverrides.Length == 0)
         {
             return ApplyCoursePresentationOverrides(normalizationResult, timetableResolution);
         }
 
-        var overrideKeys = activeScheduleOverrides
+        var wholeRuleOverrideKeys = activeScheduleOverrides
+            .Where(static scheduleOverride => !scheduleOverride.SourceOccurrenceDate.HasValue)
             .Select(static scheduleOverride => scheduleOverride.SourceFingerprint)
             .ToHashSet();
+        var singleOccurrenceOverrideKeys = activeScheduleOverrides
+            .Where(static scheduleOverride => scheduleOverride.SourceOccurrenceDate.HasValue)
+            .Select(static scheduleOverride => CreateCourseScheduleOverrideBindingKey(
+                scheduleOverride.ClassName,
+                scheduleOverride.SourceFingerprint,
+                scheduleOverride.SourceOccurrenceDate))
+            .ToHashSet(StringComparer.Ordinal);
         var baseOccurrences = normalizationResult.Occurrences
-            .Where(occurrence => !overrideKeys.Contains(occurrence.SourceFingerprint))
+            .Where(occurrence => !wholeRuleOverrideKeys.Contains(occurrence.SourceFingerprint)
+                && !singleOccurrenceOverrideKeys.Contains(CreateCourseScheduleOverrideBindingKey(
+                    occurrence.ClassName,
+                    occurrence.SourceFingerprint,
+                    occurrence.OccurrenceDate)))
             .ToList();
         var baseUnresolvedItems = normalizationResult.UnresolvedItems
-            .Where(item => !overrideKeys.Contains(item.SourceFingerprint))
+            .Where(item => !wholeRuleOverrideKeys.Contains(item.SourceFingerprint))
             .ToList();
+        var singleOccurrenceOverridesByWholeRuleKey = activeScheduleOverrides
+            .Where(static scheduleOverride => scheduleOverride.SourceOccurrenceDate.HasValue)
+            .GroupBy(
+                static scheduleOverride => CreateCourseScheduleOverrideBindingKey(
+                    scheduleOverride.ClassName,
+                    scheduleOverride.SourceFingerprint,
+                    null),
+                StringComparer.Ordinal)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group
+                    .Select(static scheduleOverride => scheduleOverride.SourceOccurrenceDate!.Value)
+                    .ToHashSet(),
+                StringComparer.Ordinal);
         var generatedOccurrences = activeScheduleOverrides
-            .SelectMany(scheduleOverride => ExpandCourseScheduleOverride(scheduleOverride, schoolWeeks, timeProfiles))
+            .SelectMany(scheduleOverride =>
+            {
+                var expanded = ExpandCourseScheduleOverride(scheduleOverride, schoolWeeks, timeProfiles);
+                if (scheduleOverride.SourceOccurrenceDate.HasValue)
+                {
+                    return expanded;
+                }
+
+                var wholeRuleKey = CreateCourseScheduleOverrideBindingKey(
+                    scheduleOverride.ClassName,
+                    scheduleOverride.SourceFingerprint,
+                    null);
+                return !singleOccurrenceOverridesByWholeRuleKey.TryGetValue(wholeRuleKey, out var suppressedDates)
+                    ? expanded
+                    : expanded.Where(occurrence => !suppressedDates.Contains(occurrence.OccurrenceDate));
+            })
             .ToArray();
-        var mergedOccurrences = baseOccurrences
-            .Concat(generatedOccurrences)
+        var mergedOccurrences = MergeCourseScheduleOverrideOccurrences(baseOccurrences, generatedOccurrences)
             .OrderBy(static occurrence => occurrence.Start)
             .ThenBy(static occurrence => occurrence.End)
             .ThenBy(static occurrence => occurrence.Metadata.CourseTitle, StringComparer.Ordinal)
             .ToArray();
         var exportGroups = BuildExportGroups(mergedOccurrences);
         var fallbackConfirmations = normalizationResult.TimeProfileFallbackConfirmations
-            .Where(confirmation => !overrideKeys.Contains(confirmation.SourceFingerprint))
+            .Where(confirmation => !wholeRuleOverrideKeys.Contains(confirmation.SourceFingerprint))
             .ToArray();
 
         return ApplyCoursePresentationOverrides(
@@ -1236,13 +1285,62 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
             timetableResolution);
     }
 
-    private static string CreateCourseScheduleOverrideBindingKey(string className, SourceFingerprint sourceFingerprint) =>
+    private static ResolvedOccurrence[] MergeCourseScheduleOverrideOccurrences(
+        IReadOnlyList<ResolvedOccurrence> baseOccurrences,
+        IReadOnlyList<ResolvedOccurrence> generatedOccurrences)
+    {
+        var merged = new Dictionary<string, ResolvedOccurrence>(StringComparer.Ordinal);
+
+        foreach (var occurrence in generatedOccurrences.Concat(baseOccurrences))
+        {
+            var key = CreateCourseScheduleMergeKey(occurrence);
+            if (!merged.ContainsKey(key))
+            {
+                merged[key] = occurrence;
+            }
+        }
+
+        return merged.Values.ToArray();
+    }
+
+    private static string CreateCourseScheduleMergeKey(ResolvedOccurrence occurrence) =>
+        string.Join(
+            "\u001F",
+            occurrence.ClassName,
+            occurrence.TargetKind,
+            occurrence.SourceFingerprint.SourceKind,
+            occurrence.SourceFingerprint.Hash,
+            occurrence.Metadata.CourseTitle,
+            occurrence.Metadata.WeekExpression.RawText,
+            occurrence.Metadata.PeriodRange.StartPeriod,
+            occurrence.Metadata.PeriodRange.EndPeriod,
+            occurrence.OccurrenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            occurrence.Start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            occurrence.End.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            occurrence.SchoolWeekNumber,
+            occurrence.Weekday,
+            occurrence.TimeProfileId,
+            occurrence.CourseType ?? string.Empty,
+            occurrence.CalendarTimeZoneId ?? string.Empty,
+            occurrence.GoogleCalendarColorId ?? string.Empty,
+            occurrence.Metadata.Campus ?? string.Empty,
+            occurrence.Metadata.Location ?? string.Empty,
+            occurrence.Metadata.Teacher ?? string.Empty,
+            occurrence.Metadata.TeachingClassComposition ?? string.Empty,
+            occurrence.Metadata.Notes ?? string.Empty);
+
+    private static string CreateCourseScheduleOverrideBindingKey(
+        string className,
+        SourceFingerprint sourceFingerprint,
+        DateOnly? sourceOccurrenceDate) =>
         string.Concat(
             className.Trim(),
             "|",
             sourceFingerprint.SourceKind,
             "|",
-            sourceFingerprint.Hash);
+            sourceFingerprint.Hash,
+            "|",
+            sourceOccurrenceDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty);
 
     private NormalizationResult ApplyCoursePresentationOverrides(
         NormalizationResult normalizationResult,
@@ -1386,25 +1484,112 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
 
     private static IEnumerable<DateOnly> EnumerateOccurrenceDates(CourseScheduleOverride scheduleOverride)
     {
-        var stepDays = scheduleOverride.RepeatKind switch
-        {
-            CourseScheduleRepeatKind.None => 0,
-            CourseScheduleRepeatKind.Weekly => 7,
-            CourseScheduleRepeatKind.Biweekly => 14,
-            _ => throw new ArgumentOutOfRangeException(nameof(scheduleOverride), scheduleOverride.RepeatKind, "Unknown repeat kind."),
-        };
-
-        if (stepDays == 0)
+        if (scheduleOverride.RepeatKind == CourseScheduleRepeatKind.None)
         {
             yield return scheduleOverride.StartDate;
             yield break;
         }
 
-        for (var date = scheduleOverride.StartDate; date <= scheduleOverride.EndDate; date = date.AddDays(stepDays))
+        var interval = Math.Max(1, scheduleOverride.RepeatInterval);
+        foreach (var date in scheduleOverride.RepeatUnit switch
+        {
+            CourseScheduleRepeatUnit.Day => EnumerateDailyDates(scheduleOverride, interval),
+            CourseScheduleRepeatUnit.Week => EnumerateWeeklyDates(scheduleOverride, interval),
+            CourseScheduleRepeatUnit.Month => EnumerateMonthlyDates(scheduleOverride, interval),
+            CourseScheduleRepeatUnit.Year => EnumerateYearlyDates(scheduleOverride, interval),
+            _ => throw new ArgumentOutOfRangeException(nameof(scheduleOverride), scheduleOverride.RepeatUnit, "Unknown repeat unit."),
+        })
         {
             yield return date;
         }
     }
+
+    private static IEnumerable<DateOnly> EnumerateDailyDates(CourseScheduleOverride scheduleOverride, int interval)
+    {
+        for (var date = scheduleOverride.StartDate; date <= scheduleOverride.EndDate; date = date.AddDays(interval))
+        {
+            yield return date;
+        }
+    }
+
+    private static IEnumerable<DateOnly> EnumerateWeeklyDates(CourseScheduleOverride scheduleOverride, int interval)
+    {
+        var selectedWeekdays = scheduleOverride.RepeatWeekdays.Count == 0
+            ? [scheduleOverride.StartDate.DayOfWeek]
+            : scheduleOverride.RepeatWeekdays.OrderBy(GetWeekdayOrder).ToArray();
+
+        var dates = new SortedSet<DateOnly>();
+        foreach (var weekday in selectedWeekdays)
+        {
+            var daysUntilWeekday =
+                (GetWeekdayOffset(weekday) - GetWeekdayOffset(scheduleOverride.StartDate.DayOfWeek) + 7) % 7;
+            var firstDate = scheduleOverride.StartDate.AddDays(daysUntilWeekday);
+            for (var date = firstDate; date <= scheduleOverride.EndDate; date = date.AddDays(interval * 7))
+            {
+                dates.Add(date);
+            }
+        }
+
+        foreach (var date in dates)
+        {
+            yield return date;
+        }
+    }
+
+    private static IEnumerable<DateOnly> EnumerateMonthlyDates(CourseScheduleOverride scheduleOverride, int interval)
+    {
+        for (var month = new DateOnly(scheduleOverride.StartDate.Year, scheduleOverride.StartDate.Month, 1);
+             month <= scheduleOverride.EndDate;
+             month = month.AddMonths(interval))
+        {
+            DateOnly date;
+            if (scheduleOverride.MonthlyPattern == CourseScheduleMonthlyPattern.LastWeekday)
+            {
+                var weekday = scheduleOverride.RepeatWeekdays.FirstOrDefault(scheduleOverride.StartDate.DayOfWeek);
+                date = ResolveLastWeekdayInMonth(month.Year, month.Month, weekday);
+            }
+            else
+            {
+                var day = Math.Min(scheduleOverride.StartDate.Day, DateTime.DaysInMonth(month.Year, month.Month));
+                date = new DateOnly(month.Year, month.Month, day);
+            }
+
+            if (date >= scheduleOverride.StartDate && date <= scheduleOverride.EndDate)
+            {
+                yield return date;
+            }
+        }
+    }
+
+    private static IEnumerable<DateOnly> EnumerateYearlyDates(CourseScheduleOverride scheduleOverride, int interval)
+    {
+        for (var year = scheduleOverride.StartDate.Year; year <= scheduleOverride.EndDate.Year; year += interval)
+        {
+            var day = Math.Min(scheduleOverride.StartDate.Day, DateTime.DaysInMonth(year, scheduleOverride.StartDate.Month));
+            var date = new DateOnly(year, scheduleOverride.StartDate.Month, day);
+            if (date >= scheduleOverride.StartDate && date <= scheduleOverride.EndDate)
+            {
+                yield return date;
+            }
+        }
+    }
+
+    private static DateOnly ResolveLastWeekdayInMonth(int year, int month, DayOfWeek weekday)
+    {
+        var date = new DateOnly(year, month, DateTime.DaysInMonth(year, month));
+        while (date.DayOfWeek != weekday)
+        {
+            date = date.AddDays(-1);
+        }
+
+        return date;
+    }
+
+    private static int GetWeekdayOffset(DayOfWeek dayOfWeek) =>
+        dayOfWeek == DayOfWeek.Sunday ? 6 : (int)dayOfWeek - 1;
+
+    private static int GetWeekdayOrder(DayOfWeek dayOfWeek) =>
+        dayOfWeek == DayOfWeek.Sunday ? 7 : (int)dayOfWeek;
 
     private static int ResolveSchoolWeekNumber(IReadOnlyList<SchoolWeek> schoolWeeks, DateOnly date) =>
         schoolWeeks
