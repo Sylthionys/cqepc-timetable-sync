@@ -448,9 +448,9 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
 
         public bool LoadCloudCalendarDuringStartup { get; set; } = true;
 
-        public bool CacheHomeScheduleRendering { get; set; } = true;
+        public bool CacheHomeScheduleRendering { get; set; } = false;
 
-        public bool RestoreHomeScheduleRenderingOnStartup { get; set; } = true;
+        public bool RestoreHomeScheduleRenderingOnStartup { get; set; } = false;
 
         public SerializedNetworkProxySettings? NetworkProxy { get; set; }
     }

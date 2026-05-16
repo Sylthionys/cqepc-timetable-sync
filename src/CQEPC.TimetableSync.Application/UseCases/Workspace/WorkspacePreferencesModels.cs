@@ -977,8 +977,8 @@ public sealed record ProgramBehaviorSettings
         bool showStatusNotifications,
         int statusNotificationDurationSeconds = 3,
         bool loadCloudCalendarDuringStartup = true,
-        bool cacheHomeScheduleRendering = true,
-        bool restoreHomeScheduleRenderingOnStartup = true,
+        bool cacheHomeScheduleRendering = false,
+        bool restoreHomeScheduleRenderingOnStartup = false,
         NetworkProxySettings? networkProxy = null)
     {
         SyncGoogleCalendarOnStartup = syncGoogleCalendarOnStartup;
