@@ -35,6 +35,29 @@ public sealed class GoogleSyncProviderAdapterTests
     }
 
     [Fact]
+    public void MapRemoteEventDoesNotTreatDescriptionManagedMarkerAsOwnershipProof()
+    {
+        var item = new Event
+        {
+            Id = "event-1",
+            Summary = "Signals",
+            Description = "managedBy: cqepc-timetable-sync",
+            Start = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 3, 16, 8, 0, 0, TimeSpan.FromHours(8)),
+            },
+            End = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 3, 16, 9, 0, 0, TimeSpan.FromHours(8)),
+            },
+        };
+
+        var remoteEvent = GoogleSyncProviderAdapter.MapRemoteEvent(item, "google-cal", fallbackTimeZoneId: null);
+
+        remoteEvent.IsManagedByApp.Should().BeFalse();
+    }
+
+    [Fact]
     public void NormalizeAcceptedChangesForApplyDeduplicatesRemoteManagedRecurringSeriesDeletes()
     {
         var firstOccurrence = CreateOccurrence(new DateOnly(2026, 3, 16), "series-a");

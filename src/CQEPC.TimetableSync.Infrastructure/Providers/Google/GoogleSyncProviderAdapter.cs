@@ -207,8 +207,7 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
 
                 var privateProperties = item.ExtendedProperties?.Private__;
                 var descriptionMetadata = ParseDescriptionMetadata(item.Description);
-                var managedBy = GetPrivateProperty(privateProperties, GoogleSyncConstants.ManagedByKey)
-                    ?? descriptionMetadata.ManagedBy;
+                var managedBy = GetPrivateProperty(privateProperties, GoogleSyncConstants.ManagedByKey);
                 var isManaged = string.Equals(managedBy, GoogleSyncConstants.ManagedByValue, StringComparison.Ordinal);
                 var declaredTimeZoneId = ResolveDeclaredEventTimeZoneId(
                     privateProperties,
@@ -924,8 +923,7 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
 
         var privateProperties = item.ExtendedProperties?.Private__;
         var descriptionMetadata = ParseDescriptionMetadata(item.Description);
-        var managedBy = GetPrivateProperty(privateProperties, GoogleSyncConstants.ManagedByKey)
-            ?? descriptionMetadata.ManagedBy;
+        var managedBy = GetPrivateProperty(privateProperties, GoogleSyncConstants.ManagedByKey);
         var isManaged = string.Equals(managedBy, GoogleSyncConstants.ManagedByValue, StringComparison.Ordinal);
         var declaredTimeZoneId = ResolveDeclaredEventTimeZoneId(
             privateProperties,
