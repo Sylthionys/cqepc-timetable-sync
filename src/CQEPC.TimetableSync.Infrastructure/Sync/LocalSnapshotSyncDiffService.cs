@@ -201,36 +201,6 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
                 reason: "Remote managed event is outside the current parsed timetable."));
         }
 
-        foreach (var remoteEvent in deletionScopedRemoteEvents.Where(static item => !item.IsManagedByApp))
-        {
-            if (currentCalendarOccurrences.Any(current => MatchesRemoteConflict(current, remoteEvent)))
-            {
-                continue;
-            }
-
-            var titleMatched = currentCalendarOccurrences.Any(
-                current => string.Equals(current.Metadata.CourseTitle, remoteEvent.Title, StringComparison.Ordinal));
-            if (!titleMatched)
-            {
-                continue;
-            }
-
-            var remoteOccurrence = ConvertRemoteEvent(remoteEvent);
-            if (remoteOccurrence is null)
-            {
-                continue;
-            }
-
-            changes.Add(new PlannedSyncChange(
-                SyncChangeKind.Deleted,
-                SyncTargetKind.CalendarEvent,
-                remoteEvent.LocalStableId,
-                changeSource: SyncChangeSource.RemoteTitleConflict,
-                before: remoteOccurrence,
-                remoteEvent: remoteEvent,
-                reason: "Google existing event matches the course title but has a different time."));
-        }
-
         exactMatchRemoteEventIds = exactMatchRemoteIds.OrderBy(static id => id, StringComparer.Ordinal).ToArray();
         exactMatchOccurrenceIds = exactMatchOccurrenceIdSet.OrderBy(static id => id, StringComparer.Ordinal).ToArray();
 

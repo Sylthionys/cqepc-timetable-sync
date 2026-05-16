@@ -984,7 +984,7 @@ public sealed class LocalSnapshotSyncDiffServiceTests
     }
 
     [Fact]
-    public async Task CreatePreviewAsyncMarksSameTitleDifferentTimeWithinDeletionWindowAsDelete()
+    public async Task CreatePreviewAsyncDoesNotDeleteUnmanagedSameTitleDifferentTimeWithinDeletionWindow()
     {
         var repository = new InMemoryWorkspaceRepository();
         var service = new LocalSnapshotSyncDiffService(repository);
@@ -1007,12 +1007,10 @@ public sealed class LocalSnapshotSyncDiffServiceTests
         plan.PlannedChanges.Should().Contain(change =>
             change.ChangeKind == SyncChangeKind.Added
             && change.After!.Metadata.CourseTitle == "Signals");
-        var remoteConflictDelete = plan.PlannedChanges.SingleOrDefault(change =>
+        plan.PlannedChanges.Should().NotContain(change =>
             change.ChangeKind == SyncChangeKind.Deleted
-            && change.ChangeSource == SyncChangeSource.RemoteTitleConflict
             && change.RemoteEvent != null
             && change.RemoteEvent.RemoteItemId == remoteEvent.RemoteItemId);
-        remoteConflictDelete.Should().NotBeNull();
     }
 
     [Fact]
