@@ -14,24 +14,124 @@ namespace CQEPC.TimetableSync.Infrastructure.Tests;
 public sealed class GoogleSyncProviderAdapterTests
 {
     [Fact]
-    public void ParseDescriptionMetadataReadsManagedMarkersFromDescriptionFallback()
+    public void MapRemoteEventDoesNotTrustDescriptionMetadataForManagedOwnershipOrIdentity()
     {
-        var description = """
+        var item = new Event
+        {
+            Id = "remote-1",
+            Summary = "Signals",
+            Description = """
             Course
-            Class: Test
+            Class: Forged Class
             managedBy: cqepc-timetable-sync
-            localSyncId: 769415067c89c71d264a7c6022f4eac5e6e0622791734ac33684de94b2d5ef6a
-            sourceFingerprint: 4241E9C97F05A3D5E8356C9EDFA4B449A2976321191B0C6C4A0292E747F56C0F
+            localSyncId: forged-local-sync-id
+            sourceFingerprint: forged-source-fingerprint
             sourceKind: pdf
-            """;
+            timeZoneId: Asia/Shanghai
+            """,
+            Start = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 8, 30, 0, TimeSpan.FromHours(8)),
+            },
+            End = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 9, 50, 0, TimeSpan.FromHours(8)),
+            },
+        };
 
-        var metadata = GoogleSyncProviderAdapter.ParseDescriptionMetadata(description);
+        var remoteEvent = GoogleSyncProviderAdapter.MapRemoteEvent(item, "google-cal", fallbackTimeZoneId: null);
 
-        metadata.ManagedBy.Should().Be(GoogleSyncConstants.ManagedByValue);
-        metadata.ClassName.Should().Be("Test");
-        metadata.LocalSyncId.Should().Be("769415067c89c71d264a7c6022f4eac5e6e0622791734ac33684de94b2d5ef6a");
-        metadata.SourceFingerprint.Should().Be("4241E9C97F05A3D5E8356C9EDFA4B449A2976321191B0C6C4A0292E747F56C0F");
-        metadata.SourceKind.Should().Be("pdf");
+        remoteEvent.IsManagedByApp.Should().BeFalse();
+        remoteEvent.LocalSyncId.Should().BeNull();
+        remoteEvent.SourceFingerprintHash.Should().BeNull();
+        remoteEvent.SourceKind.Should().BeNull();
+        remoteEvent.ClassName.Should().BeNull();
+        remoteEvent.CalendarTimeZoneId.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapRemoteEventIgnoresPrivateIdentityWithoutTrustedManagedMarker()
+    {
+        var item = new Event
+        {
+            Id = "remote-1",
+            Summary = "Signals",
+            Start = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 8, 30, 0, TimeSpan.FromHours(8)),
+            },
+            End = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 9, 50, 0, TimeSpan.FromHours(8)),
+            },
+            ExtendedProperties = new Event.ExtendedPropertiesData
+            {
+                Private__ = new Dictionary<string, string>
+                {
+                    [GoogleSyncConstants.LocalSyncIdKey] = "untrusted-local-sync-id",
+                    [GoogleSyncConstants.SourceFingerprintKey] = "untrusted-source-fingerprint",
+                    [GoogleSyncConstants.SourceKindKey] = "pdf",
+                    [GoogleSyncConstants.ClassNameKey] = "Untrusted Class",
+                    [GoogleSyncConstants.TimeZoneIdKey] = "Asia/Shanghai",
+                },
+            },
+        };
+
+        var remoteEvent = GoogleSyncProviderAdapter.MapRemoteEvent(item, "google-cal", fallbackTimeZoneId: null);
+
+        remoteEvent.IsManagedByApp.Should().BeFalse();
+        remoteEvent.LocalSyncId.Should().BeNull();
+        remoteEvent.SourceFingerprintHash.Should().BeNull();
+        remoteEvent.SourceKind.Should().BeNull();
+        remoteEvent.ClassName.Should().BeNull();
+        remoteEvent.CalendarTimeZoneId.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapRemoteEventUsesPrivateExtendedPropertiesForManagedOwnershipAndIdentity()
+    {
+        var item = new Event
+        {
+            Id = "remote-1",
+            Summary = "Signals",
+            Description = """
+            Course
+            managedBy: forged-manager
+            localSyncId: forged-local-sync-id
+            sourceFingerprint: forged-source-fingerprint
+            sourceKind: forged-source-kind
+            timeZoneId: Asia/Hong_Kong
+            """,
+            Start = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 8, 30, 0, TimeSpan.FromHours(8)),
+            },
+            End = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 9, 50, 0, TimeSpan.FromHours(8)),
+            },
+            ExtendedProperties = new Event.ExtendedPropertiesData
+            {
+                Private__ = new Dictionary<string, string>
+                {
+                    [GoogleSyncConstants.ManagedByKey] = GoogleSyncConstants.ManagedByValue,
+                    [GoogleSyncConstants.LocalSyncIdKey] = "trusted-local-sync-id",
+                    [GoogleSyncConstants.SourceFingerprintKey] = "trusted-source-fingerprint",
+                    [GoogleSyncConstants.SourceKindKey] = "pdf",
+                    [GoogleSyncConstants.ClassNameKey] = "Trusted Class",
+                    [GoogleSyncConstants.TimeZoneIdKey] = "Asia/Shanghai",
+                },
+            },
+        };
+
+        var remoteEvent = GoogleSyncProviderAdapter.MapRemoteEvent(item, "google-cal", fallbackTimeZoneId: null);
+
+        remoteEvent.IsManagedByApp.Should().BeTrue();
+        remoteEvent.LocalSyncId.Should().Be("trusted-local-sync-id");
+        remoteEvent.SourceFingerprintHash.Should().Be("trusted-source-fingerprint");
+        remoteEvent.SourceKind.Should().Be("pdf");
+        remoteEvent.ClassName.Should().Be("Trusted Class");
+        remoteEvent.CalendarTimeZoneId.Should().Be("Asia/Shanghai");
     }
 
     [Fact]
