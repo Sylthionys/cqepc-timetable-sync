@@ -287,6 +287,8 @@
     <sys:String x:Key="DiffLocationTbd">Location TBD</sys:String>
     <sys:String x:Key="DiffTaskDefaultListLocation">Task-list item</sys:String>
     <sys:String x:Key="DiffNoNotes">No notes</sys:String>
+    <sys:String x:Key="DiffChangedBlockLinesFormat">Changed block ({0} line(s))</sys:String>
+    <sys:String x:Key="DiffUnchangedLinesOmittedFormat">Omitted {0} unchanged line(s)</sys:String>
     <sys:String x:Key="DiffSourceLocalSnapshot">Local snapshot</sys:String>
     <sys:String x:Key="DiffSourceRemoteManaged">Managed remote event</sys:String>
     <sys:String x:Key="DiffSourceRemoteTitleConflict">Remote title conflict</sys:String>

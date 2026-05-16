@@ -1983,6 +1983,74 @@ public sealed class ShellViewModelTests
     }
 
     [Fact]
+    public async Task WorkspaceSessionEffectiveHomeOccurrencesUsesFullOccurrenceIdentityForReplacement()
+    {
+        var fingerprint = new SourceFingerprint("pdf", "signals-shared-slot");
+        var survivor = WithNotes(
+            CreateOccurrence(
+                "Class A",
+                "Signals",
+                new DateOnly(2026, 3, 19),
+                new TimeOnly(8, 0),
+                new TimeOnly(9, 40),
+                fingerprint),
+            "same-id survivor");
+        var before = WithNotes(
+            CreateOccurrence(
+                "Class A",
+                "Signals",
+                new DateOnly(2026, 3, 19),
+                new TimeOnly(8, 0),
+                new TimeOnly(9, 40),
+                fingerprint),
+            "selected before");
+        var after = WithNotes(
+            CreateOccurrence(
+                "Class A",
+                "Signals",
+                new DateOnly(2026, 3, 19),
+                new TimeOnly(8, 0),
+                new TimeOnly(9, 40),
+                fingerprint),
+            "updated selected");
+        var previousSnapshot = new ImportedScheduleSnapshot(
+            DateTimeOffset.UtcNow,
+            "Class A",
+            [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals")])],
+            Array.Empty<UnresolvedItem>(),
+            [new SchoolWeek(1, new DateOnly(2026, 3, 16), new DateOnly(2026, 3, 22))],
+            Array.Empty<TimeProfile>(),
+            [survivor, before],
+            Array.Empty<ExportGroup>(),
+            Array.Empty<RuleBasedTaskGenerationRule>());
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [after],
+                syncPlan: new SyncPlan(
+                    [after],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Updated,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-notes",
+                            before: before,
+                            after: after),
+                    ],
+                    Array.Empty<UnresolvedItem>()),
+                previousSnapshot: previousSnapshot));
+        await session.InitializeAsync();
+
+        session.EffectiveHomeOccurrences.Select(static occurrence => occurrence.Metadata.Notes)
+            .Should()
+            .Contain("same-id survivor")
+            .And.Contain("updated selected")
+            .And.NotContain("selected before");
+    }
+
+    [Fact]
     public async Task ImportDiffPageViewModelAllowsSavingUnresolvedEditorWithoutFieldChanges()
     {
         var fingerprint = new SourceFingerprint("pdf", "pe-unresolved");
@@ -2281,6 +2349,67 @@ public sealed class ShellViewModelTests
         occurrence.NoteDiffLines.Should().Contain(line => line.IsBeforeChanged && line.BeforeText.Contains("Old note", StringComparison.Ordinal));
         occurrence.NoteDiffLines.Should().Contain(line => line.IsAfterChanged && line.AfterText.Contains("New note", StringComparison.Ordinal));
         occurrence.NoteDiffLines.Should().Contain(line => line.AfterText.Contains("managedBy: cqepc-timetable-sync", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelBoundsLongGoogleNotesDiffLines()
+    {
+        var beforeText = string.Join(
+            '\n',
+            Enumerable.Range(0, 180).Select(static index => index < 10 || index > 169 ? $"Common {index}" : $"Before legacy line {index}"));
+        var afterText = string.Join(
+            '\n',
+            Enumerable.Range(0, 180).Select(static index => index < 10 || index > 169 ? $"Common {index}" : $"After legacy line {index}"));
+        var beforeOccurrence = WithNotes(
+            CreateOccurrence(
+                "Google Calendar",
+                "Signals",
+                new DateOnly(2026, 3, 19),
+                new TimeOnly(8, 0),
+                new TimeOnly(9, 40),
+                new SourceFingerprint("google-managed", "remote-before")),
+            beforeText);
+        var afterOccurrence = WithNotes(
+            CreateOccurrence(
+                "Google Calendar",
+                "Signals",
+                new DateOnly(2026, 3, 19),
+                new TimeOnly(8, 0),
+                new TimeOnly(9, 40),
+                new SourceFingerprint("google-managed", "remote-after")),
+            afterText);
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [afterOccurrence],
+                syncPlan: new SyncPlan(
+                    [afterOccurrence],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Updated,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-long-notes",
+                            changeSource: SyncChangeSource.RemoteManaged,
+                            before: beforeOccurrence,
+                            after: afterOccurrence),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        await session.InitializeAsync();
+
+        var import = new ImportDiffPageViewModel(session);
+        var occurrence = import.ChangeGroups[0].RuleGroups[0].OccurrenceItems[0];
+
+        occurrence.NoteDiffLines.Should().HaveCountLessThan(12);
+        occurrence.NoteDiffLines.Should().Contain(line =>
+            line.IsBeforeChanged
+            && line.IsAfterChanged
+            && line.BeforeText.Contains("Changed block", StringComparison.Ordinal)
+            && line.AfterText.Contains("Changed block", StringComparison.Ordinal));
+        occurrence.NoteDiffLines.Should().Contain(line =>
+            line.BeforeText.Contains("Omitted", StringComparison.Ordinal)
+            && line.AfterText.Contains("Omitted", StringComparison.Ordinal));
     }
 
     [Fact]
