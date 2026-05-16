@@ -2,8 +2,10 @@ using System.Text.Json;
 using System.Runtime.Versioning;
 using System.Collections.Concurrent;
 using CQEPC.TimetableSync.Application.Abstractions.Sync;
+using CQEPC.TimetableSync.Application.UseCases.Workspace;
 using CQEPC.TimetableSync.Domain.Enums;
 using CQEPC.TimetableSync.Domain.Model;
+using CQEPC.TimetableSync.Infrastructure.Networking;
 using CQEPC.TimetableSync.Infrastructure.Persistence.Local;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Auth.OAuth2.Flows;
@@ -20,6 +22,8 @@ namespace CQEPC.TimetableSync.Infrastructure.Providers.Google;
 public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
 {
     private const string CredentialUserKey = "cqepc-timetable-sync";
+    private const string CalendarListFields =
+        "items(id,summary,summaryOverride,primary,backgroundColor,colorId),nextPageToken";
     internal const string CalendarPreviewEventFields =
         "items(id,summary,colorId,start/dateTime,start/timeZone,end/dateTime,end/timeZone,location,description,recurringEventId,originalStartTime/dateTime,originalStartTime/timeZone,extendedProperties/private),nextPageToken";
     private static readonly string[] Scopes =
@@ -33,18 +37,24 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
     private readonly ProtectedFileDataStore dataStore;
     private readonly string? preferredWriteTimeZoneId;
     private readonly string? remoteReadFallbackTimeZoneId;
+    private readonly Func<NetworkProxySettings>? networkProxySettingsProvider;
+    private readonly Func<string?>? networkProxyPasswordProvider;
     private readonly object credentialCacheSync = new();
     private CachedGoogleServices? cachedServices;
 
     public GoogleSyncProviderAdapter(
         LocalStoragePaths storagePaths,
         string? preferredWriteTimeZoneId = null,
-        string? remoteReadFallbackTimeZoneId = null)
+        string? remoteReadFallbackTimeZoneId = null,
+        Func<NetworkProxySettings>? networkProxySettingsProvider = null,
+        Func<string?>? networkProxyPasswordProvider = null)
     {
         ArgumentNullException.ThrowIfNull(storagePaths);
         dataStore = new ProtectedFileDataStore(Path.Combine(storagePaths.ProviderTokensDirectory, "google"));
         this.preferredWriteTimeZoneId = preferredWriteTimeZoneId;
         this.remoteReadFallbackTimeZoneId = remoteReadFallbackTimeZoneId;
+        this.networkProxySettingsProvider = networkProxySettingsProvider;
+        this.networkProxyPasswordProvider = networkProxyPasswordProvider;
     }
 
     public ProviderKind Provider => ProviderKind.Google;
@@ -69,8 +79,14 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
 
         await using var stream = File.OpenRead(request.ConnectionContext.ClientConfigurationPath);
         var secrets = GoogleClientSecrets.FromStream(stream).Secrets;
+        var proxySettings = networkProxySettingsProvider?.Invoke() ?? WorkspacePreferenceDefaults.CreateNetworkProxySettings();
+        var httpClientFactory = NetworkProxyHttpClientFactory.CreateGoogleHttpClientFactory(proxySettings, networkProxyPasswordProvider);
         var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
-            secrets,
+            new GoogleAuthorizationCodeFlow.Initializer
+            {
+                ClientSecrets = secrets,
+                HttpClientFactory = httpClientFactory,
+            },
             Scopes,
             CredentialUserKey,
             cancellationToken,
@@ -95,11 +111,30 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
         var request = service.CalendarList.List();
         request.ShowDeleted = false;
         request.MinAccessRole = CalendarListResource.ListRequest.MinAccessRoleEnum.Writer;
+        request.Fields = CalendarListFields;
 
-        var response = await request.ExecuteAsync(cancellationToken).ConfigureAwait(false);
-        return (response.Items ?? [])
+        var entries = new List<CalendarListEntry>();
+        CalendarList? response;
+        do
+        {
+            response = await request.ExecuteAsync(cancellationToken).ConfigureAwait(false);
+            entries.AddRange(response.Items ?? []);
+            request.PageToken = response.NextPageToken;
+        }
+        while (!string.IsNullOrWhiteSpace(response.NextPageToken));
+
+        var calendarColors = entries.Any(static item => item is not null && string.IsNullOrWhiteSpace(item.BackgroundColor) && !string.IsNullOrWhiteSpace(item.ColorId))
+            ? await service.Colors.Get().ExecuteAsync(cancellationToken).ConfigureAwait(false)
+            : null;
+
+        return entries
             .Where(static item => item is not null)
-            .Select(static item => new ProviderCalendarDescriptor(item.Id, item.SummaryOverride ?? item.Summary ?? item.Id, item.Primary ?? false))
+            .Select(item => new ProviderCalendarDescriptor(
+                item.Id,
+                item.SummaryOverride ?? item.Summary ?? item.Id,
+                item.Primary ?? false,
+                item.BackgroundColor ?? ResolveGoogleCalendarBackgroundColor(calendarColors, item.ColorId),
+                item.ColorId))
             .OrderByDescending(static item => item.IsPrimary)
             .ThenBy(static item => item.DisplayName, StringComparer.Ordinal)
             .ToArray();
@@ -114,6 +149,18 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
             new ProviderTaskListDescriptor("@default", "Google Tasks Default (@default)", true),
         ];
         return Task.FromResult(taskLists);
+    }
+
+    private static string? ResolveGoogleCalendarBackgroundColor(Colors? colors, string? colorId)
+    {
+        if (colors?.Calendar is null || string.IsNullOrWhiteSpace(colorId))
+        {
+            return null;
+        }
+
+        return colors.Calendar.TryGetValue(colorId.Trim(), out var definition)
+            ? definition.Background
+            : null;
     }
 
     public async Task<IReadOnlyList<ProviderRemoteCalendarEvent>> ListCalendarPreviewEventsAsync(
@@ -163,6 +210,12 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
                 var managedBy = GetPrivateProperty(privateProperties, GoogleSyncConstants.ManagedByKey)
                     ?? descriptionMetadata.ManagedBy;
                 var isManaged = string.Equals(managedBy, GoogleSyncConstants.ManagedByValue, StringComparison.Ordinal);
+                var declaredTimeZoneId = ResolveDeclaredEventTimeZoneId(
+                    privateProperties,
+                    descriptionMetadata,
+                    item.Start,
+                    item.End,
+                    item.OriginalStartTime);
 
                 results.Add(new ProviderRemoteCalendarEvent(
                     item.Id,
@@ -179,7 +232,14 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
                     item.RecurringEventId,
                     TryResolveEventDateTimeOffset(item.OriginalStartTime, fallbackTimeZoneId)?.ToUniversalTime(),
                     GooglePayloadBuilders.NormalizeGoogleCalendarColorId(item.ColorId),
-                    GetPrivateProperty(privateProperties, GoogleSyncConstants.ClassNameKey) ?? descriptionMetadata.ClassName));
+                    GetPrivateProperty(privateProperties, GoogleSyncConstants.ClassNameKey) ?? descriptionMetadata.ClassName,
+                    declaredTimeZoneId,
+                    ResolveExplicitEventTimeZoneId(item.Start),
+                    ResolveExplicitEventTimeZoneId(item.End),
+                    ResolveExplicitEventTimeZoneId(item.OriginalStartTime),
+                    HasExplicitEventTimeZone(item.Start),
+                    HasExplicitEventTimeZone(item.End),
+                    HasExplicitEventTimeZone(item.OriginalStartTime)));
             }
 
             pageToken = response.NextPageToken;
@@ -249,16 +309,20 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
         {
             existing.ColorId = GooglePayloadBuilders.NormalizeGoogleCalendarColorId(request.GoogleCalendarColorId);
         }
+        var writeTimeZoneId = GooglePayloadBuilders.ResolveGoogleTimeZoneId(ResolvePreferredWriteTimeZoneId(request.ConnectionContext));
         existing.Start = new EventDateTime
         {
             DateTimeDateTimeOffset = request.Start,
-            TimeZone = GooglePayloadBuilders.ResolveGoogleTimeZoneId(ResolvePreferredWriteTimeZoneId(request.ConnectionContext)),
+            TimeZone = writeTimeZoneId,
         };
         existing.End = new EventDateTime
         {
             DateTimeDateTimeOffset = request.End,
-            TimeZone = GooglePayloadBuilders.ResolveGoogleTimeZoneId(ResolvePreferredWriteTimeZoneId(request.ConnectionContext)),
+            TimeZone = writeTimeZoneId,
         };
+        existing.ExtendedProperties ??= new Event.ExtendedPropertiesData();
+        existing.ExtendedProperties.Private__ ??= new Dictionary<string, string>(StringComparer.Ordinal);
+        existing.ExtendedProperties.Private__[GoogleSyncConstants.TimeZoneIdKey] = writeTimeZoneId;
 
         var updated = await service.Events.Update(existing, request.CalendarId, request.RemoteItemId)
             .ExecuteAsync(cancellationToken)
@@ -312,7 +376,9 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
         results.AddRange(ExpandDeletedChangeResultsForAcceptedChanges(request, normalizedDeletedChanges, deletedResults));
 
         var updatedResults = await ApplyChangeBatchAsync(
-            normalizedAcceptedChanges.Where(static change => change.ChangeKind == SyncChangeKind.Updated).ToArray(),
+            normalizedAcceptedChanges
+                .Where(static change => change.ChangeKind is SyncChangeKind.Updated or SyncChangeKind.MetadataOnly)
+                .ToArray(),
             calendarExecutor,
             tasksService,
             request.CalendarDestinationId,
@@ -510,7 +576,9 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
     private async Task<CachedGoogleServices> GetOrCreateServicesAsync(string? clientConfigurationPath, CancellationToken cancellationToken)
     {
         var credential = await GetCredentialAsync(clientConfigurationPath, cancellationToken).ConfigureAwait(false);
-        var cacheKey = BuildClientConfigurationCacheKey(clientConfigurationPath, credential.Token.AccessToken, credential.Token.RefreshToken);
+        var proxySettings = networkProxySettingsProvider?.Invoke() ?? WorkspacePreferenceDefaults.CreateNetworkProxySettings();
+        var proxySignature = NetworkProxyHttpClientFactory.BuildSignature(proxySettings, networkProxyPasswordProvider);
+        var cacheKey = BuildClientConfigurationCacheKey(clientConfigurationPath, credential.Token.AccessToken, credential.Token.RefreshToken, proxySignature);
 
         var snapshot = cachedServices;
         if (snapshot is not null && string.Equals(snapshot.CacheKey, cacheKey, StringComparison.Ordinal))
@@ -526,17 +594,20 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
                 return snapshot;
             }
 
+            var httpClientFactory = NetworkProxyHttpClientFactory.CreateGoogleHttpClientFactory(proxySettings, networkProxyPasswordProvider);
             var created = new CachedGoogleServices(
                 cacheKey,
                 credential,
                 new CalendarService(new BaseClientService.Initializer
                 {
                     HttpClientInitializer = credential,
+                    HttpClientFactory = httpClientFactory,
                     ApplicationName = "CQEPC Timetable Sync",
                 }),
                 new TasksService(new BaseClientService.Initializer
                 {
                     HttpClientInitializer = credential,
+                    HttpClientFactory = httpClientFactory,
                     ApplicationName = "CQEPC Timetable Sync",
                 }));
 
@@ -545,13 +616,15 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
         }
     }
 
-    private static string BuildClientConfigurationCacheKey(string? clientConfigurationPath, string? accessToken, string? refreshToken) =>
+    private static string BuildClientConfigurationCacheKey(string? clientConfigurationPath, string? accessToken, string? refreshToken, string proxySignature) =>
         string.Concat(
             clientConfigurationPath ?? string.Empty,
             "|",
             accessToken ?? string.Empty,
             "|",
-            refreshToken ?? string.Empty);
+            refreshToken ?? string.Empty,
+            "|",
+            proxySignature);
 
     private void InvalidateCachedServices() => cachedServices = null;
 
@@ -626,7 +699,7 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
 
         return canonicalDeletes
             .Concat(canonicalUpserts.Values)
-            .OrderBy(static change => change.ChangeKind == SyncChangeKind.Deleted ? 0 : change.ChangeKind == SyncChangeKind.Updated ? 1 : 2)
+            .OrderBy(static change => change.ChangeKind == SyncChangeKind.Deleted ? 0 : change.ChangeKind is SyncChangeKind.Updated or SyncChangeKind.MetadataOnly ? 1 : 2)
             .ThenBy(static change => change.TargetKind == SyncTargetKind.CalendarEvent ? 0 : 1)
             .ThenBy(static change => change.After?.Start ?? change.Before?.Start ?? DateTimeOffset.MaxValue)
             .ThenBy(static change => change.LocalStableId, StringComparer.Ordinal)
@@ -705,6 +778,7 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
         };
         var kindScore = change.ChangeKind switch
         {
+            SyncChangeKind.MetadataOnly => 0,
             SyncChangeKind.Updated => 0,
             SyncChangeKind.Added => 1,
             _ => 2,
@@ -834,7 +908,7 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
             ? remoteReadFallbackTimeZoneId
             : connectionContext.RemoteReadFallbackTimeZoneId;
 
-    private static ProviderRemoteCalendarEvent MapRemoteEvent(Event item, string calendarId, string? fallbackTimeZoneId)
+    internal static ProviderRemoteCalendarEvent MapRemoteEvent(Event item, string calendarId, string? fallbackTimeZoneId)
     {
         if (item is null || string.IsNullOrWhiteSpace(item.Id) || string.IsNullOrWhiteSpace(item.Summary))
         {
@@ -853,6 +927,12 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
         var managedBy = GetPrivateProperty(privateProperties, GoogleSyncConstants.ManagedByKey)
             ?? descriptionMetadata.ManagedBy;
         var isManaged = string.Equals(managedBy, GoogleSyncConstants.ManagedByValue, StringComparison.Ordinal);
+        var declaredTimeZoneId = ResolveDeclaredEventTimeZoneId(
+            privateProperties,
+            descriptionMetadata,
+            item.Start,
+            item.End,
+            item.OriginalStartTime);
 
         return new ProviderRemoteCalendarEvent(
             item.Id,
@@ -869,11 +949,36 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
             item.RecurringEventId,
             TryResolveEventDateTimeOffset(item.OriginalStartTime, fallbackTimeZoneId)?.ToUniversalTime(),
             GooglePayloadBuilders.NormalizeGoogleCalendarColorId(item.ColorId),
-            GetPrivateProperty(privateProperties, GoogleSyncConstants.ClassNameKey) ?? descriptionMetadata.ClassName);
+            GetPrivateProperty(privateProperties, GoogleSyncConstants.ClassNameKey) ?? descriptionMetadata.ClassName,
+            declaredTimeZoneId,
+            ResolveExplicitEventTimeZoneId(item.Start),
+            ResolveExplicitEventTimeZoneId(item.End),
+            ResolveExplicitEventTimeZoneId(item.OriginalStartTime),
+            HasExplicitEventTimeZone(item.Start),
+            HasExplicitEventTimeZone(item.End),
+            HasExplicitEventTimeZone(item.OriginalStartTime));
     }
 
     internal static DateTimeOffset? TryResolveEventDateTimeOffset(EventDateTime? eventDateTime, string? fallbackTimeZoneId = null) =>
         GoogleTimeZoneResolver.TryResolveRemoteDateTimeOffset(eventDateTime, fallbackTimeZoneId);
+
+    private static string? ResolveDeclaredEventTimeZoneId(
+        IDictionary<string, string>? privateProperties,
+        GoogleDescriptionMetadata descriptionMetadata,
+        EventDateTime? start,
+        EventDateTime? end,
+        EventDateTime? originalStart) =>
+        WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(GetPrivateProperty(privateProperties, GoogleSyncConstants.TimeZoneIdKey))
+        ?? WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(descriptionMetadata.TimeZoneId)
+        ?? ResolveExplicitEventTimeZoneId(start)
+        ?? ResolveExplicitEventTimeZoneId(end)
+        ?? ResolveExplicitEventTimeZoneId(originalStart);
+
+    private static string? ResolveExplicitEventTimeZoneId(EventDateTime? eventDateTime) =>
+        WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(eventDateTime?.TimeZone);
+
+    private static bool HasExplicitEventTimeZone(EventDateTime? eventDateTime) =>
+        !string.IsNullOrWhiteSpace(eventDateTime?.TimeZone);
 
     internal static GoogleDescriptionMetadata ParseDescriptionMetadata(string? description)
     {
@@ -887,6 +992,7 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
         string? localSyncId = null;
         string? sourceFingerprint = null;
         string? sourceKind = null;
+        string? timeZoneId = null;
         var lines = description.Split(["\r\n", "\n"], StringSplitOptions.None);
         foreach (var rawLine in lines)
         {
@@ -940,10 +1046,17 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
                 && string.Equals(key, GoogleSyncConstants.SourceKindKey, StringComparison.OrdinalIgnoreCase))
             {
                 sourceKind = value;
+                continue;
+            }
+
+            if (timeZoneId is null
+                && string.Equals(key, GoogleSyncConstants.TimeZoneIdKey, StringComparison.OrdinalIgnoreCase))
+            {
+                timeZoneId = value;
             }
         }
 
-        return new GoogleDescriptionMetadata(managedBy, className, localSyncId, sourceFingerprint, sourceKind);
+        return new GoogleDescriptionMetadata(managedBy, className, localSyncId, sourceFingerprint, sourceKind, timeZoneId);
     }
 
     private sealed record CachedGoogleServices(
@@ -957,8 +1070,9 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
         string? ClassName,
         string? LocalSyncId,
         string? SourceFingerprint,
-        string? SourceKind)
+        string? SourceKind,
+        string? TimeZoneId)
     {
-        public static GoogleDescriptionMetadata Empty { get; } = new(null, null, null, null, null);
+        public static GoogleDescriptionMetadata Empty { get; } = new(null, null, null, null, null, null);
     }
 }

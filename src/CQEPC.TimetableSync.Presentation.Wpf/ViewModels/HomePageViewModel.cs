@@ -29,15 +29,18 @@ public sealed class HomePageViewModel : ObservableObject
     private bool isCompactAgendaLayout;
     private readonly AsyncRelayCommand importSchedulesCommand;
     private readonly AsyncRelayCommand syncCalendarCommand;
+    private readonly Action<UnresolvedItem>? openUnresolvedItem;
 
     public HomePageViewModel(
         WorkspaceSessionViewModel workspace,
         IRelayCommand openSettingsCommand,
         IRelayCommand openImportCommand,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Action<UnresolvedItem>? openUnresolvedItem = null)
     {
         this.workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.openUnresolvedItem = openUnresolvedItem;
         OpenSettingsCommand = openSettingsCommand ?? throw new ArgumentNullException(nameof(openSettingsCommand));
         OpenImportCommand = openImportCommand ?? throw new ArgumentNullException(nameof(openImportCommand));
 
@@ -53,13 +56,7 @@ public sealed class HomePageViewModel : ObservableObject
         NextMonthCommand = new RelayCommand(() => ChangeMonth(1));
         TodayCommand = new RelayCommand(GoToToday);
         SelectDayCommand = new RelayCommand<CalendarDayCellViewModel?>(SelectDay);
-        importSchedulesCommand = new AsyncRelayCommand(
-            ApplySchedulesAsync,
-            () => workspace.HasReadyPreview
-                && (workspace.PlannedChangeCount > 0
-                    || (workspace.DefaultProvider == ProviderKind.Google
-                        && workspace.IsGoogleConnected
-                        && workspace.HasGoogleWritableCalendars)));
+        importSchedulesCommand = new AsyncRelayCommand(ApplySchedulesAsync);
         syncCalendarCommand = new AsyncRelayCommand(SyncCalendarAsync);
 
         workspace.WorkspaceStateChanged += HandleWorkspaceStateChanged;
@@ -245,7 +242,8 @@ public sealed class HomePageViewModel : ObservableObject
         CurrentMonthTitle = displayMonth.ToDateTime(TimeOnly.MinValue).ToString("MMMM yyyy", CultureInfo.CurrentCulture);
         OnPropertyChanged(nameof(DayHeaders));
 
-        if (!workspace.HasReadyPreview)
+        var homeScheduleItems = workspace.HomeScheduleItems;
+        if (!workspace.HasReadyPreview && homeScheduleItems.Count == 0)
         {
             ShowEmptyState = true;
             Summary = workspace.WorkspaceStatus;
@@ -265,12 +263,12 @@ public sealed class HomePageViewModel : ObservableObject
         }
 
         ShowEmptyState = false;
-        var dayItems = workspace.HomeScheduleItems
+        var dayItems = homeScheduleItems
             .GroupBy(static item => item.OccurrenceDate)
             .ToDictionary(static group => group.Key, static group => group.OrderBy(item => item.TimeRange, StringComparer.Ordinal).ToArray());
         Summary = UiText.FormatHomeSummary(
             workspace.EffectiveSelectedClassName,
-            workspace.HomeScheduleItems.Count,
+            homeScheduleItems.Count,
             workspace.UnresolvedItemCount,
             workspace.DefaultProvider);
 
@@ -370,9 +368,13 @@ public sealed class HomePageViewModel : ObservableObject
 
     private void RebuildSelectedDayOccurrences(Dictionary<DateOnly, AgendaOccurrenceViewModel[]> dayItems)
     {
-        SelectedDayTitle = selectedDate.ToDateTime(TimeOnly.MinValue).ToString("dddd, MMMM d", CultureInfo.CurrentCulture);
         dayItems.TryGetValue(selectedDate, out var dayOccurrences);
-        dayOccurrences ??= Array.Empty<AgendaOccurrenceViewModel>();
+        RebuildSelectedDayOccurrences(dayOccurrences ?? Array.Empty<AgendaOccurrenceViewModel>());
+    }
+
+    private void RebuildSelectedDayOccurrences(AgendaOccurrenceViewModel[] dayOccurrences)
+    {
+        SelectedDayTitle = selectedDate.ToDateTime(TimeOnly.MinValue).ToString("dddd, MMMM d", CultureInfo.CurrentCulture);
         SelectedDayOccurrences.Clear();
         foreach (var occurrence in dayOccurrences)
         {
@@ -402,7 +404,7 @@ public sealed class HomePageViewModel : ObservableObject
                      .OrderBy(static unresolved => unresolved.ClassName, StringComparer.Ordinal)
                      .ThenBy(static unresolved => unresolved.Summary, StringComparer.Ordinal))
         {
-            HomeUnresolvedItems.Add(new UnresolvedItemCardViewModel(item));
+            HomeUnresolvedItems.Add(new UnresolvedItemCardViewModel(item, openUnresolvedItem));
         }
 
         OnPropertyChanged(nameof(HasUnresolvedItems));
@@ -416,12 +418,12 @@ public sealed class HomePageViewModel : ObservableObject
             return;
         }
 
-        var occurrencesByDate = workspace.HomeScheduleItems
-            .GroupBy(static item => item.OccurrenceDate)
-            .ToDictionary(static group => group.Key, static group => group.OrderBy(item => item.TimeRange, StringComparer.Ordinal).ToArray());
-
+        var selectedDayOccurrences = workspace.HomeScheduleItems
+            .Where(item => item.OccurrenceDate == selectedDate)
+            .OrderBy(item => item.TimeRange, StringComparer.Ordinal)
+            .ToArray();
         UpdateCalendarSelectionState();
-        RebuildSelectedDayOccurrences(occurrencesByDate);
+        RebuildSelectedDayOccurrences(selectedDayOccurrences);
     }
 
     private void UpdateCalendarSelectionState()

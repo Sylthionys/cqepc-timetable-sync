@@ -64,7 +64,7 @@ public sealed class ImportChangeRuleGroupViewModel : ObservableObject
 
     public string? RuleRangeSummary { get; }
 
-    public bool IsUpdated => ChangeKind == SyncChangeKind.Updated;
+    public bool IsUpdated => ChangeKind is SyncChangeKind.Updated or SyncChangeKind.MetadataOnly;
 
     public bool IsAdded => ChangeKind == SyncChangeKind.Added;
 
@@ -131,10 +131,7 @@ public sealed class ImportChangeRuleGroupViewModel : ObservableObject
         get => HasPartialSelection ? null : IsSelected;
         set
         {
-            if (value.HasValue)
-            {
-                IsSelected = value.Value;
-            }
+            IsSelected = value ?? false;
         }
     }
 
@@ -198,12 +195,11 @@ public sealed class ImportChangeRuleGroupViewModel : ObservableObject
         IEnumerable<ImportChangeOccurrenceItemViewModel> occurrenceItems)
     {
         var sourceItemArray = sourceItems.ToArray();
-        var badges = new List<ImportBadgeViewModel>
+        var badges = new List<ImportBadgeViewModel>();
+        if (sourceItemArray.Length > 0)
         {
-            sourceItemArray.Length == 0
-                ? new ImportBadgeViewModel(UiText.ImportUnchangedTitle, "#243446", "#A5B9D4")
-                : CreateStatusBadge(changeKind),
-        };
+            badges.Add(CreateStatusBadge(changeKind));
+        }
 
         if (sourceItemArray.Any(static item => item.PlannedChange.ChangeSource == SyncChangeSource.RemoteTitleConflict)
             && changeKind != SyncChangeKind.Deleted)
@@ -211,7 +207,7 @@ public sealed class ImportChangeRuleGroupViewModel : ObservableObject
             badges.Add(new ImportBadgeViewModel(UiText.ImportConflictTitle, "#2F2544", "#B183FF"));
         }
 
-        if (changeKind == SyncChangeKind.Updated)
+        if (changeKind is SyncChangeKind.Updated or SyncChangeKind.MetadataOnly)
         {
             foreach (var field in occurrenceItems
                          .SelectMany(static item => item.ChangedFields)
@@ -219,17 +215,6 @@ public sealed class ImportChangeRuleGroupViewModel : ObservableObject
                          .Take(4))
             {
                 badges.Add(new ImportBadgeViewModel(field, "#243446", "#A5B9D4"));
-            }
-        }
-
-        foreach (var sourceText in sourceItemArray
-                     .Select(static item => ResolveChangeSourceText(item.PlannedChange.ChangeSource))
-                     .Where(static text => !string.IsNullOrWhiteSpace(text))
-                     .Distinct(StringComparer.Ordinal))
-        {
-            if (badges.All(existing => !string.Equals(existing.Text, sourceText, StringComparison.Ordinal)))
-            {
-                badges.Add(new ImportBadgeViewModel(sourceText, "#243446", "#A5B9D4"));
             }
         }
 
@@ -241,17 +226,9 @@ public sealed class ImportChangeRuleGroupViewModel : ObservableObject
         {
             SyncChangeKind.Added => new ImportBadgeViewModel(UiText.ImportAddedTitle, "#1A3528", "#67D37E"),
             SyncChangeKind.Updated => new ImportBadgeViewModel(UiText.ImportUpdatedTitle, "#372B1D", "#FFAA3C"),
+            SyncChangeKind.MetadataOnly => new ImportBadgeViewModel(UiText.ImportMetadataOnlyTitle, "#243446", "#A5B9D4"),
             SyncChangeKind.Deleted => new ImportBadgeViewModel(UiText.ImportDeletedTitle, "#3A2028", "#FF6D6D"),
             _ => new ImportBadgeViewModel(UiText.ImportChangesTitle, "#243446", "#A5B9D4"),
         };
 
-    private static string ResolveChangeSourceText(SyncChangeSource source) =>
-        source switch
-        {
-            SyncChangeSource.LocalSnapshot => UiText.DiffSourceLocalSnapshot,
-            SyncChangeSource.RemoteManaged => UiText.DiffSourceRemoteManaged,
-            SyncChangeSource.RemoteTitleConflict => UiText.DiffSourceRemoteTitleConflict,
-            SyncChangeSource.RemoteExactMatch => UiText.DiffSourceRemoteExactMatch,
-            _ => source.ToString(),
-        };
 }

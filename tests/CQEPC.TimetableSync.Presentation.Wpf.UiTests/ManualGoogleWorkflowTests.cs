@@ -285,6 +285,72 @@ public sealed class ManualGoogleWorkflowTests
     }
 
     [ManualUiFact]
+    public async Task ActualLocalStorageLiveGooglePreviewDoesNotShowEquivalentRegionalTimeZoneOnlyDrift()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var storageRoot = await CreateClonedActualStorageRootAsync(actualStorageRoot);
+        var storagePaths = new LocalStoragePaths(storageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId))
+        {
+            return;
+        }
+
+        var currentTimeZoneId = WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(preferences.GoogleSettings.PreferredCalendarTimeZoneId)
+            ?? WorkspaceTimeZoneCatalog.DefaultTimeZoneId;
+        var alternateTimeZoneId = string.Equals(currentTimeZoneId, "Asia/Shanghai", StringComparison.Ordinal)
+            ? "Asia/Hong_Kong"
+            : "Asia/Shanghai";
+        var previewContexts = new[]
+        {
+            await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None),
+            await BuildLiveGooglePreviewContextAsync(
+                storagePaths,
+                preferences.WithGoogleSettings(new GoogleProviderSettings(
+                    preferences.GoogleSettings.OAuthClientConfigurationPath,
+                    preferences.GoogleSettings.ConnectedAccountSummary,
+                    preferences.GoogleSettings.SelectedCalendarId,
+                    preferences.GoogleSettings.SelectedCalendarDisplayName,
+                    preferences.GoogleSettings.WritableCalendars,
+                    preferences.GoogleSettings.TaskRules,
+                    preferences.GoogleSettings.ImportCalendarIntoHomePreviewEnabled,
+                    alternateTimeZoneId,
+                    alternateTimeZoneId,
+                    preferences.GoogleSettings.RecentCalendarTimeZoneIds)),
+                CancellationToken.None),
+        };
+
+        var anomalies = previewContexts
+            .SelectMany(context => context.Preview.SyncPlan?.PlannedChanges
+                .Where(IsEquivalentRegionalTimeZoneOnlyChange)
+                .Select(change => string.Join(
+                    " | ",
+                    $"selectedClass={context.SelectedClassName}",
+                    $"kind={change.ChangeKind}",
+                    $"source={change.ChangeSource}",
+                    $"title={change.After?.Metadata.CourseTitle ?? change.Before?.Metadata.CourseTitle}",
+                    $"beforeZone={change.Before?.CalendarTimeZoneId ?? "<null>"}",
+                    $"afterZone={change.After?.CalendarTimeZoneId ?? "<null>"}",
+                    $"before={change.Before?.Start.ToString("O", CultureInfo.InvariantCulture) ?? "<null>"}",
+                    $"after={change.After?.Start.ToString("O", CultureInfo.InvariantCulture) ?? "<null>"}"))
+                ?? Array.Empty<string>())
+            .ToArray();
+
+        anomalies.Should().BeEmpty(
+            $"switching only between equivalent regional Google defaults should not create Import time-zone changes. Current={currentTimeZoneId}, alternate={alternateTimeZoneId}, anomalies={string.Join(" || ", anomalies)}");
+    }
+
+    [ManualUiFact]
     public async Task ActualLocalStorageLiveGooglePreviewRepresentsManagedDuplicateGroupsInSyncPlan()
     {
         var actualStorageRoot = Path.Combine(
@@ -1077,9 +1143,9 @@ public sealed class ManualGoogleWorkflowTests
                 current.WaitForButton("Import.Detail.EditSelected").IsEnabled.Should().BeTrue();
                 current.ClickButton("Import.Detail.EditSelected", "Import.CourseEditor.TimeZoneCombo");
 
-                current.GetComboBoxSelectionText("Import.CourseEditor.TimeZoneCombo")
+                (await current.GetTimeZoneSelectionAsync("Import.CourseEditor.TimeZoneCombo"))
                     .Should()
-                    .Be("UTC+8", "the course editor must use the configured default Google Calendar time zone when the parsed occurrence has no explicit override");
+                    .Contain("Asia/Shanghai (UTC+08:00)", "the course editor must use the configured default Google Calendar time zone when the parsed occurrence has no explicit override");
 
                 await current.OpenDatePickerDropdownAsync("Import.CourseEditor.StartDate");
                 await Task.Delay(250);
@@ -2567,6 +2633,70 @@ public sealed class ManualGoogleWorkflowTests
     }
 
     [ManualUiFact]
+    public async Task ActualLocalStorageCurrentSelectedClassDirectApplyLeavesNoPendingCalendarChanges()
+    {
+        var actualStorageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CQEPC Timetable Sync");
+        if (!Directory.Exists(actualStorageRoot))
+        {
+            return;
+        }
+
+        var storagePaths = new LocalStoragePaths(actualStorageRoot);
+        var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
+        var preferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+        if (preferences.DefaultProvider != ProviderKind.Google
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.OAuthClientConfigurationPath)
+            || string.IsNullOrWhiteSpace(preferences.GoogleSettings.SelectedCalendarId)
+            || !string.Equals(preferences.GoogleSettings.SelectedCalendarDisplayName, "\u8bfe\u8868", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var previewService = CreateLiveGooglePreviewService(storagePaths);
+        var previewContext = await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None);
+        previewContext.Preview.SyncPlan.Should().NotBeNull();
+
+        var acceptedChangeIds = previewContext.Preview.SyncPlan!.PlannedChanges
+            .Where(static change => change.TargetKind == SyncTargetKind.CalendarEvent)
+            .Select(static change => change.LocalStableId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        if (acceptedChangeIds.Length > 0)
+        {
+            var applyResult = await previewService.ApplyAcceptedChangesAsync(
+                previewContext.Preview,
+                acceptedChangeIds,
+                CancellationToken.None);
+            applyResult.Status.Kind.Should().NotBe(
+                WorkspaceApplyStatusKind.NoSuccess,
+                $"accepted={acceptedChangeIds.Length}, status={applyResult.Status.Detail}");
+        }
+
+        PlannedSyncChange[] pendingChanges = [];
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            var refreshedPreferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+            var refreshedContext = await BuildLiveGooglePreviewContextAsync(storagePaths, refreshedPreferences, CancellationToken.None);
+            pendingChanges = refreshedContext.Preview.SyncPlan?.PlannedChanges
+                .Where(static change => change.TargetKind == SyncTargetKind.CalendarEvent)
+                .ToArray()
+                ?? [];
+            if (pendingChanges.Length == 0)
+            {
+                break;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(5));
+        }
+
+        pendingChanges.Should().BeEmpty(
+            $"direct apply should converge. Remaining={string.Join(" || ", pendingChanges.Select(FormatPlannedChangeDiagnostics))}");
+    }
+
+    [ManualUiFact]
     public async Task ActualLocalStorageLiveGoogleAppliesWholeRepeatAndSingleOccurrenceLargeOverride()
     {
         var storageRoot = Path.Combine(
@@ -3653,6 +3783,40 @@ public sealed class ManualGoogleWorkflowTests
         && occurrence.End.ToUniversalTime() == remoteEvent.End.ToUniversalTime()
         && string.Equals(occurrence.Metadata.Location ?? string.Empty, remoteEvent.Location ?? string.Empty, StringComparison.Ordinal);
 
+    private static bool IsEquivalentRegionalTimeZoneOnlyChange(PlannedSyncChange change)
+    {
+        if (change.TargetKind != SyncTargetKind.CalendarEvent
+            || change.Before is null
+            || change.After is null)
+        {
+            return false;
+        }
+
+        var beforeTimeZoneId = WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(change.Before.CalendarTimeZoneId);
+        var afterTimeZoneId = WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(change.After.CalendarTimeZoneId);
+        if (string.IsNullOrWhiteSpace(beforeTimeZoneId)
+            || string.IsNullOrWhiteSpace(afterTimeZoneId)
+            || string.Equals(beforeTimeZoneId, afterTimeZoneId, StringComparison.Ordinal)
+            || !IsRegionalTimeZoneId(beforeTimeZoneId)
+            || !IsRegionalTimeZoneId(afterTimeZoneId))
+        {
+            return false;
+        }
+
+        return change.Before.Start.ToUniversalTime() == change.After.Start.ToUniversalTime()
+            && change.Before.End.ToUniversalTime() == change.After.End.ToUniversalTime()
+            && change.Before.Start.DateTime == change.After.Start.DateTime
+            && change.Before.End.DateTime == change.After.End.DateTime
+            && WorkspaceTimeZoneCatalog.TryGetUtcOffset(beforeTimeZoneId, change.Before.Start.DateTime)
+                == WorkspaceTimeZoneCatalog.TryGetUtcOffset(afterTimeZoneId, change.After.Start.DateTime)
+            && WorkspaceTimeZoneCatalog.TryGetUtcOffset(beforeTimeZoneId, change.Before.End.DateTime)
+                == WorkspaceTimeZoneCatalog.TryGetUtcOffset(afterTimeZoneId, change.After.End.DateTime);
+    }
+
+    private static bool IsRegionalTimeZoneId(string timeZoneId) =>
+        timeZoneId.Contains('/', StringComparison.Ordinal)
+        && !timeZoneId.StartsWith("Etc/", StringComparison.Ordinal);
+
     private static bool Overlaps(PreviewDateWindow window, DateTimeOffset start, DateTimeOffset end)
     {
         var normalizedStart = start.ToUniversalTime();
@@ -3786,6 +3950,28 @@ public sealed class ManualGoogleWorkflowTests
 
     private static string FormatPlannedChangeState(PlannedChangeState change) =>
         $"{change.LocalStableId}:{change.ChangeKind}:{change.ChangeSource}:{change.BeforeLocation}->{change.AfterLocation}:remote={change.RemoteLocation}";
+
+    private static string FormatPlannedChangeDiagnostics(PlannedSyncChange change)
+    {
+        var occurrence = change.After ?? change.Before;
+        return string.Join(
+            " | ",
+            $"id={change.LocalStableId}",
+            $"kind={change.ChangeKind}",
+            $"source={change.ChangeSource}",
+            $"title={occurrence?.Metadata.CourseTitle ?? change.RemoteEvent?.Title ?? "<null>"}",
+            $"beforeZone={change.Before?.CalendarTimeZoneId ?? "<null>"}",
+            $"afterZone={change.After?.CalendarTimeZoneId ?? "<null>"}",
+            $"beforeStart={change.Before?.Start.ToString("O", CultureInfo.InvariantCulture) ?? "<null>"}",
+            $"afterStart={change.After?.Start.ToString("O", CultureInfo.InvariantCulture) ?? "<null>"}",
+            $"remoteId={change.RemoteEvent?.RemoteItemId ?? "<null>"}",
+            $"remoteZone={change.RemoteEvent?.CalendarTimeZoneId ?? "<null>"}",
+            $"remoteStartZone={change.RemoteEvent?.StartTimeZoneId ?? "<null>"}",
+            $"remoteEndZone={change.RemoteEvent?.EndTimeZoneId ?? "<null>"}",
+            $"remoteOriginalZone={change.RemoteEvent?.OriginalStartTimeZoneId ?? "<null>"}",
+            $"remoteStart={change.RemoteEvent?.Start.ToString("O", CultureInfo.InvariantCulture) ?? "<null>"}",
+            $"remoteEnd={change.RemoteEvent?.End.ToString("O", CultureInfo.InvariantCulture) ?? "<null>"}");
+    }
 
     private static Dictionary<string, string> BuildCategoryNamesByCourseTypeKey(ProviderDefaults defaults) =>
         defaults.CourseTypeAppearances.ToDictionary(

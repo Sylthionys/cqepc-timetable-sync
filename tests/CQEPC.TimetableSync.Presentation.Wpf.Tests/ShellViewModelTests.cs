@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Input;
 using CQEPC.TimetableSync.Application.Abstractions.Normalization;
 using CQEPC.TimetableSync.Application.Abstractions.Onboarding;
 using CQEPC.TimetableSync.Application.Abstractions.Persistence;
@@ -44,6 +44,119 @@ public sealed class ShellViewModelTests
 
         session.SelectedCalendarDestination.Should().Be("Microsoft Timetable");
         session.SelectedTaskListDestination.Should().Be("Microsoft Coursework");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionProviderOptionsShowConnectedAccounts()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: null,
+                connectedAccountSummary: "student@example.com",
+                selectedCalendarId: null,
+                selectedCalendarDisplayName: null,
+                writableCalendars: Array.Empty<ProviderCalendarDescriptor>()))
+            .WithMicrosoftSettings(new MicrosoftProviderSettings(
+                clientId: "client-id",
+                tenantId: null,
+                useBroker: true,
+                connectedAccountSummary: "student@contoso.com",
+                selectedCalendarId: null,
+                selectedCalendarDisplayName: null,
+                selectedTaskListId: null,
+                selectedTaskListDisplayName: null,
+                writableCalendars: Array.Empty<ProviderCalendarDescriptor>(),
+                taskLists: Array.Empty<ProviderTaskListDescriptor>()));
+        var session = CreateSession(preferences: preferences);
+
+        await session.InitializeAsync();
+
+        session.ProviderOptions.Single(option => option.Provider == ProviderKind.Google)
+            .DisplayName.Should().Be("Google: student@example.com");
+        session.SelectedProviderOption.Should().NotBeNull();
+        session.SelectedProviderOption!.DisplayName.Should().Be("Google: student@example.com");
+
+        session.DefaultProvider = ProviderKind.Microsoft;
+
+        session.SelectedProviderOption.Should().NotBeNull();
+        session.SelectedProviderOption!.DisplayName.Should().Be("Microsoft: student@contoso.com");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionUsesSelectedGoogleCalendarColorForPresetColorOption()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: null,
+                connectedAccountSummary: null,
+                selectedCalendarId: "google-primary",
+                selectedCalendarDisplayName: "Google Timetable",
+                writableCalendars:
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true, BackgroundColorHex: "#123456"),
+                    new ProviderCalendarDescriptor("google-alt", "Lab Calendar", IsPrimary: false, BackgroundColorHex: "#654321"),
+                    new ProviderCalendarDescriptor("google-color-id", "Color ID Calendar", IsPrimary: false, CalendarColorId: "12"),
+                ]));
+        var session = CreateSession(preferences: preferences);
+
+        await session.InitializeAsync();
+
+        session.GoogleCalendarColorOptions.First(option => option.ColorId is null).ColorHex.Should().Be("#123456");
+        session.SelectedGoogleCalendarColorOption.Should().NotBeNull();
+        session.SelectedGoogleCalendarColorOption!.ColorHex.Should().Be("#123456");
+
+        session.SelectedCalendarDestination = "Lab Calendar";
+
+        session.GoogleCalendarColorOptions.First(option => option.ColorId is null).ColorHex.Should().Be("#654321");
+        session.SelectedGoogleCalendarColorOption.Should().NotBeNull();
+        session.SelectedGoogleCalendarColorOption!.ColorHex.Should().Be("#654321");
+
+        session.SelectedCalendarDestination = "Color ID Calendar";
+
+        session.GoogleCalendarColorOptions.First(option => option.ColorId is null).ColorHex.Should().Be("#FAD165");
+        session.SelectedGoogleCalendarColorOption.Should().NotBeNull();
+        session.SelectedGoogleCalendarColorOption!.ColorHex.Should().Be("#FAD165");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionStartupSyncRefreshesGoogleCalendarListWhenSelectedCalendarColorMetadataIsMissing()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: null,
+                connectedAccountSummary: "student@example.com",
+                selectedCalendarId: "google-timetable",
+                selectedCalendarDisplayName: "课表",
+                writableCalendars:
+                [
+                    new ProviderCalendarDescriptor("google-timetable", "课表", IsPrimary: false),
+                ]));
+        var previewService = new FakeWorkspacePreviewService(
+            request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+                ]));
+        var googleAdapter = new CountingGoogleSyncProviderAdapter(
+            [
+                new ProviderCalendarDescriptor("google-timetable", "课表", IsPrimary: false, BackgroundColorHex: "#FAD165"),
+            ]);
+        var session = new WorkspaceSessionViewModel(
+            new FakeLocalSourceOnboardingService(CreateCatalogState()),
+            new FakeFilePickerService(),
+            new FakeUserPreferencesRepository(preferences),
+            previewService,
+            googleAdapter);
+
+        await session.InitializeAsync();
+
+        googleAdapter.ListWritableCalendarsCallCount.Should().Be(1);
+        session.GoogleCalendarColorOptions.First(option => option.ColorId is null).ColorHex.Should().Be("#FAD165");
+        session.SelectedGoogleCalendarColorOption.Should().NotBeNull();
+        session.SelectedGoogleCalendarColorOption!.ColorHex.Should().Be("#FAD165");
     }
 
     [Fact]
@@ -272,13 +385,13 @@ public sealed class ShellViewModelTests
         var appliedChangeIds = Array.Empty<string>();
         var preferences = WorkspacePreferenceDefaults.Create()
             .WithGoogleSettings(new GoogleProviderSettings(
-                oauthClientConfigurationPath: null,
+                oauthClientConfigurationPath: Path.Combine(AppContext.BaseDirectory, "CQEPC.TimetableSync.Presentation.Wpf.Tests.dll"),
                 connectedAccountSummary: "student@example.com",
                 selectedCalendarId: "google-primary",
                 selectedCalendarDisplayName: "Google Timetable",
                 writableCalendars:
                 [
-                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true, BackgroundColorHex: "#8AB4F8"),
                 ]));
         var previewService = new FakeWorkspacePreviewService(
             request => CreatePreviewResult(
@@ -331,7 +444,7 @@ public sealed class ShellViewModelTests
                 selectedCalendarDisplayName: "Google Timetable",
                 writableCalendars:
                 [
-                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true, BackgroundColorHex: "#8AB4F8"),
                 ]));
         var previewService = new FakeWorkspacePreviewService(
             request => CreatePreviewResult(
@@ -395,6 +508,59 @@ public sealed class ShellViewModelTests
         await session.InitializeAsync();
 
         previewService.BuildPreviewCallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionTracksLastProviderDataRefreshForSelectedProvider()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithProgramBehavior(new ProgramBehaviorSettings(
+                syncGoogleCalendarOnStartup: false,
+                showStatusNotifications: true))
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: Path.Combine(AppContext.BaseDirectory, "CQEPC.TimetableSync.Presentation.Wpf.Tests.dll"),
+                connectedAccountSummary: "student@example.com",
+                selectedCalendarId: "google-primary",
+                selectedCalendarDisplayName: "Google Timetable",
+                writableCalendars:
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true, BackgroundColorHex: "#8AB4F8"),
+                ]));
+        var session = new WorkspaceSessionViewModel(
+            new FakeLocalSourceOnboardingService(CreateCatalogState()),
+            new FakeFilePickerService(),
+            new FakeUserPreferencesRepository(preferences),
+            new FakeWorkspacePreviewService(
+                request => CreatePreviewResult(
+                    request.CatalogState,
+                    request.Preferences,
+                    effectiveSelectedClassName: "Class A",
+                    occurrences:
+                    [
+                        CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+                    ])),
+            new CountingGoogleSyncProviderAdapter(
+                [
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true, BackgroundColorHex: "#8AB4F8"),
+                ]),
+            timeProvider: new FixedTimeProvider(new DateTimeOffset(2026, 5, 8, 14, 25, 0, TimeSpan.FromHours(8))));
+
+        await session.InitializeAsync();
+
+        session.CurrentProviderLastSyncText.Should().Be(UiText.ProviderDataNeverSynced);
+
+        await session.RefreshSelectedProviderDataCommand.ExecuteAsync(null);
+
+        session.CurrentProviderLastSyncedAt.Should().Be(new DateTimeOffset(2026, 5, 8, 14, 25, 0, TimeSpan.FromHours(8)));
+        session.CurrentProviderLastSyncText.Should().Be("05-08 14:25");
+
+        session.DefaultProvider = ProviderKind.Microsoft;
+
+        session.CurrentProviderLastSyncText.Should().Be(UiText.ProviderDataNeverSynced);
+
+        session.DefaultProvider = ProviderKind.Google;
+
+        session.CurrentProviderLastSyncText.Should().Be("05-08 14:25");
     }
 
     [Fact]
@@ -724,6 +890,53 @@ public sealed class ShellViewModelTests
     }
 
     [Fact]
+    public void ShellSettingsNavigationCollapsesPrimarySidebarOnlyWhenEnteringSettings()
+    {
+        var session = CreateSession();
+        var shell = new ShellViewModel(session, new SettingsPageViewModel(session));
+
+        shell.IsSidebarExpanded.Should().BeTrue();
+
+        shell.ShowSettingsCommand.Execute(null);
+
+        shell.CurrentPage.Should().Be(ShellPage.Settings);
+        shell.IsSidebarExpanded.Should().BeFalse();
+
+        shell.ShowHomeCommand.Execute(null);
+
+        shell.CurrentPage.Should().Be(ShellPage.Home);
+        shell.IsSidebarExpanded.Should().BeTrue();
+
+        shell.ToggleSidebarCommand.Execute(null);
+        shell.IsSidebarExpanded.Should().BeFalse();
+
+        shell.ShowSettingsCommand.Execute(null);
+
+        shell.CurrentPage.Should().Be(ShellPage.Settings);
+        shell.IsSidebarExpanded.Should().BeFalse();
+
+        shell.ShowImportCommand.Execute(null);
+
+        shell.CurrentPage.Should().Be(ShellPage.Import);
+        shell.IsSidebarExpanded.Should().BeFalse();
+
+        shell.ToggleSidebarCommand.Execute(null);
+        shell.IsSidebarExpanded.Should().BeTrue();
+
+        shell.ShowSettingsCommand.Execute(null);
+
+        shell.CurrentPage.Should().Be(ShellPage.Settings);
+        shell.IsSidebarExpanded.Should().BeFalse();
+
+        shell.ToggleSidebarCommand.Execute(null);
+        shell.IsSidebarExpanded.Should().BeTrue();
+
+        shell.ShowSettingsCommand.Execute(null);
+
+        shell.IsSidebarExpanded.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task HomePageViewModelApplySchedulesCommandNavigatesToSettingsWhenGoogleIsDisconnected()
     {
         var applyCallCount = 0;
@@ -831,7 +1044,7 @@ public sealed class ShellViewModelTests
                 selectedCalendarDisplayName: "Google Timetable",
                 writableCalendars:
                 [
-                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true, BackgroundColorHex: "#8AB4F8"),
                 ]));
         var previewService = new FakeWorkspacePreviewService(
             request => CreatePreviewResult(
@@ -844,7 +1057,7 @@ public sealed class ShellViewModelTests
                 ]));
         var googleAdapter = new CountingGoogleSyncProviderAdapter(
             [
-                new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true, BackgroundColorHex: "#8AB4F8"),
             ]);
         var session = new WorkspaceSessionViewModel(
             new FakeLocalSourceOnboardingService(CreateCatalogState()),
@@ -881,7 +1094,7 @@ public sealed class ShellViewModelTests
                 selectedCalendarDisplayName: "Google Timetable",
                 writableCalendars:
                 [
-                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                    new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true, BackgroundColorHex: "#8AB4F8"),
                 ]));
         var previewService = new FakeWorkspacePreviewService(
             request => CreatePreviewResult(
@@ -907,7 +1120,7 @@ public sealed class ShellViewModelTests
             onApplyAcceptedChanges: ids => appliedChangeIds = ids.ToArray());
         var googleAdapter = new CountingGoogleSyncProviderAdapter(
             [
-                new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true),
+                new ProviderCalendarDescriptor("google-primary", "Google Timetable", IsPrimary: true, BackgroundColorHex: "#8AB4F8"),
             ]);
         var session = new WorkspaceSessionViewModel(
             new FakeLocalSourceOnboardingService(CreateCatalogState()),
@@ -1159,6 +1372,122 @@ public sealed class ShellViewModelTests
     }
 
     [Fact]
+    public async Task ImportDiffPageViewModelCountsUnchangedOccurrencesAgainstPreviewScope()
+    {
+        var currentOccurrences = new[]
+        {
+            CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+            CreateOccurrence("Class A", "Circuits", new DateOnly(2026, 3, 20), new TimeOnly(10, 0), new TimeOnly(11, 40)),
+            CreateOccurrence("Class A", "Physics", new DateOnly(2026, 3, 21), new TimeOnly(14, 0), new TimeOnly(15, 40)),
+        };
+        var deletedOccurrence = CreateOccurrence(
+            "Class A",
+            "History",
+            new DateOnly(2026, 3, 12),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40));
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: currentOccurrences,
+                syncPlan: new SyncPlan(
+                    currentOccurrences,
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Deleted,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-deleted",
+                            before: deletedOccurrence),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        await session.InitializeAsync();
+
+        var import = new ImportDiffPageViewModel(session);
+
+        import.PlannedChangeCount.Should().Be(1);
+        import.DeletedCount.Should().Be(1);
+        import.UnchangedCount.Should().Be(3);
+        import.UnchangedRatioText.Should().Be("75%");
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelRatiosUseWholeReviewScopeForAllMetricCards()
+    {
+        var added = CreateOccurrence(
+            "Class A",
+            "Added Course",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40));
+        var updatedBefore = CreateOccurrence(
+            "Class A",
+            "Updated Course",
+            new DateOnly(2026, 3, 20),
+            new TimeOnly(10, 0),
+            new TimeOnly(11, 40),
+            location: "Room 301");
+        var updatedAfter = CreateOccurrence(
+            "Class A",
+            "Updated Course",
+            new DateOnly(2026, 3, 20),
+            new TimeOnly(10, 0),
+            new TimeOnly(11, 40),
+            location: "Room 302");
+        var deleted = CreateOccurrence(
+            "Class A",
+            "Deleted Course",
+            new DateOnly(2026, 3, 21),
+            new TimeOnly(14, 0),
+            new TimeOnly(15, 40));
+        var unchanged = CreateOccurrence(
+            "Class A",
+            "Unchanged Course",
+            new DateOnly(2026, 3, 22),
+            new TimeOnly(16, 0),
+            new TimeOnly(17, 40));
+        var unresolved = new UnresolvedItem(
+            SourceItemKind.RegularCourseBlock,
+            "Class A",
+            "Unresolved Course",
+            "CourseTitle: Unresolved Course\nWeekday: Monday\nPeriods: 1-2\nWeekExpression: 1",
+            "Automatic time-profile selection remained ambiguous.",
+            new SourceFingerprint("pdf", "unresolved-ratio"),
+            "NRM003");
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [added, updatedAfter, unchanged],
+                unresolvedItems: [unresolved],
+                syncPlan: new SyncPlan(
+                    [added, updatedAfter, unchanged],
+                    [
+                        new PlannedSyncChange(SyncChangeKind.Added, SyncTargetKind.CalendarEvent, "chg-added", after: added),
+                        new PlannedSyncChange(SyncChangeKind.Updated, SyncTargetKind.CalendarEvent, "chg-updated", before: updatedBefore, after: updatedAfter),
+                        new PlannedSyncChange(SyncChangeKind.Deleted, SyncTargetKind.CalendarEvent, "chg-deleted", before: deleted),
+                    ],
+                    [unresolved])));
+        await session.InitializeAsync();
+
+        var import = new ImportDiffPageViewModel(session);
+
+        import.PlannedChangeCount.Should().Be(3);
+        import.AddedCount.Should().Be(1);
+        import.UpdatedCount.Should().Be(1);
+        import.DeletedCount.Should().Be(1);
+        import.ConflictCount.Should().Be(1);
+        import.UnchangedCount.Should().Be(1);
+        import.AddedRatioText.Should().Be("20%");
+        import.UpdatedRatioText.Should().Be("20%");
+        import.DeletedRatioText.Should().Be("20%");
+        import.ConflictRatioText.Should().Be("20%");
+        import.UnchangedRatioText.Should().Be("20%");
+    }
+
+    [Fact]
     public async Task ImportDiffPageViewModelSelectsCourseRuleAndSettingsDetailsInline()
     {
         var weeklyFingerprint = new SourceFingerprint("pdf", "signals-weekly");
@@ -1208,7 +1537,7 @@ public sealed class ShellViewModelTests
         var parsedRuleGroup = import.SelectedCourseRuleGroups.Should().ContainSingle().Subject;
         parsedRuleGroup.Should().NotBeSameAs(ruleGroup);
         parsedRuleGroup.CanSelect.Should().BeFalse();
-        parsedRuleGroup.HeaderBadges.Select(static badge => badge.Text).Should().Contain(UiText.ImportUnchangedTitle);
+        parsedRuleGroup.HeaderBadges.Select(static badge => badge.Text).Should().NotContain(UiText.ImportUnchangedTitle);
         parsedRuleGroup.OccurrenceItems.Should().HaveCount(2);
         import.SelectedOccurrenceDetailBadges.Select(static badge => badge.Text)
             .Should()
@@ -1273,7 +1602,7 @@ public sealed class ShellViewModelTests
         import.CourseSettingsCourseTitle.Should().Be("Signals");
         import.HasCourseSettingsPendingChanges.Should().BeFalse();
 
-        import.SelectedCourseSettingsTimeZoneOption = import.CourseSettingsTimeZoneOptions.Single(option => option.TimeZoneId == "UTC");
+        import.SelectedCourseSettingsTimeZoneOption = import.CourseSettingsTimeZoneOptions.Single(option => option.TimeZoneId == "America/New_York");
         import.SelectedCourseSettingsColorOption = import.CourseSettingsColorOptions.Single(option => option.ColorId == "9");
 
         import.HasCourseSettingsPendingChanges.Should().BeTrue();
@@ -1284,7 +1613,7 @@ public sealed class ShellViewModelTests
         session.CurrentPreferences.TimetableResolution.CoursePresentationOverrides.Should().ContainSingle();
         var storedOverride = session.CurrentPreferences.TimetableResolution.FindCoursePresentationOverride("Class A", "Signals");
         storedOverride.Should().NotBeNull();
-        storedOverride!.CalendarTimeZoneId.Should().Be("UTC");
+        storedOverride!.CalendarTimeZoneId.Should().Be("America/New_York");
         storedOverride.GoogleCalendarColorId.Should().Be("9");
         import.CanResetCourseSettings.Should().BeTrue();
 
@@ -1394,6 +1723,266 @@ public sealed class ShellViewModelTests
     }
 
     [Fact]
+    public async Task ImportDiffPageViewModelSuppressesDeleteShadowedByMatchingUnresolvedCourse()
+    {
+        var current = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40));
+        var unresolvedFingerprint = new SourceFingerprint("pdf", "pe-unresolved");
+        var deleted = CreateOccurrence(
+            "Class A",
+            "PE 2",
+            new DateOnly(2026, 3, 26),
+            new TimeOnly(14, 30),
+            new TimeOnly(16, 0),
+            unresolvedFingerprint);
+        var unresolved = new UnresolvedItem(
+            SourceItemKind.RegularCourseBlock,
+            "Class A",
+            "PE 2",
+            "CourseTitle: PE 2\nWeekday: Thursday\nPeriods: 7-8\nWeekExpression: 2",
+            "Automatic time-profile selection remained ambiguous.",
+            unresolvedFingerprint,
+            "NRM003");
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [current],
+                unresolvedItems: [unresolved],
+                syncPlan: new SyncPlan(
+                    [current],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Deleted,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-shadow-delete",
+                            before: deleted),
+                    ],
+                    [unresolved])));
+        await session.InitializeAsync();
+
+        var import = new ImportDiffPageViewModel(session);
+
+        import.PlannedChangeCount.Should().Be(0);
+        import.DeletedCount.Should().Be(0);
+        import.DeletedChanges.Should().BeEmpty();
+        import.ChangeGroups.Should().BeEmpty();
+        import.HasChanges.Should().BeFalse();
+        import.HasUnresolvedItems.Should().BeTrue();
+        import.ConflictCount.Should().Be(1);
+        import.UnchangedCount.Should().Be(1);
+        import.ConflictRatioText.Should().Be("50%");
+        import.UnchangedRatioText.Should().Be("50%");
+        import.SelectionProgressText.Should().Be("0 / 1");
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelKeepsSameTitleDeleteWhenUnresolvedScheduleDoesNotMatch()
+    {
+        var current = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40));
+        var deleted = CreateOccurrence(
+            "Class A",
+            "PE 2",
+            new DateOnly(2026, 3, 26),
+            new TimeOnly(14, 30),
+            new TimeOnly(16, 0),
+            new SourceFingerprint("pdf", "pe-deleted-week-1"),
+            weekExpression: "1");
+        var unresolved = new UnresolvedItem(
+            SourceItemKind.RegularCourseBlock,
+            "Class A",
+            "PE 2",
+            "CourseTitle: PE 2\nWeekday: Thursday\nPeriods: 1-2\nWeekExpression: 2",
+            "Automatic time-profile selection remained ambiguous.",
+            new SourceFingerprint("pdf", "pe-unresolved-week-2"),
+            "NRM003");
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [current],
+                unresolvedItems: [unresolved],
+                syncPlan: new SyncPlan(
+                    [current],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Deleted,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-real-delete",
+                            before: deleted),
+                    ],
+                    [unresolved])));
+        await session.InitializeAsync();
+
+        var import = new ImportDiffPageViewModel(session);
+
+        import.PlannedChangeCount.Should().Be(1);
+        import.DeletedCount.Should().Be(1);
+        import.DeletedChanges.Should().ContainSingle(static change => change.LocalStableId == "chg-real-delete");
+        import.HasChanges.Should().BeTrue();
+        import.HasUnresolvedItems.Should().BeTrue();
+        import.SelectionProgressText.Should().Be("1 / 1");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionApplyDefaultSelectionSkipsDeleteShadowedByUnresolvedCourse()
+    {
+        var current = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40));
+        var added = CreateOccurrence(
+            "Class A",
+            "Circuits",
+            new DateOnly(2026, 3, 20),
+            new TimeOnly(10, 0),
+            new TimeOnly(11, 40));
+        var unresolvedFingerprint = new SourceFingerprint("pdf", "pe-unresolved-workspace");
+        var shadowDeleted = CreateOccurrence(
+            "Class A",
+            "PE 2",
+            new DateOnly(2026, 3, 26),
+            new TimeOnly(14, 30),
+            new TimeOnly(16, 0),
+            unresolvedFingerprint);
+        var unresolved = new UnresolvedItem(
+            SourceItemKind.RegularCourseBlock,
+            "Class A",
+            "PE 2",
+            "CourseTitle: PE 2\nWeekday: Thursday\nPeriods: 7-8\nWeekExpression: 2",
+            "Automatic time-profile selection remained ambiguous.",
+            unresolvedFingerprint,
+            "NRM003");
+        var previousSnapshot = new ImportedScheduleSnapshot(
+            DateTimeOffset.UtcNow,
+            "Class A",
+            [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals")])],
+            Array.Empty<UnresolvedItem>(),
+            [new SchoolWeek(1, new DateOnly(2026, 3, 16), new DateOnly(2026, 3, 22))],
+            Array.Empty<TimeProfile>(),
+            [current, shadowDeleted],
+            Array.Empty<ExportGroup>(),
+            Array.Empty<RuleBasedTaskGenerationRule>());
+        var previewService = new FakeWorkspacePreviewService(
+            request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [current, added],
+                unresolvedItems: [unresolved],
+                syncPlan: new SyncPlan(
+                    [current, added],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Added,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-added",
+                            after: added),
+                        new PlannedSyncChange(
+                            SyncChangeKind.Deleted,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-shadow-delete",
+                            before: shadowDeleted),
+                    ],
+                    [unresolved]),
+                previousSnapshot: previousSnapshot));
+        var session = new WorkspaceSessionViewModel(
+            new FakeLocalSourceOnboardingService(CreateCatalogState()),
+            new FakeFilePickerService(),
+            new FakeUserPreferencesRepository(WorkspacePreferenceDefaults.Create().WithDefaultProvider(ProviderKind.Microsoft)),
+            previewService);
+        await session.InitializeAsync();
+
+        session.PlannedChangeCount.Should().Be(1);
+        session.CurrentEffectivePlannedChanges.Select(static change => change.LocalStableId).Should().Equal("chg-added");
+        session.EffectiveHomeOccurrences.Select(static occurrence => occurrence.Metadata.CourseTitle)
+            .Should().Contain("Signals")
+            .And.Contain("Circuits")
+            .And.Contain("PE 2");
+
+        session.UpdateImportSelection(["chg-added", "chg-shadow-delete"]);
+        await session.ApplySelectedImportChangesAsync();
+
+        previewService.RemoteApplyAcceptedChangeIds.Should().Equal("chg-added");
+        previewService.RemoteApplyAcceptedChangeIds.Should().NotContain("chg-shadow-delete");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionHomePreviewKeepsOnlyDeleteShadowedByUnresolvedCourse()
+    {
+        var current = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40));
+        var unresolvedFingerprint = new SourceFingerprint("pdf", "pe-unresolved-only-delete");
+        var shadowDeleted = CreateOccurrence(
+            "Class A",
+            "PE 2",
+            new DateOnly(2026, 3, 26),
+            new TimeOnly(14, 30),
+            new TimeOnly(16, 0),
+            unresolvedFingerprint);
+        var unresolved = new UnresolvedItem(
+            SourceItemKind.RegularCourseBlock,
+            "Class A",
+            "PE 2",
+            "CourseTitle: PE 2\nWeekday: Thursday\nPeriods: 7-8\nWeekExpression: 2",
+            "Automatic time-profile selection remained ambiguous.",
+            unresolvedFingerprint,
+            "NRM003");
+        var previousSnapshot = new ImportedScheduleSnapshot(
+            DateTimeOffset.UtcNow,
+            "Class A",
+            [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals")])],
+            Array.Empty<UnresolvedItem>(),
+            [new SchoolWeek(1, new DateOnly(2026, 3, 16), new DateOnly(2026, 3, 22))],
+            Array.Empty<TimeProfile>(),
+            [current, shadowDeleted],
+            Array.Empty<ExportGroup>(),
+            Array.Empty<RuleBasedTaskGenerationRule>());
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [current],
+                unresolvedItems: [unresolved],
+                syncPlan: new SyncPlan(
+                    [current],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Deleted,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-shadow-delete",
+                            before: shadowDeleted),
+                    ],
+                    [unresolved]),
+                previousSnapshot: previousSnapshot));
+        await session.InitializeAsync();
+
+        session.PlannedChangeCount.Should().Be(0);
+        session.CurrentEffectivePlannedChanges.Should().BeEmpty();
+        session.EffectiveHomeOccurrences.Select(static occurrence => occurrence.Metadata.CourseTitle)
+            .Should().Contain("Signals")
+            .And.Contain("PE 2");
+    }
+
+    [Fact]
     public async Task ImportDiffPageViewModelAllowsSavingUnresolvedEditorWithoutFieldChanges()
     {
         var fingerprint = new SourceFingerprint("pdf", "pe-unresolved");
@@ -1459,13 +2048,13 @@ public sealed class ShellViewModelTests
 
         session.CourseEditor.SelectedTimeZoneOption.Should().NotBeNull();
         session.CourseEditor.SelectedTimeZoneOption!.TimeZoneId.Should().Be("Asia/Shanghai");
-        session.CourseEditor.SelectedTimeZoneOption.DisplayName.Should().Be("UTC+8");
+        session.CourseEditor.SelectedTimeZoneOption.DisplayName.Should().Be("Asia/Shanghai (UTC+08:00)");
 
         import.ChangeGroups.Single().OpenPresentationEditorCommand!.Execute(null);
 
         import.SelectedCourseSettingsTimeZoneOption.Should().NotBeNull();
         import.SelectedCourseSettingsTimeZoneOption!.TimeZoneId.Should().Be("Asia/Shanghai");
-        import.SelectedCourseSettingsTimeZoneOption.DisplayName.Should().Be("UTC+8");
+        import.SelectedCourseSettingsTimeZoneOption.DisplayName.Should().Be("Asia/Shanghai (UTC+08:00)");
     }
 
     [Fact]
@@ -1519,13 +2108,98 @@ public sealed class ShellViewModelTests
         courseGroup.RuleGroups.Should().HaveCount(2);
         courseGroup.RuleGroups.Should().ContainSingle(group => group.CanSelect);
         var unchangedRule = courseGroup.RuleGroups.Should().ContainSingle(group => !group.CanSelect).Subject;
-        unchangedRule.HeaderBadges.Select(static badge => badge.Text).Should().Contain(UiText.ImportUnchangedTitle);
-        unchangedRule.OccurrenceItems.Should().ContainSingle().Subject.CanSelect.Should().BeFalse();
+        unchangedRule.HeaderBadges.Select(static badge => badge.Text).Should().NotContain(UiText.ImportUnchangedTitle);
+        var unchangedOccurrenceItem = unchangedRule.OccurrenceItems.Should().ContainSingle().Subject;
+        unchangedOccurrenceItem.CanSelect.Should().BeFalse();
+        unchangedOccurrenceItem.ChangeBadges.Should().BeEmpty();
+        unchangedOccurrenceItem.DetailBadges.Should().BeEmpty();
 
         unchangedRule.IsExpanded = true;
 
         import.SelectedOccurrenceTitle.Should().Be(unchangedRule.Summary);
         DetailLines(import.SelectedOccurrenceSharedDetails).Should().Contain(detail => detail.Contains("2026-03-20", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelCourseSelectionIgnoresUnchangedContextRules()
+    {
+        var unchangedFingerprint = new SourceFingerprint("pdf", "pe-unchanged");
+        var deletedFingerprint = new SourceFingerprint("google-managed", "pe-deleted");
+        var unchangedOccurrence = CreateOccurrence(
+            "Class A",
+            "PE 2",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 30),
+            new TimeOnly(9, 50),
+            unchangedFingerprint,
+            location: "\u672a\u6392\u5730\u70b9");
+        var deletedOccurrence = CreateOccurrence(
+            "Class A",
+            "PE 2",
+            new DateOnly(2026, 7, 1),
+            new TimeOnly(19, 0),
+            new TimeOnly(20, 30),
+            deletedFingerprint,
+            location: "\u672a\u6392\u5730\u70b9");
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [unchangedOccurrence],
+                syncPlan: new SyncPlan(
+                    [unchangedOccurrence],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Deleted,
+                            SyncTargetKind.CalendarEvent,
+                            "chg-deleted",
+                            changeSource: SyncChangeSource.RemoteManaged,
+                            before: deletedOccurrence),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        await session.InitializeAsync();
+
+        var import = new ImportDiffPageViewModel(session);
+        var courseGroup = import.ChangeGroups.Should().ContainSingle().Subject;
+
+        courseGroup.RuleGroups.Should().HaveCount(2);
+        courseGroup.RuleGroups.Should().ContainSingle(static group => group.CanSelect);
+        courseGroup.RuleGroups.Should().ContainSingle(static group => !group.CanSelect);
+        courseGroup.RuleGroups.SelectMany(static group => group.HeaderBadges)
+            .Select(static badge => badge.Text)
+            .Should()
+            .NotContain(UiText.DiffSourceRemoteManaged)
+            .And.NotContain(UiText.ImportUnchangedTitle);
+        courseGroup.IsSelected.Should().BeTrue();
+        courseGroup.HasPartialSelection.Should().BeFalse();
+        courseGroup.SelectionState.Should().BeTrue();
+
+        courseGroup.SelectionState = null;
+
+        courseGroup.IsSelected.Should().BeFalse();
+        courseGroup.SelectionState.Should().BeFalse();
+
+        courseGroup.SelectionState = true;
+        var selectableRule = courseGroup.RuleGroups.Single(static group => group.CanSelect);
+
+        selectableRule.SelectionState = null;
+
+        selectableRule.IsSelected.Should().BeFalse();
+        selectableRule.SelectionState.Should().BeFalse();
+
+        selectableRule.SelectionState = true;
+        courseGroup.SelectionState = false;
+
+        courseGroup.IsSelected.Should().BeFalse();
+        courseGroup.SelectionState.Should().BeFalse();
+        courseGroup.RuleGroups.Single(static group => !group.CanSelect).IsSelected.Should().BeFalse();
+
+        courseGroup.SelectionState = true;
+
+        courseGroup.IsSelected.Should().BeTrue();
+        courseGroup.HasPartialSelection.Should().BeFalse();
+        courseGroup.SelectionState.Should().BeTrue();
     }
 
     [Fact]
@@ -1865,7 +2539,7 @@ public sealed class ShellViewModelTests
     }
 
     [Fact]
-    public async Task ImportDiffPageViewModelHidesDefaultTimeZoneButShowsExplicitUtcOffset()
+    public async Task ImportDiffPageViewModelHidesDefaultTimeZoneButShowsExplicitIanaZoneWithUtcOffset()
     {
         var beforeOccurrence = CreateOccurrence(
             "Class A",
@@ -1880,7 +2554,7 @@ public sealed class ShellViewModelTests
             new DateOnly(2026, 3, 19),
             new TimeOnly(8, 0),
             new TimeOnly(9, 40),
-            calendarTimeZoneId: "UTC");
+            calendarTimeZoneId: "America/New_York");
         var session = CreateSession(
             previewBuilder: request => CreatePreviewResult(
                 request.CatalogState,
@@ -1903,8 +2577,8 @@ public sealed class ShellViewModelTests
         var import = new ImportDiffPageViewModel(session);
         var occurrence = import.ChangeGroups[0].RuleGroups[0].OccurrenceItems[0];
 
-        DetailLines(occurrence.BeforeDetails).Should().NotContain(detail => detail.Contains("Time zone:", StringComparison.Ordinal));
-        DetailLines(occurrence.AfterDetails).Should().Contain("Time zone: UTC+00:00");
+        DetailLines(occurrence.BeforeDetails).Should().Contain("Time zone: Asia/Shanghai (UTC+08:00)");
+        DetailLines(occurrence.AfterDetails).Should().Contain("Time zone: America/New_York (UTC-04:00)");
     }
 
     [Fact]
@@ -2525,7 +3199,7 @@ public sealed class ShellViewModelTests
         var import = new ImportDiffPageViewModel(session);
 
         import.TypeFilterOptions.Should().Equal(UiText.ImportTypeFilterAll, UiText.ImportTypeFilterCourses, UiText.ImportTypeFilterTasks);
-        import.StatusFilterOptions.Should().Equal(UiText.ImportStatusFilterAll, UiText.ImportAddedTitle, UiText.ImportUpdatedTitle, UiText.ImportDeletedTitle, UiText.ImportConflictTitle);
+        import.StatusFilterOptions.Should().Equal(UiText.ImportStatusFilterAll, UiText.ImportAddedTitle, UiText.ImportUpdatedTitle, UiText.ImportDeletedTitle, UiText.ImportConflictTitle, UiText.ImportMetadataOnlyTitle);
         import.GroupOptions.Should().Equal(UiText.ImportGroupByCourse, UiText.ImportGroupByStatus);
         import.SortOptions.Should().Equal(UiText.ImportSortByDate, UiText.ImportSortByCourse);
         import.SelectedTypeFilterIndex.Should().Be(0);
@@ -2593,6 +3267,12 @@ public sealed class ShellViewModelTests
         import.ChangeGroups.Should().OnlyContain(static group => !group.HasPresentationEditor);
         import.ChangeGroups.Should().OnlyContain(static group => !group.HasParsedScheduleDetails);
         import.ChangeGroups.Should().OnlyContain(static group => !group.HasSettingsDetails);
+
+        import.ChangeGroups[0].IsExpanded = true;
+        import.SelectedOccurrenceTitle.Should().Be(UiText.ImportAddedTitle);
+        import.HasSelectedCourseRuleGroups.Should().BeTrue();
+        import.SelectedCourseRuleGroups.Should().ContainSingle();
+        import.SelectedCourseRuleGroups[0].OccurrenceItems.Should().ContainSingle();
 
         import.SelectedGroupOptionIndex = 99;
         import.SelectedGroupOptionIndex.Should().Be(0);
@@ -2814,6 +3494,40 @@ public sealed class ShellViewModelTests
     }
 
     [Fact]
+    public async Task HomeUnresolvedCardNavigatesToImportInlineEditor()
+    {
+        var fingerprint = new SourceFingerprint("pdf", "home-unresolved");
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                unresolvedItems:
+                [
+                    new UnresolvedItem(
+                        SourceItemKind.RegularCourseBlock,
+                        "Class A",
+                        "Signals",
+                        "CourseTitle: Signals\nWeekday: Tuesday\nPeriods: 7-8\nWeekExpression: 3-18",
+                        "Need manual confirmation.",
+                        fingerprint),
+                ]));
+        await session.InitializeAsync();
+        var shell = new ShellViewModel(session, new SettingsPageViewModel(session));
+
+        shell.Home.HomeUnresolvedItems.Should().ContainSingle();
+        shell.Home.HomeUnresolvedItems[0].DisplayName.Should().Be("Signals");
+        shell.Home.HomeUnresolvedItems[0].TimeSummary.Should().Contain(UiText.FormatImportUnresolvedPeriods("7-8"));
+
+        shell.Home.HomeUnresolvedItems[0].OpenEditorCommand.Execute(null);
+
+        shell.CurrentPage.Should().Be(ShellPage.Import);
+        shell.ImportDiff.ShowCourseEditorInline.Should().BeTrue();
+        session.CourseEditor.IsOpen.Should().BeTrue();
+        session.CourseEditor.CourseTitle.Should().Be("Signals");
+    }
+
+    [Fact]
     public async Task ImportDiffPageViewModelGroupsParsedCoursesByTitleAndKeepsSeparateScheduleSeries()
     {
         var weeklyFingerprint = new SourceFingerprint("pdf", "signals-weekly");
@@ -2838,6 +3552,36 @@ public sealed class ShellViewModelTests
         import.ParsedCourseGroups.Should().ContainSingle();
         import.ParsedCourseGroups[0].Title.Should().Be("Signals");
         import.ParsedCourseGroups[0].TimeItems.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelShowsOnlyCoursesWithoutCloudChangesInParsedSection()
+    {
+        var changedOccurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40));
+        var unchangedOccurrence = CreateOccurrence("Class A", "Circuits", new DateOnly(2026, 3, 20), new TimeOnly(10, 0), new TimeOnly(11, 40));
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences: [changedOccurrence, unchangedOccurrence],
+                syncPlan: new SyncPlan(
+                    [changedOccurrence, unchangedOccurrence],
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Added,
+                            SyncTargetKind.CalendarEvent,
+                            "signals-added",
+                            after: changedOccurrence),
+                    ],
+                    Array.Empty<UnresolvedItem>())));
+        await session.InitializeAsync();
+
+        var import = new ImportDiffPageViewModel(session);
+
+        import.HasParsedCourses.Should().BeTrue();
+        import.ParsedCourseGroups.Should().ContainSingle();
+        import.ParsedCourseGroups[0].Title.Should().Be("Circuits");
     }
 
     [Fact]
@@ -2930,7 +3674,7 @@ public sealed class ShellViewModelTests
     }
 
     [Fact]
-    public async Task ImportDiffPageViewModelParsedCourseCardOpensEditorForLinkedSeries()
+    public async Task ImportDiffPageViewModelParsedCourseCardSelectsRuleDetailsWithoutOpeningEditor()
     {
         var weeklyFingerprint = new SourceFingerprint("pdf", "signals-weekly");
         var session = CreateSession(
@@ -2949,9 +3693,249 @@ public sealed class ShellViewModelTests
 
         import.ParsedCourseGroups[0].TimeItems[0].OpenEditorCommand.Execute(null);
 
-        session.CourseEditor.IsOpen.Should().BeTrue();
-        session.CourseEditor.CourseTitle.Should().Be("Signals");
-        session.CourseEditor.OccurrenceCountSummary.Should().Be("2 linked occurrence(s)");
+        import.IsParsedCourseDisplayModeRepeatRules.Should().BeTrue();
+        import.ParsedCourseGroups[0].TimeItems[0].IsActiveSelection.Should().BeTrue();
+        import.HasSelectedRuleOccurrenceItems.Should().BeTrue();
+        import.SelectedRuleOccurrenceItems.Should().HaveCount(2);
+        import.SelectedOccurrenceTime.Should().Contain("08:00-09:40");
+        import.ShowSelectedOccurrenceChangeSummary.Should().BeFalse();
+        session.CourseEditor.IsOpen.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelResetAllRestoresTaskRulesAndLocalSnapshotDefaults()
+    {
+        var sourceFingerprint = new SourceFingerprint("pdf", "signals");
+        var currentOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            sourceFingerprint);
+        var staleTestOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals TEST-WHOLE-1234",
+            new DateOnly(2026, 3, 20),
+            new TimeOnly(10, 0),
+            new TimeOnly(11, 30),
+            sourceFingerprint,
+            location: "LIVE-WHOLE-1234");
+        var taskOccurrence = new ResolvedOccurrence(
+            currentOccurrence.ClassName,
+            currentOccurrence.SchoolWeekNumber,
+            currentOccurrence.OccurrenceDate,
+            currentOccurrence.Start,
+            currentOccurrence.End,
+            currentOccurrence.TimeProfileId,
+            currentOccurrence.Weekday,
+            new CourseMetadata(
+                "任务：Signals",
+                currentOccurrence.Metadata.WeekExpression,
+                currentOccurrence.Metadata.PeriodRange,
+                location: currentOccurrence.Metadata.Location),
+            new SourceFingerprint("google-task-rule", "signals-task"),
+            SyncTargetKind.TaskItem);
+        var snapshot = new ImportedScheduleSnapshot(
+            DateTimeOffset.UtcNow,
+            "Class A",
+            [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals")])],
+            Array.Empty<UnresolvedItem>(),
+            [new SchoolWeek(1, new DateOnly(2026, 3, 16), new DateOnly(2026, 3, 22))],
+            Array.Empty<TimeProfile>(),
+            [staleTestOccurrence],
+            Array.Empty<ExportGroup>(),
+            Array.Empty<RuleBasedTaskGenerationRule>());
+        var taskRules = WorkspacePreferenceDefaults.CreateGoogleTaskRuleDefaults()
+            .Select(rule => string.Equals(rule.RuleId, GoogleTaskRuleIds.FirstMorningClass, StringComparison.Ordinal)
+                ? new ProviderTaskRuleSetting(rule.RuleId, rule.Name, rule.Description, enabled: true)
+                : rule)
+            .ToArray();
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: null,
+                connectedAccountSummary: "student@example.com",
+                selectedCalendarId: "google-primary",
+                selectedCalendarDisplayName: "Google Timetable",
+                taskRules: taskRules));
+        var localSnapshotReset = false;
+        var previewService = new FakeWorkspacePreviewService(
+            request =>
+            {
+                var changes = new List<PlannedSyncChange>();
+                if (!localSnapshotReset)
+                {
+                    changes.Add(new PlannedSyncChange(
+                        SyncChangeKind.Deleted,
+                        SyncTargetKind.CalendarEvent,
+                        "delete-stale-test",
+                        SyncChangeSource.LocalSnapshot,
+                        before: staleTestOccurrence));
+                }
+
+                if (request.Preferences.GetEnabledTaskGenerationRules(ProviderKind.Google).Count > 0)
+                {
+                    changes.Add(new PlannedSyncChange(
+                        SyncChangeKind.Added,
+                        SyncTargetKind.TaskItem,
+                        "add-generated-task",
+                        SyncChangeSource.LocalSnapshot,
+                        after: taskOccurrence));
+                }
+
+                return CreatePreviewResult(
+                    request.CatalogState,
+                    request.Preferences,
+                    effectiveSelectedClassName: "Class A",
+                    occurrences: [currentOccurrence],
+                    syncPlan: new SyncPlan([currentOccurrence], changes, Array.Empty<UnresolvedItem>()),
+                    previousSnapshot: localSnapshotReset ? null : snapshot);
+            },
+            onLocalApplyAcceptedChanges: ids =>
+            {
+                ids.Should().Contain("delete-stale-test");
+                ids.Should().NotContain("add-generated-task");
+                localSnapshotReset = true;
+            });
+        var session = new WorkspaceSessionViewModel(
+            new FakeLocalSourceOnboardingService(CreateCatalogState()),
+            new FakeFilePickerService(),
+            new FakeUserPreferencesRepository(preferences),
+            previewService);
+        var import = new ImportDiffPageViewModel(session);
+
+        await session.InitializeAsync();
+
+        import.ShowTopResetCourseCustomizationsAction.Should().BeTrue();
+        await import.ResetAllCourseCustomizationsCommand.ExecuteAsync(null);
+
+        session.CurrentPreferences.GetEnabledTaskGenerationRules(ProviderKind.Google).Should().BeEmpty();
+        previewService.LocalApplyAcceptedChangeIds.Should().Equal("delete-stale-test");
+        import.ShowTopResetCourseCustomizationsAction.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelResetAllDeletesManagedManualTestSchedules()
+    {
+        var currentOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40));
+        var testOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals TEST-WHOLE-1234",
+            new DateOnly(2026, 3, 20),
+            new TimeOnly(10, 0),
+            new TimeOnly(11, 30),
+            location: "LIVE-WHOLE-1234");
+        var remoteEvent = new ProviderRemoteCalendarEvent(
+            "remote-test-whole",
+            "google-primary",
+            testOccurrence.Metadata.CourseTitle,
+            testOccurrence.Start,
+            testOccurrence.End,
+            location: testOccurrence.Metadata.Location,
+            isManagedByApp: true,
+            localSyncId: "remote-managed-test-delete",
+            className: testOccurrence.ClassName);
+        var remoteTestDeleted = false;
+        var previewService = new FakeWorkspacePreviewService(
+            request =>
+            {
+                var changes = remoteTestDeleted
+                    ? Array.Empty<PlannedSyncChange>()
+                    :
+                    [
+                        new PlannedSyncChange(
+                            SyncChangeKind.Deleted,
+                            SyncTargetKind.CalendarEvent,
+                            "remote-managed-test-delete",
+                            SyncChangeSource.RemoteManaged,
+                            before: testOccurrence,
+                            remoteEvent: remoteEvent),
+                    ];
+
+                return CreatePreviewResult(
+                    request.CatalogState,
+                    request.Preferences,
+                    effectiveSelectedClassName: "Class A",
+                    occurrences: [currentOccurrence],
+                    syncPlan: new SyncPlan(
+                        [currentOccurrence],
+                        changes,
+                        Array.Empty<UnresolvedItem>(),
+                        [remoteEvent]));
+            },
+            onApplyAcceptedChanges: ids =>
+            {
+                ids.Should().Equal("remote-managed-test-delete");
+                remoteTestDeleted = true;
+            });
+        var session = new WorkspaceSessionViewModel(
+            new FakeLocalSourceOnboardingService(CreateCatalogState()),
+            new FakeFilePickerService(),
+            new FakeUserPreferencesRepository(WorkspacePreferenceDefaults.Create()),
+            previewService);
+        var import = new ImportDiffPageViewModel(session);
+
+        await session.InitializeAsync();
+
+        import.ShowTopResetCourseCustomizationsAction.Should().BeTrue();
+        await import.ResetAllCourseCustomizationsCommand.ExecuteAsync(null);
+
+        previewService.RemoteApplyAcceptedChangeIds.Should().Equal("remote-managed-test-delete");
+        previewService.LocalApplyAcceptedChangeIds.Should().BeEmpty();
+        import.ShowTopResetCourseCustomizationsAction.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelSelectingParsedRuleOccurrenceSwitchesAllTimesAndShowsEditableNotesOnly()
+    {
+        var weeklyFingerprint = new SourceFingerprint("pdf", "signals-weekly");
+        var firstOccurrence = WithNotes(
+            CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40), weeklyFingerprint),
+            "Bring worksheet");
+        var secondOccurrence = WithNotes(
+            CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 26), new TimeOnly(8, 0), new TimeOnly(9, 40), weeklyFingerprint),
+            "Bring worksheet");
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences:
+                [
+                    firstOccurrence,
+                    secondOccurrence,
+                ]));
+        await session.InitializeAsync();
+
+        var import = new ImportDiffPageViewModel(session);
+
+        import.ParsedCourseGroups[0].TimeItems[0].OpenEditorCommand.Execute(null);
+        import.IsParsedCourseDisplayModeRepeatRules.Should().BeTrue();
+        import.SelectedRuleOccurrenceItems.Should().HaveCount(2);
+
+        import.SelectOccurrenceCommand.Execute(import.SelectedRuleOccurrenceItems[1]);
+
+        import.IsParsedCourseDisplayModeAllTimes.Should().BeTrue();
+        import.SelectedOccurrence.Should().NotBeNull();
+        import.SelectedOccurrence!.LocalStableId.Should().Be(SyncIdentity.CreateOccurrenceId(secondOccurrence));
+        import.ParsedCourseGroups.Should().ContainSingle();
+        import.ParsedCourseGroups[0].TimeItems.Should().HaveCount(2);
+        import.ParsedCourseGroups[0].TimeItems.Should().ContainSingle(item =>
+            item.IsActiveSelection
+            && string.Equals(item.StableId, SyncIdentity.CreateOccurrenceId(secondOccurrence), StringComparison.Ordinal));
+        import.HasSelectedOccurrenceNoteDiffLines.Should().BeFalse();
+        import.ShowSelectedGoogleNotesEditor.Should().BeTrue();
+        import.SelectedGoogleNotesText.Should().Be("Bring worksheet");
+
+        import.SelectedGoogleNotesText = "Edited unchanged note";
+
+        import.ShowCourseEditorInline.Should().BeTrue();
+        session.CourseEditor.Notes.Should().Be("Edited unchanged note");
     }
 
     [Fact]
@@ -2984,6 +3968,37 @@ public sealed class ShellViewModelTests
         import.ParsedCoursesHint.Should().Be(UiText.ImportParsedCoursesAllTimesHint);
         import.ParsedCourseGroups[0].Summary.Should().Be(UiText.FormatImportParsedOccurrenceGroupSummary(4));
         import.ParsedCourseGroups[0].TimeItems.Should().HaveCount(4);
+    }
+
+    [Fact]
+    public async Task ImportDiffPageViewModelReassertsParsedCourseModeWhenCurrentToggleRuns()
+    {
+        var session = CreateSession(
+            previewBuilder: request => CreatePreviewResult(
+                request.CatalogState,
+                request.Preferences,
+                effectiveSelectedClassName: "Class A",
+                occurrences:
+                [
+                    CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40)),
+                ]));
+        await session.InitializeAsync();
+        var import = new ImportDiffPageViewModel(session);
+        var changedProperties = new List<string>();
+        import.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName is not null)
+            {
+                changedProperties.Add(args.PropertyName);
+            }
+        };
+
+        import.ShowParsedCourseRepeatRulesCommand.Execute(null);
+
+        import.IsParsedCourseDisplayModeRepeatRules.Should().BeTrue();
+        import.IsParsedCourseDisplayModeAllTimes.Should().BeFalse();
+        changedProperties.Should().Contain(nameof(import.IsParsedCourseDisplayModeRepeatRules));
+        changedProperties.Should().Contain(nameof(import.IsParsedCourseDisplayModeAllTimes));
     }
 
     [Fact]
@@ -3689,13 +4704,17 @@ public sealed class ShellViewModelTests
     {
         private readonly Func<WorkspacePreviewRequest, WorkspacePreviewResult> previewBuilder;
         private readonly Action<IReadOnlyCollection<string>>? onApplyAcceptedChanges;
+        private readonly Action<IReadOnlyCollection<string>>? onLocalApplyAcceptedChanges;
+        private readonly HashSet<string> locallyAcceptedChangeIds = new(StringComparer.Ordinal);
 
         public FakeWorkspacePreviewService(
             Func<WorkspacePreviewRequest, WorkspacePreviewResult> previewBuilder,
-            Action<IReadOnlyCollection<string>>? onApplyAcceptedChanges = null)
+            Action<IReadOnlyCollection<string>>? onApplyAcceptedChanges = null,
+            Action<IReadOnlyCollection<string>>? onLocalApplyAcceptedChanges = null)
         {
             this.previewBuilder = previewBuilder;
             this.onApplyAcceptedChanges = onApplyAcceptedChanges;
+            this.onLocalApplyAcceptedChanges = onLocalApplyAcceptedChanges;
         }
 
         public int BuildPreviewCallCount { get; private set; }
@@ -3728,7 +4747,13 @@ public sealed class ShellViewModelTests
             IReadOnlyCollection<string> acceptedChangeIds,
             CancellationToken cancellationToken)
         {
+            onLocalApplyAcceptedChanges?.Invoke(acceptedChangeIds);
             LocalApplyAcceptedChangeIds = acceptedChangeIds.ToArray();
+            foreach (var acceptedChangeId in acceptedChangeIds)
+            {
+                locallyAcceptedChangeIds.Add(acceptedChangeId);
+            }
+
             return Task.FromResult(new WorkspaceApplyResult(
                 preview.PreviousSnapshot,
                 SuccessfulChangeCount: acceptedChangeIds.Count,
@@ -3741,7 +4766,32 @@ public sealed class ShellViewModelTests
         private WorkspacePreviewResult BuildPreview(WorkspacePreviewRequest request)
         {
             BuildPreviewCallCount++;
-            return previewBuilder(request);
+            var preview = previewBuilder(request);
+            if (preview.SyncPlan is null || locallyAcceptedChangeIds.Count == 0)
+            {
+                return preview;
+            }
+
+            var plannedChanges = preview.SyncPlan.PlannedChanges
+                .Where(change => !locallyAcceptedChangeIds.Contains(change.LocalStableId))
+                .ToArray();
+            return preview with
+            {
+                PreviousSnapshot = plannedChanges.Any(static change => change.ChangeSource == SyncChangeSource.LocalSnapshot)
+                    ? preview.PreviousSnapshot
+                    : null,
+                SyncPlan = new SyncPlan(
+                    preview.SyncPlan.Occurrences,
+                    plannedChanges,
+                    preview.SyncPlan.UnresolvedItems,
+                    preview.SyncPlan.RemotePreviewEvents,
+                    preview.SyncPlan.DeletionWindow,
+                    preview.SyncPlan.ExactMatchRemoteEventIds,
+                    preview.SyncPlan.ExactMatchOccurrenceIds),
+                Status = plannedChanges.Length == 0
+                    ? new WorkspacePreviewStatus(WorkspacePreviewStatusKind.UpToDate)
+                    : preview.Status,
+            };
         }
     }
 

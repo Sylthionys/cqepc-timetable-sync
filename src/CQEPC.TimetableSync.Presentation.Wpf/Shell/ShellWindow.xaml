@@ -1,7 +1,8 @@
-﻿<Window x:Class="CQEPC.TimetableSync.Presentation.Wpf.Shell.ShellWindow"
+<Window x:Class="CQEPC.TimetableSync.Presentation.Wpf.Shell.ShellWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:behaviors="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Behaviors"
+        xmlns:domainEnums="clr-namespace:CQEPC.TimetableSync.Domain.Enums;assembly=CQEPC.TimetableSync.Domain"
         xmlns:viewModels="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.ViewModels"
         xmlns:views="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Views"
         AutomationProperties.AutomationId="Shell.MainWindow"
@@ -45,6 +46,15 @@
             <Setter Property="Padding" Value="0" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="HorizontalAlignment" Value="Right" />
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
 
         <Style x:Key="SidebarGlyphTextStyle" TargetType="TextBlock">
@@ -62,6 +72,26 @@
             <Setter Property="BorderBrush" Value="{DynamicResource SidebarCardBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="11" />
+        </Style>
+
+        <Style x:Key="NavigationIconRootStyle" TargetType="{x:Type FrameworkElement}">
+            <Setter Property="Width" Value="22" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="ClipToBounds" Value="True" />
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
+            <Setter Property="RenderTransform">
+                <Setter.Value>
+                    <TransformGroup>
+                        <ScaleTransform ScaleX="1"
+                                        ScaleY="1" />
+                        <RotateTransform Angle="0" />
+                        <TranslateTransform X="0"
+                                            Y="0" />
+                    </TransformGroup>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="SidebarNavButtonStyle" TargetType="Button">
@@ -104,6 +134,127 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="SidebarProviderSyncButtonStyle" TargetType="Button">
+            <Setter Property="MinHeight" Value="78" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="Background" Value="#00FFFFFF" />
+            <Setter Property="BorderBrush" Value="#00FFFFFF" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="ToolTip" Value="{Binding Settings.Workspace.CurrentProviderRefreshToolTip}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="16">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource SurfaceBrush}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource StrongBorderBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource HighlightSurfaceBrush}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                            <DataTrigger Binding="{Binding IsSettingsSelected}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsSidebarExpanded}" Value="False">
+                                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                                <Setter Property="MinHeight" Value="54" />
+                            </DataTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SettingsSubNavColumnStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsSettingsSelected}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="SettingsSubNavButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="MinHeight" Value="44" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="Background" Value="#00FFFFFF" />
+            <Setter Property="BorderBrush" Value="#00FFFFFF" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource SidebarTextBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="16">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource SurfaceBrush}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource StrongBorderBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.92" />
+                            </Trigger>
+                            <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource HighlightSurfaceBrush}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource AccentStrongBrush}" />
+                            </DataTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource HighlightSurfaceBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource AccentStrongBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="SettingsSubNavIconRootStyle" TargetType="FrameworkElement">
+            <Setter Property="ClipToBounds" Value="True" />
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
+            <Setter Property="RenderTransform">
+                <Setter.Value>
+                    <TransformGroup>
+                        <ScaleTransform ScaleX="1"
+                                        ScaleY="1" />
+                        <RotateTransform Angle="0" />
+                        <TranslateTransform X="0"
+                                            Y="0" />
+                    </TransformGroup>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SettingsSubNavIconTextStyle" TargetType="TextBlock" BasedOn="{StaticResource SettingsSubNavIconRootStyle}">
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
+            <Setter Property="FontSize" Value="16" />
+        </Style>
     </Window.Resources>
 
         <Grid x:Name="RootGrid"
@@ -128,8 +279,10 @@
 
         <Grid Margin="4">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="SidebarColumn" Width="168" />
+                <ColumnDefinition x:Name="SidebarColumn" Width="Auto" />
                 <ColumnDefinition x:Name="SidebarGapColumn" Width="12" />
+                <ColumnDefinition x:Name="SettingsSubNavColumn" Width="Auto" />
+                <ColumnDefinition x:Name="SettingsSubNavGapColumn" Width="0" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
@@ -156,7 +309,8 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <Button Grid.Column="1"
+                            <Button Grid.Column="0"
+                                    Grid.ColumnSpan="2"
                                     AutomationProperties.AutomationId="Shell.Sidebar.Toggle"
                                     Style="{StaticResource SidebarToggleButtonStyle}"
                                     Command="{Binding ToggleSidebarCommand}"
@@ -169,6 +323,7 @@
                         <Button Style="{StaticResource SidebarNavButtonStyle}"
                                 AutomationProperties.AutomationId="Shell.Nav.Home"
                                 Tag="{Binding IsHomeSelected}"
+                                Click="HandleNavigationButtonClick"
                                 Command="{Binding ShowHomeCommand}">
                             <Grid Margin="10,10">
                                 <Grid.ColumnDefinitions>
@@ -177,8 +332,61 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Border Style="{StaticResource SidebarBadgeShellStyle}">
-                                    <TextBlock Style="{StaticResource SidebarGlyphTextStyle}"
-                                               Text="{x:Static viewModels:ShellViewModel.HomeGlyph}" />
+                                    <Canvas Style="{StaticResource NavigationIconRootStyle}"
+                                            Tag="AnimatedNavIcon.Home">
+                                        <Rectangle Canvas.Left="6.5"
+                                                   Canvas.Top="10"
+                                                   Width="9"
+                                                   Height="8.5"
+                                                   RadiusX="1.6"
+                                                   RadiusY="1.6"
+                                                   Fill="{DynamicResource HighlightSurfaceBrush}"
+                                                   Stroke="{DynamicResource AccentStrongBrush}"
+                                                   StrokeThickness="1.5" />
+                                        <Path Tag="NavHome.Roof"
+                                              Stroke="{DynamicResource AccentStrongBrush}"
+                                              StrokeThickness="2"
+                                              StrokeStartLineCap="Round"
+                                              StrokeEndLineCap="Round"
+                                              StrokeLineJoin="Round"
+                                              Data="M4,10 L11,4.5 L18,10" />
+                                        <Path Stroke="#FFFFFFFF"
+                                              StrokeThickness="0.9"
+                                              StrokeStartLineCap="Round"
+                                              StrokeEndLineCap="Round"
+                                              Opacity="0.42"
+                                              Data="M6.8,9.5 L11,6.1 L15.2,9.5" />
+                                        <Rectangle Canvas.Left="14.1"
+                                                   Canvas.Top="6.2"
+                                                   Width="1.8"
+                                                   Height="3.6"
+                                                   RadiusX="0.5"
+                                                   RadiusY="0.5"
+                                                   Fill="{DynamicResource AccentBrush}"
+                                                   Opacity="0.65" />
+                                        <Path Stroke="{DynamicResource CalendarGridBrush}"
+                                              StrokeThickness="1"
+                                              StrokeStartLineCap="Round"
+                                              Data="M8.2,12.7 L13.8,12.7 M8.2,15.1 L13.8,15.1 M10.9,10.7 L10.9,18" />
+                                        <Rectangle Tag="NavHome.Today"
+                                                   Canvas.Left="12.1"
+                                                   Canvas.Top="14.2"
+                                                   Width="2.8"
+                                                   Height="2.8"
+                                                   RadiusX="0.8"
+                                                   RadiusY="0.8"
+                                                   Fill="#2F8A56"
+                                                   Opacity="0.36" />
+                                        <Rectangle Tag="NavHome.Door"
+                                                   Canvas.Left="7.7"
+                                                   Canvas.Top="14.1"
+                                                   Width="2.5"
+                                                   Height="4.3"
+                                                   RadiusX="0.8"
+                                                   RadiusY="0.8"
+                                                   Fill="{DynamicResource AccentBrush}"
+                                                   Opacity="0.4" />
+                                    </Canvas>
                                 </Border>
                                 <TextBlock Grid.Column="2"
                                            VerticalAlignment="Center"
@@ -194,6 +402,7 @@
                                 AutomationProperties.AutomationId="Shell.Nav.Import"
                                 Style="{StaticResource SidebarNavButtonStyle}"
                                 Tag="{Binding IsImportSelected}"
+                                Click="HandleNavigationButtonClick"
                                 Command="{Binding ShowImportCommand}">
                             <Grid Margin="10,10">
                                 <Grid.ColumnDefinitions>
@@ -202,8 +411,36 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Border Style="{StaticResource SidebarBadgeShellStyle}">
-                                    <TextBlock Style="{StaticResource SidebarGlyphTextStyle}"
-                                               Text="{x:Static viewModels:ShellViewModel.ImportGlyph}" />
+                                    <Canvas Style="{StaticResource NavigationIconRootStyle}"
+                                            Tag="AnimatedNavIcon.Import">
+                                        <Path Fill="{DynamicResource HighlightSurfaceBrush}"
+                                              Stroke="{DynamicResource AccentStrongBrush}"
+                                              StrokeThickness="1.5"
+                                              StrokeLineJoin="Round"
+                                              Data="M6.2,4.2 L13.6,4.2 L16.8,7.5 L16.8,17.8 L6.2,17.8 Z" />
+                                        <Path Stroke="{DynamicResource CalendarGridBrush}"
+                                              StrokeThickness="1"
+                                              StrokeStartLineCap="Round"
+                                              Data="M13.5,4.5 L13.5,7.6 L16.6,7.6 M8.3,9.3 L12.6,9.3 M8.3,12 L11.2,12" />
+                                        <Path Fill="{DynamicResource AccentBrush}"
+                                              Opacity="0.28"
+                                              Data="M13.6,4.4 L16.8,7.5 L13.6,7.5 Z" />
+                                        <Ellipse Canvas.Left="8.1"
+                                                 Canvas.Top="14.1"
+                                                 Width="1.8"
+                                                 Height="1.8"
+                                                 Fill="{DynamicResource SuccessBrush}"
+                                                 Opacity="0.7" />
+                                        <Path Tag="NavImport.Arrow"
+                                              Fill="{DynamicResource AccentBrush}"
+                                              Data="M11,9.4 L14.1,12.5 L12.2,12.5 L12.2,16.2 L9.8,16.2 L9.8,12.5 L7.9,12.5 Z" />
+                                        <Path Tag="NavImport.Tray"
+                                              Stroke="#2F8A56"
+                                              StrokeThickness="1.7"
+                                              StrokeStartLineCap="Round"
+                                              StrokeEndLineCap="Round"
+                                              Data="M7.4,18.2 L14.6,18.2" />
+                                    </Canvas>
                                 </Border>
                                 <TextBlock Grid.Column="2"
                                            VerticalAlignment="Center"
@@ -219,6 +456,7 @@
                                 AutomationProperties.AutomationId="Shell.Nav.Settings"
                                 Style="{StaticResource SidebarNavButtonStyle}"
                                 Tag="{Binding IsSettingsSelected}"
+                                Click="HandleNavigationButtonClick"
                                 Command="{Binding ShowSettingsCommand}">
                             <Grid Margin="10,10">
                                 <Grid.ColumnDefinitions>
@@ -227,8 +465,119 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Border Style="{StaticResource SidebarBadgeShellStyle}">
-                                    <TextBlock Style="{StaticResource SidebarGlyphTextStyle}"
-                                               Text="{x:Static viewModels:ShellViewModel.SettingsGlyph}" />
+                                    <Canvas Style="{StaticResource NavigationIconRootStyle}"
+                                            Tag="AnimatedNavIcon.Settings">
+                                        <Canvas Tag="NavSettings.Gear"
+                                                Canvas.Left="2"
+                                                Canvas.Top="2"
+                                                Width="18"
+                                                Height="18"
+                                                RenderTransformOrigin="0.5,0.5">
+                                            <Rectangle Canvas.Left="7.25"
+                                                       Canvas.Top="0.2"
+                                                       Width="3.5"
+                                                       Height="4.6"
+                                                       RadiusX="1.1"
+                                                       RadiusY="1.1"
+                                                       Fill="{DynamicResource AccentStrongBrush}" />
+                                            <Rectangle Canvas.Left="7.25"
+                                                       Canvas.Top="13.2"
+                                                       Width="3.5"
+                                                       Height="4.6"
+                                                       RadiusX="1.1"
+                                                       RadiusY="1.1"
+                                                       Fill="{DynamicResource AccentStrongBrush}" />
+                                            <Rectangle Canvas.Left="0.2"
+                                                       Canvas.Top="7.25"
+                                                       Width="4.6"
+                                                       Height="3.5"
+                                                       RadiusX="1.1"
+                                                       RadiusY="1.1"
+                                                       Fill="{DynamicResource AccentStrongBrush}" />
+                                            <Rectangle Canvas.Left="13.2"
+                                                       Canvas.Top="7.25"
+                                                       Width="4.6"
+                                                       Height="3.5"
+                                                       RadiusX="1.1"
+                                                       RadiusY="1.1"
+                                                       Fill="{DynamicResource AccentStrongBrush}" />
+                                            <Rectangle Canvas.Left="7.25"
+                                                       Canvas.Top="0.2"
+                                                       Width="3.5"
+                                                       Height="4.6"
+                                                       RadiusX="1.1"
+                                                       RadiusY="1.1"
+                                                       Fill="{DynamicResource AccentStrongBrush}"
+                                                       RenderTransformOrigin="0.5,1.9">
+                                                <Rectangle.RenderTransform>
+                                                    <RotateTransform Angle="45" />
+                                                </Rectangle.RenderTransform>
+                                            </Rectangle>
+                                            <Rectangle Canvas.Left="7.25"
+                                                       Canvas.Top="0.2"
+                                                       Width="3.5"
+                                                       Height="4.6"
+                                                       RadiusX="1.1"
+                                                       RadiusY="1.1"
+                                                       Fill="{DynamicResource AccentStrongBrush}"
+                                                       RenderTransformOrigin="0.5,1.9">
+                                                <Rectangle.RenderTransform>
+                                                    <RotateTransform Angle="135" />
+                                                </Rectangle.RenderTransform>
+                                            </Rectangle>
+                                            <Rectangle Canvas.Left="7.25"
+                                                       Canvas.Top="0.2"
+                                                       Width="3.5"
+                                                       Height="4.6"
+                                                       RadiusX="1.1"
+                                                       RadiusY="1.1"
+                                                       Fill="{DynamicResource AccentStrongBrush}"
+                                                       RenderTransformOrigin="0.5,1.9">
+                                                <Rectangle.RenderTransform>
+                                                    <RotateTransform Angle="225" />
+                                                </Rectangle.RenderTransform>
+                                            </Rectangle>
+                                            <Rectangle Canvas.Left="7.25"
+                                                       Canvas.Top="0.2"
+                                                       Width="3.5"
+                                                       Height="4.6"
+                                                       RadiusX="1.1"
+                                                       RadiusY="1.1"
+                                                       Fill="{DynamicResource AccentStrongBrush}"
+                                                       RenderTransformOrigin="0.5,1.9">
+                                                <Rectangle.RenderTransform>
+                                                    <RotateTransform Angle="315" />
+                                                </Rectangle.RenderTransform>
+                                            </Rectangle>
+                                            <Ellipse Canvas.Left="3.5"
+                                                     Canvas.Top="3.5"
+                                                     Width="11"
+                                                     Height="11"
+                                                     Fill="{DynamicResource HighlightSurfaceBrush}"
+                                                     Stroke="{DynamicResource AccentStrongBrush}"
+                                                     StrokeThickness="1.4" />
+                                            <Ellipse Canvas.Left="6"
+                                                     Canvas.Top="6"
+                                                     Width="6"
+                                                     Height="6"
+                                                     Fill="{DynamicResource SurfaceAltBrush}"
+                                                     Stroke="{DynamicResource AccentBrush}"
+                                                     StrokeThickness="1.4" />
+                                        </Canvas>
+                                        <Ellipse Tag="NavSettings.Knob"
+                                                 Canvas.Left="10.1"
+                                                Canvas.Top="10.1"
+                                                Width="1.8"
+                                                Height="1.8"
+                                                Fill="#2F8A56"
+                                                Opacity="0.5" />
+                                        <Ellipse Canvas.Left="3.2"
+                                                 Canvas.Top="3.2"
+                                                 Width="2.3"
+                                                 Height="2.3"
+                                                 Fill="{DynamicResource WarningBrush}"
+                                                 Opacity="0.5" />
+                                    </Canvas>
                                 </Border>
                                 <TextBlock Grid.Column="2"
                                            VerticalAlignment="Center"
@@ -240,10 +589,629 @@
                             </Grid>
                         </Button>
                     </StackPanel>
+
+                    <Button Grid.Row="2"
+                            Margin="0,10,0,2"
+                            AutomationProperties.AutomationId="Shell.ProviderSyncStatus"
+                            Style="{StaticResource SidebarProviderSyncButtonStyle}"
+                            Click="HandleNavigationButtonClick"
+                            Command="{Binding RefreshProviderDataCommand}">
+                        <StackPanel HorizontalAlignment="Center"
+                                    VerticalAlignment="Center">
+                            <Grid Width="42"
+                                  Height="42"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
+                                  Tag="AnimatedNavIcon"
+                                  RenderTransformOrigin="0.5,0.5">
+                                <Grid.RenderTransform>
+                                    <TransformGroup>
+                                        <ScaleTransform ScaleX="1"
+                                                        ScaleY="1" />
+                                        <RotateTransform Angle="0" />
+                                        <TranslateTransform X="0"
+                                                            Y="0" />
+                                    </TransformGroup>
+                                </Grid.RenderTransform>
+                                <Grid.Style>
+                                    <Style TargetType="Grid">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Settings.Workspace.IsProviderDataSyncing}" Value="True">
+                                                <DataTrigger.EnterActions>
+                                                    <BeginStoryboard>
+                                                        <Storyboard>
+                                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.Children[0].ScaleX" To="1.06" Duration="0:0:0.22" EasingFunction="{StaticResource StrongEase}" />
+                                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.Children[0].ScaleY" To="1.06" Duration="0:0:0.22" EasingFunction="{StaticResource StrongEase}" />
+                                                        </Storyboard>
+                                                    </BeginStoryboard>
+                                                </DataTrigger.EnterActions>
+                                                <DataTrigger.ExitActions>
+                                                    <BeginStoryboard>
+                                                        <Storyboard>
+                                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.Children[0].ScaleX" To="1" Duration="0:0:0.26" EasingFunction="{StaticResource StandardEase}" />
+                                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.Children[0].ScaleY" To="1" Duration="0:0:0.26" EasingFunction="{StaticResource StandardEase}" />
+                                                        </Storyboard>
+                                                    </BeginStoryboard>
+                                                </DataTrigger.ExitActions>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Grid.Style>
+                                <Canvas Width="34"
+                                        Height="34"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        RenderTransformOrigin="0.5,0.5">
+                                    <Canvas.RenderTransform>
+                                        <RotateTransform Angle="0" />
+                                    </Canvas.RenderTransform>
+                                    <Canvas.Clip>
+                                        <EllipseGeometry Center="17,17"
+                                                         RadiusX="17"
+                                                         RadiusY="17" />
+                                    </Canvas.Clip>
+                                    <Canvas.Style>
+                                        <Style TargetType="Canvas">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Setter Property="Opacity" Value="0" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Settings.Workspace.IsProviderDataSyncing}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                    <DataTrigger.EnterActions>
+                                                        <BeginStoryboard x:Name="ProviderSyncRingStoryboard">
+                                                            <Storyboard>
+                                                                <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.18" EasingFunction="{StaticResource StandardEase}" />
+                                                                <DoubleAnimationUsingKeyFrames Storyboard.TargetProperty="RenderTransform.Angle"
+                                                                                               RepeatBehavior="Forever">
+                                                                    <SplineDoubleKeyFrame KeyTime="0:0:0"
+                                                                                          Value="0" />
+                                                                    <SplineDoubleKeyFrame KeyTime="0:0:0.42"
+                                                                                          Value="78"
+                                                                                          KeySpline="0.18,0.84 0.32,1" />
+                                                                    <SplineDoubleKeyFrame KeyTime="0:0:0.96"
+                                                                                          Value="218"
+                                                                                          KeySpline="0.24,0 0.22,1" />
+                                                                    <SplineDoubleKeyFrame KeyTime="0:0:1.58"
+                                                                                          Value="360"
+                                                                                          KeySpline="0.28,0 0.18,1" />
+                                                                </DoubleAnimationUsingKeyFrames>
+                                                            </Storyboard>
+                                                        </BeginStoryboard>
+                                                    </DataTrigger.EnterActions>
+                                                    <DataTrigger.ExitActions>
+                                                        <StopStoryboard BeginStoryboardName="ProviderSyncRingStoryboard" />
+                                                        <BeginStoryboard>
+                                                            <Storyboard>
+                                                                <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" EasingFunction="{StaticResource StandardEase}" />
+                                                            </Storyboard>
+                                                        </BeginStoryboard>
+                                                    </DataTrigger.ExitActions>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Canvas.Style>
+                                    <Path Stroke="{DynamicResource AccentBrush}"
+                                          StrokeThickness="1.4"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          Opacity="0.4"
+                                          Data="M17,2.8 C24.8,2.8 31.2,9.2 31.2,17" />
+                                    <Path Stroke="{DynamicResource SuccessBrush}"
+                                          StrokeThickness="1.4"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          Opacity="0.35"
+                                          Data="M17,31.2 C9.2,31.2 2.8,24.8 2.8,17" />
+                                    <Ellipse Canvas.Left="14.25"
+                                             Canvas.Top="1.3"
+                                             Width="5.5"
+                                             Height="5.5"
+                                             Fill="{DynamicResource AccentBrush}" />
+                                    <Ellipse Canvas.Left="27.2"
+                                             Canvas.Top="14.25"
+                                             Width="5.5"
+                                             Height="5.5"
+                                             Fill="{DynamicResource DangerBrush}" />
+                                    <Ellipse Canvas.Left="14.25"
+                                             Canvas.Top="27.2"
+                                             Width="5.5"
+                                             Height="5.5"
+                                             Fill="{DynamicResource WarningBrush}" />
+                                    <Ellipse Canvas.Left="1.3"
+                                             Canvas.Top="14.25"
+                                             Width="5.5"
+                                             Height="5.5"
+                                             Fill="{DynamicResource SuccessBrush}" />
+                                </Canvas>
+                                <Border Width="34"
+                                        Height="34"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Background="{DynamicResource SurfaceAltBrush}"
+                                        BorderBrush="{DynamicResource SidebarCardBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="17">
+                                    <Grid Width="22"
+                                          Height="22"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center">
+                                        <Viewbox Stretch="Uniform">
+                                            <Viewbox.Style>
+                                                <Style TargetType="Viewbox">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Settings.Workspace.DefaultProvider}" Value="{x:Static domainEnums:ProviderKind.Google}">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Viewbox.Style>
+                                            <Canvas Width="24"
+                                                    Height="24"
+                                                    Tag="AnimatedNavIcon.ProviderGoogle">
+                                                <Ellipse Canvas.Left="4.2"
+                                                         Canvas.Top="4.2"
+                                                         Width="15.6"
+                                                         Height="15.6"
+                                                         Fill="{DynamicResource HighlightSurfaceBrush}"
+                                                         Stroke="{DynamicResource AccentStrongBrush}"
+                                                         StrokeThickness="1.6" />
+                                                <Canvas Tag="NavConnections.Google.Orbit"
+                                                        Width="24"
+                                                        Height="24"
+                                                        RenderTransformOrigin="0.5,0.5">
+                                                    <Path Stroke="{DynamicResource AccentBrush}"
+                                                          StrokeThickness="1.8"
+                                                          StrokeStartLineCap="Round"
+                                                          StrokeEndLineCap="Round"
+                                                          Data="M7.1,12 C7.1,9.3 9.3,7.1 12,7.1 M16.9,12 C16.9,14.7 14.7,16.9 12,16.9" />
+                                                    <Path Fill="{DynamicResource AccentBrush}"
+                                                          Opacity="0.9"
+                                                          Data="M15.9,6.6 L18.4,6.9 L16.9,8.8 Z" />
+                                                    <Path Fill="{DynamicResource SuccessBrush}"
+                                                          Opacity="0.75"
+                                                          Data="M8.1,17.4 L5.6,17.1 L7.1,15.2 Z" />
+                                                </Canvas>
+                                                <Path Stroke="{DynamicResource CalendarGridBrush}"
+                                                      StrokeThickness="1"
+                                                      StrokeStartLineCap="Round"
+                                                      Data="M8.4,11.2 L15.6,11.2 M8.4,13.8 L15.6,13.8 M11,8.7 L11,16.3" />
+                                                <Ellipse Tag="NavConnections.Google.Node"
+                                                         Canvas.Left="10.5"
+                                                         Canvas.Top="10.4"
+                                                         Width="3"
+                                                         Height="3"
+                                                         Fill="{DynamicResource SuccessBrush}" />
+                                                <Ellipse Canvas.Left="14.8"
+                                                         Canvas.Top="6.5"
+                                                         Width="2.8"
+                                                         Height="2.8"
+                                                         Fill="{DynamicResource WarningBrush}" />
+                                                <Ellipse Canvas.Left="6.4"
+                                                         Canvas.Top="14.8"
+                                                         Width="2.8"
+                                                         Height="2.8"
+                                                         Fill="{DynamicResource DangerBrush}" />
+                                            </Canvas>
+                                        </Viewbox>
+                                        <Grid Width="20"
+                                              Height="20"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center">
+                                            <Grid.Style>
+                                                <Style TargetType="Grid">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Settings.Workspace.DefaultProvider}" Value="{x:Static domainEnums:ProviderKind.Microsoft}">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Grid.Style>
+                                            <Canvas Width="20"
+                                                    Height="20"
+                                                    Tag="AnimatedNavIcon.ProviderMicrosoft">
+                                                <Rectangle Tag="NavConnections.Microsoft.Panel1"
+                                                           Canvas.Left="3.5"
+                                                           Canvas.Top="4.2"
+                                                           Width="9.8"
+                                                           Height="8.4"
+                                                           RadiusX="2"
+                                                           RadiusY="2"
+                                                           Fill="#E8F3FF"
+                                                           Stroke="{DynamicResource AccentStrongBrush}"
+                                                           StrokeThickness="1.4" />
+                                                <Rectangle Tag="NavConnections.Microsoft.Panel2"
+                                                           Canvas.Left="7.6"
+                                                           Canvas.Top="8.2"
+                                                           Width="8.9"
+                                                           Height="7.6"
+                                                           RadiusX="2"
+                                                           RadiusY="2"
+                                                           Fill="#EAF6EF"
+                                                           Stroke="{DynamicResource SuccessBrush}"
+                                                           StrokeThickness="1.4" />
+                                                <Ellipse Canvas.Left="5.2"
+                                                         Canvas.Top="6"
+                                                         Width="1.5"
+                                                         Height="1.5"
+                                                         Fill="{DynamicResource AccentBrush}"
+                                                         Opacity="0.75" />
+                                                <Ellipse Canvas.Left="13.6"
+                                                         Canvas.Top="12.7"
+                                                         Width="1.5"
+                                                         Height="1.5"
+                                                         Fill="{DynamicResource SuccessBrush}"
+                                                         Opacity="0.75" />
+                                                <Path Stroke="{DynamicResource AccentBrush}"
+                                                      StrokeThickness="1.5"
+                                                      StrokeStartLineCap="Round"
+                                                      Data="M6,15.7 C8.2,17.5 12.2,17.5 14.2,15.7" />
+                                            </Canvas>
+                                        </Grid>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                            <TextBlock Margin="0,4,0,0"
+                                       Width="112"
+                                       HorizontalAlignment="Center"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SidebarTextBrush}"
+                                       TextAlignment="Center"
+                                       Text="{Binding Settings.Workspace.CurrentProviderLastSyncText}"
+                                       TextWrapping="NoWrap">
+                                <TextBlock.RenderTransform>
+                                    <TranslateTransform Y="0" />
+                                </TextBlock.RenderTransform>
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource ExpandedSidebarElementStyle}">
+                                        <Setter Property="Opacity" Value="1" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Settings.Workspace.IsProviderDataSyncing}" Value="True">
+                                                <DataTrigger.EnterActions>
+                                                    <BeginStoryboard>
+                                                        <Storyboard>
+                                                            <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" EasingFunction="{StaticResource StandardEase}" />
+                                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.Y" To="-4" Duration="0:0:0.18" EasingFunction="{StaticResource StandardEase}" />
+                                                        </Storyboard>
+                                                    </BeginStoryboard>
+                                                </DataTrigger.EnterActions>
+                                                <DataTrigger.ExitActions>
+                                                    <BeginStoryboard>
+                                                        <Storyboard>
+                                                            <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.24" EasingFunction="{StaticResource StandardEase}" />
+                                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.Y" To="0" Duration="0:0:0.24" EasingFunction="{StaticResource StandardEase}" />
+                                                        </Storyboard>
+                                                    </BeginStoryboard>
+                                                </DataTrigger.ExitActions>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Button>
                 </Grid>
             </Border>
 
-            <ContentControl Grid.Column="2"
+            <Border x:Name="SettingsSubNavHost"
+                    Grid.Column="2"
+                    AutomationProperties.AutomationId="Settings.SectionPicker"
+                    Background="{DynamicResource SidebarBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="24"
+                    Padding="8"
+                    ClipToBounds="True"
+                    Effect="{StaticResource CardShadowEffect}"
+                    Style="{StaticResource SettingsSubNavColumnStyle}">
+                <StackPanel Margin="0,174,0,0">
+                    <Button AutomationProperties.AutomationId="Settings.SectionPicker.LocalFiles"
+                            AutomationProperties.Name="{DynamicResource SettingsNavSourcesTitle}"
+                            Tag="{Binding Settings.IsLocalFilesSelected}"
+                            Style="{StaticResource SettingsSubNavButtonStyle}"
+                            Click="HandleNavigationButtonClick"
+                            Command="{Binding Settings.ShowLocalFilesCommand}">
+                        <StackPanel Margin="8,4"
+                                    HorizontalAlignment="Center">
+                            <Canvas Style="{StaticResource NavigationIconRootStyle}"
+                                    Tag="AnimatedNavIcon.Files">
+                                <Path Tag="NavFiles.Folder"
+                                      Fill="{DynamicResource HighlightSurfaceBrush}"
+                                      Stroke="{DynamicResource AccentStrongBrush}"
+                                      StrokeThickness="1.5"
+                                      StrokeLineJoin="Round"
+                                      Data="M3.8,8 L8.3,8 L9.8,6.2 L18.2,6.2 L18.2,17.3 L3.8,17.3 Z" />
+                                <Rectangle Canvas.Left="5.4"
+                                           Canvas.Top="10.8"
+                                           Width="4.2"
+                                           Height="1.3"
+                                           RadiusX="0.6"
+                                           Fill="{DynamicResource SuccessBrush}"
+                                           Opacity="0.38" />
+                                <Path Fill="{DynamicResource SurfaceAltBrush}"
+                                      Stroke="{DynamicResource CalendarGridBrush}"
+                                      StrokeThickness="1"
+                                      Data="M5,9.8 L17,9.8" />
+                                <Path Tag="NavFiles.Page"
+                                      Fill="{DynamicResource SurfaceBrush}"
+                                      Stroke="{DynamicResource AccentBrush}"
+                                      StrokeThickness="1.2"
+                                      StrokeLineJoin="Round"
+                                      Data="M8,4.2 L13.8,4.2 L16.1,6.6 L16.1,14.8 L8,14.8 Z" />
+                                <Path Stroke="{DynamicResource CalendarGridBrush}"
+                                      StrokeThickness="1"
+                                      StrokeStartLineCap="Round"
+                                      Data="M13.7,4.5 L13.7,6.7 L15.8,6.7 M9.8,9 L14.1,9 M9.8,11.5 L13,11.5" />
+                                <Ellipse Canvas.Left="9.6"
+                                         Canvas.Top="13"
+                                         Width="1.7"
+                                         Height="1.7"
+                                         Fill="{DynamicResource WarningBrush}"
+                                         Opacity="0.65" />
+                            </Canvas>
+                            <TextBlock Margin="0,3,0,0"
+                                       HorizontalAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       TextAlignment="Center"
+                                       Text="{DynamicResource SettingsNavSourcesTitle}" />
+                        </StackPanel>
+                    </Button>
+                    <Button Margin="0,8,0,0"
+                            AutomationProperties.AutomationId="Settings.SectionPicker.Timetable"
+                            AutomationProperties.Name="{DynamicResource SettingsNavTimetableTitle}"
+                            Tag="{Binding Settings.IsTimetableSelected}"
+                            Style="{StaticResource SettingsSubNavButtonStyle}"
+                            Click="HandleNavigationButtonClick"
+                            Command="{Binding Settings.ShowTimetableCommand}">
+                        <StackPanel Margin="8,4"
+                                    HorizontalAlignment="Center">
+                            <Canvas Style="{StaticResource NavigationIconRootStyle}"
+                                    Tag="AnimatedNavIcon.Timetable">
+                                <Rectangle Canvas.Left="4.4"
+                                           Canvas.Top="5.3"
+                                           Width="13.2"
+                                           Height="13"
+                                           RadiusX="2.2"
+                                           RadiusY="2.2"
+                                           Fill="{DynamicResource HighlightSurfaceBrush}"
+                                           Stroke="{DynamicResource AccentStrongBrush}"
+                                           StrokeThickness="1.5" />
+                                <Rectangle Canvas.Left="5.7"
+                                           Canvas.Top="6.5"
+                                           Width="10.6"
+                                           Height="2.4"
+                                           RadiusX="1.2"
+                                           RadiusY="1.2"
+                                           Fill="{DynamicResource AccentBrush}"
+                                           Opacity="0.2" />
+                                <Path Stroke="{DynamicResource AccentBrush}"
+                                      StrokeThickness="1.6"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      Data="M7.5,3.9 L7.5,6.8 M14.5,3.9 L14.5,6.8" />
+                                <Path Stroke="{DynamicResource CalendarGridBrush}"
+                                      StrokeThickness="1"
+                                      StrokeStartLineCap="Round"
+                                      Opacity="0.72"
+                                      Data="M6.5,10.4 L15.5,10.4 M6.5,15.2 L15.5,15.2" />
+                                <Rectangle Tag="NavTimetable.Bar1"
+                                           Canvas.Left="7"
+                                           Canvas.Top="11.5"
+                                           Width="7.6"
+                                           Height="1.8"
+                                           RadiusX="0.9"
+                                           RadiusY="0.9"
+                                           Fill="{DynamicResource SuccessBrush}"
+                                           Opacity="0.58" />
+                                <Rectangle Tag="NavTimetable.Bar2"
+                                           Canvas.Left="7"
+                                           Canvas.Top="16.1"
+                                           Width="5.4"
+                                           Height="1.8"
+                                           RadiusX="0.9"
+                                           RadiusY="0.9"
+                                           Fill="{DynamicResource AccentBrush}"
+                                           Opacity="0.64" />
+                                <Ellipse Tag="NavTimetable.Dot"
+                                         Canvas.Left="14.7"
+                                         Canvas.Top="15.9"
+                                         Width="2"
+                                         Height="2"
+                                         Fill="{DynamicResource WarningBrush}"
+                                         Opacity="0.68" />
+                            </Canvas>
+                            <TextBlock Margin="0,3,0,0"
+                                       HorizontalAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       TextAlignment="Center"
+                                       Text="{DynamicResource SettingsNavTimetableTitle}" />
+                        </StackPanel>
+                    </Button>
+                    <Button Margin="0,8,0,0"
+                            AutomationProperties.AutomationId="Settings.SectionPicker.Connections"
+                            AutomationProperties.Name="{DynamicResource SettingsNavProviderTitle}"
+                            Tag="{Binding Settings.IsConnectionsSelected}"
+                            Style="{StaticResource SettingsSubNavButtonStyle}"
+                            Click="HandleNavigationButtonClick"
+                            Command="{Binding Settings.ShowConnectionsCommand}">
+                        <StackPanel Margin="8,4"
+                                    HorizontalAlignment="Center">
+                            <Grid Width="22"
+                                  Height="18"
+                                  HorizontalAlignment="Center"
+                                  Tag="AnimatedNavIcon.Connections"
+                                  Style="{StaticResource SettingsSubNavIconRootStyle}">
+                                <Viewbox Stretch="Uniform">
+                                    <Viewbox.Style>
+                                        <Style TargetType="Viewbox">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Settings.Workspace.DefaultProvider}" Value="{x:Static domainEnums:ProviderKind.Google}">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Viewbox.Style>
+                                    <Canvas Width="24"
+                                            Height="24">
+                                        <Ellipse Canvas.Left="4.2"
+                                                 Canvas.Top="4.2"
+                                                 Width="15.6"
+                                                 Height="15.6"
+                                                 Fill="{DynamicResource HighlightSurfaceBrush}"
+                                                 Stroke="{DynamicResource AccentStrongBrush}"
+                                                 StrokeThickness="1.6" />
+                                        <Canvas Tag="NavConnections.Google.Orbit"
+                                                Width="24"
+                                                Height="24"
+                                                RenderTransformOrigin="0.5,0.5">
+                                            <Path Stroke="{DynamicResource AccentBrush}"
+                                                  StrokeThickness="1.8"
+                                                  StrokeStartLineCap="Round"
+                                                  StrokeEndLineCap="Round"
+                                                  Data="M7.1,12 C7.1,9.3 9.3,7.1 12,7.1 M16.9,12 C16.9,14.7 14.7,16.9 12,16.9" />
+                                            <Path Fill="{DynamicResource AccentBrush}"
+                                                  Opacity="0.9"
+                                                  Data="M15.9,6.6 L18.4,6.9 L16.9,8.8 Z" />
+                                            <Path Fill="{DynamicResource SuccessBrush}"
+                                                  Opacity="0.75"
+                                                  Data="M8.1,17.4 L5.6,17.1 L7.1,15.2 Z" />
+                                        </Canvas>
+                                        <Path Stroke="{DynamicResource CalendarGridBrush}"
+                                              StrokeThickness="1"
+                                              StrokeStartLineCap="Round"
+                                              Data="M8.4,11.2 L15.6,11.2 M8.4,13.8 L15.6,13.8 M11,8.7 L11,16.3" />
+                                        <Ellipse Tag="NavConnections.Google.Node"
+                                                 Canvas.Left="10.5"
+                                                 Canvas.Top="10.4"
+                                                 Width="3"
+                                                 Height="3"
+                                                 Fill="{DynamicResource SuccessBrush}" />
+                                        <Ellipse Canvas.Left="14.8"
+                                                 Canvas.Top="6.5"
+                                                 Width="2.8"
+                                                 Height="2.8"
+                                                 Fill="{DynamicResource WarningBrush}" />
+                                        <Ellipse Canvas.Left="6.4"
+                                                 Canvas.Top="14.8"
+                                                 Width="2.8"
+                                                 Height="2.8"
+                                                 Fill="{DynamicResource DangerBrush}" />
+                                    </Canvas>
+                                </Viewbox>
+                                <Grid Width="19"
+                                      Height="18"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center">
+                                    <Grid.Style>
+                                        <Style TargetType="Grid">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Settings.Workspace.DefaultProvider}" Value="{x:Static domainEnums:ProviderKind.Microsoft}">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Grid.Style>
+                                    <Canvas Width="19"
+                                            Height="18">
+                                        <Rectangle Tag="NavConnections.Microsoft.Panel1"
+                                                   Canvas.Left="2.5"
+                                                   Canvas.Top="3.6"
+                                                   Width="9.2"
+                                                   Height="7.8"
+                                                   RadiusX="1.8"
+                                                   Fill="#E8F3FF"
+                                                   Stroke="{DynamicResource AccentStrongBrush}"
+                                                   StrokeThickness="1.3" />
+                                        <Rectangle Tag="NavConnections.Microsoft.Panel2"
+                                                   Canvas.Left="6.9"
+                                                   Canvas.Top="7.4"
+                                                   Width="8.6"
+                                                   Height="7.2"
+                                                   RadiusX="1.8"
+                                                   Fill="#EAF6EF"
+                                                   Stroke="{DynamicResource SuccessBrush}"
+                                                   StrokeThickness="1.3" />
+                                        <Ellipse Canvas.Left="4.2"
+                                                 Canvas.Top="5.3"
+                                                 Width="1.4"
+                                                 Height="1.4"
+                                                 Fill="{DynamicResource AccentBrush}"
+                                                 Opacity="0.75" />
+                                        <Ellipse Canvas.Left="12.8"
+                                                 Canvas.Top="11.8"
+                                                 Width="1.4"
+                                                 Height="1.4"
+                                                 Fill="{DynamicResource SuccessBrush}"
+                                                 Opacity="0.75" />
+                                        <Path Stroke="{DynamicResource AccentBrush}"
+                                              StrokeThickness="1.3"
+                                              StrokeStartLineCap="Round"
+                                              Data="M4.5,14.7 C6.9,16.2 11.7,16.2 14.1,14.7" />
+                                    </Canvas>
+                                </Grid>
+                            </Grid>
+                            <TextBlock Margin="0,3,0,0"
+                                       HorizontalAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       TextAlignment="Center"
+                                       Text="{DynamicResource SettingsNavProviderTitle}" />
+                        </StackPanel>
+                    </Button>
+                    <Button Margin="0,8,0,0"
+                            AutomationProperties.AutomationId="Settings.SectionPicker.Program"
+                            AutomationProperties.Name="{DynamicResource SettingsNavProgramTitle}"
+                            Tag="{Binding Settings.IsProgramSelected}"
+                            Style="{StaticResource SettingsSubNavButtonStyle}"
+                            Click="HandleNavigationButtonClick"
+                            Command="{Binding Settings.ShowProgramCommand}">
+                        <StackPanel Margin="8,4"
+                                    HorizontalAlignment="Center">
+                            <Canvas Style="{StaticResource NavigationIconRootStyle}"
+                                    Tag="AnimatedNavIcon.Program">
+                                <Path Fill="{DynamicResource HighlightSurfaceBrush}"
+                                      Stroke="{DynamicResource AccentStrongBrush}"
+                                      StrokeThickness="1.5"
+                                      StrokeLineJoin="Round"
+                                      Data="M4.3,5.4 L17.7,5.4 L17.7,16.6 L4.3,16.6 Z" />
+                                <Rectangle Canvas.Left="5.5"
+                                           Canvas.Top="6.7"
+                                           Width="11"
+                                           Height="1.6"
+                                           RadiusX="0.8"
+                                           Fill="{DynamicResource AccentBrush}"
+                                           Opacity="0.16" />
+                                <Path Stroke="{DynamicResource CalendarGridBrush}"
+                                      StrokeThickness="1"
+                                      StrokeStartLineCap="Round"
+                                      Data="M7,8.2 L15,8.2 M7,11 L15,11 M7,13.8 L15,13.8" />
+                                <Ellipse Tag="NavProgram.Knob1"
+                                         Canvas.Left="8.2"
+                                         Canvas.Top="6.9"
+                                         Width="2.5"
+                                         Height="2.5"
+                                         Fill="{DynamicResource AccentBrush}" />
+                                <Ellipse Tag="NavProgram.Knob2"
+                                         Canvas.Left="12.8"
+                                         Canvas.Top="12.5"
+                                         Width="2.5"
+                                         Height="2.5"
+                                         Fill="{DynamicResource SuccessBrush}" />
+                            </Canvas>
+                            <TextBlock Margin="0,3,0,0"
+                                       HorizontalAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       TextAlignment="Center"
+                                       Text="{DynamicResource SettingsNavProgramTitle}" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Border>
+
+            <ContentControl Grid.Column="4"
                             AutomationProperties.AutomationId="Shell.WorkspaceRoot">
                 <Border Background="{DynamicResource WorkspaceBackgroundBrush}"
                         BorderBrush="{DynamicResource BorderBrush}"
@@ -252,34 +1220,19 @@
                         Padding="0"
                         Effect="{StaticResource CardShadowEffect}">
                     <Grid>
-                        <ContentControl AutomationProperties.AutomationId="Shell.PageHost"
+                        <ContentControl x:Name="PageHost"
+                                        AutomationProperties.AutomationId="Shell.PageHost"
+                                        Opacity="1"
                                         Content="{Binding CurrentPageViewModel}">
-                        <ContentControl.Resources>
-                            <Style TargetType="ContentPresenter">
-                                <Setter Property="Opacity" Value="0" />
-                                <Setter Property="RenderTransform">
-                                    <Setter.Value>
-                                        <TranslateTransform Y="16" />
-                                    </Setter.Value>
-                                </Setter>
-                                <Style.Triggers>
-                                    <EventTrigger RoutedEvent="FrameworkElement.Loaded">
-                                        <BeginStoryboard>
-                                            <Storyboard>
-                                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                                                 To="1"
-                                                                 Duration="0:0:0.24"
-                                                                 EasingFunction="{StaticResource StandardEase}" />
-                                                <DoubleAnimation Storyboard.TargetProperty="RenderTransform.(TranslateTransform.Y)"
-                                                                 To="0"
-                                                                 Duration="0:0:0.24"
-                                                                 EasingFunction="{StaticResource StrongEase}" />
-                                            </Storyboard>
-                                        </BeginStoryboard>
-                                    </EventTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </ContentControl.Resources>
+                            <ContentControl.RenderTransform>
+                                <TransformGroup>
+                                    <ScaleTransform x:Name="PageHostScale"
+                                                    ScaleX="1"
+                                                    ScaleY="1" />
+                                    <TranslateTransform x:Name="PageHostTranslate"
+                                                        Y="0" />
+                                </TransformGroup>
+                            </ContentControl.RenderTransform>
                         </ContentControl>
                     </Grid>
                 </Border>
@@ -296,14 +1249,50 @@
                                 DataContext="{Binding Settings.About}" />
         </Grid>
 
-        <Grid AutomationProperties.AutomationId="Shell.ProgramSettingsOverlayHost"
-              Panel.ZIndex="11"
-              Visibility="{Binding IsProgramSettingsOverlayVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
-              Background="{DynamicResource OverlayBackdropBrush}">
-            <views:ProgramSettingsOverlay HorizontalAlignment="Center"
-                                          VerticalAlignment="Center"
-                                          DataContext="{Binding Settings.ProgramSettings}" />
-        </Grid>
+        <Button Panel.ZIndex="16"
+                Margin="0,18,18,0"
+                Padding="0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                MaxWidth="380"
+                Background="Transparent"
+                BorderBrush="Transparent"
+                Command="{Binding DismissProviderConnectionIssueCommand}"
+                Visibility="{Binding ShowProviderConnectionIssue, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Button.Template>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="ToastRoot"
+                            Padding="16,13"
+                            Background="{DynamicResource SurfaceBrush}"
+                            BorderBrush="{DynamicResource AccentBrush}"
+                            BorderThickness="1"
+                            CornerRadius="18"
+                            Effect="{StaticResource CardShadowEffect}"
+                            Opacity="0.98">
+                        <StackPanel>
+                            <TextBlock FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource AccentStrongBrush}"
+                                       Text="{Binding ProviderConnectionIssueTitle}" />
+                            <TextBlock Margin="0,5,0,0"
+                                       FontSize="12"
+                                       LineHeight="18"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       Text="{Binding ProviderConnectionIssueReason}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ToastRoot" Property="BorderBrush" Value="{DynamicResource AccentStrongBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="ToastRoot" Property="Opacity" Value="0.9" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Button.Template>
+        </Button>
 
         <Border Panel.ZIndex="15"
                 Margin="0,0,18,18"
@@ -374,19 +1363,7 @@
         <Canvas x:Name="ThemeTransitionCanvas"
                 Panel.ZIndex="20"
                 IsHitTestVisible="False"
-                ClipToBounds="True">
-            <Ellipse x:Name="ThemeTransitionOrb"
-                     Width="160"
-                     Height="160"
-                     Opacity="0"
-                     Fill="{DynamicResource WorkspaceBackgroundBrush}">
-                <Ellipse.RenderTransform>
-                    <ScaleTransform x:Name="ThemeTransitionScale"
-                                    ScaleX="0.14"
-                                    ScaleY="0.14" />
-                </Ellipse.RenderTransform>
-            </Ellipse>
-        </Canvas>
+                Opacity="0"
+                ClipToBounds="True" />
     </Grid>
 </Window>
-

@@ -5,5 +5,6 @@
     <LangVersion>latest</LangVersion>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <RestoreBuildInParallel>false</RestoreBuildInParallel>
   </PropertyGroup>
 </Project>

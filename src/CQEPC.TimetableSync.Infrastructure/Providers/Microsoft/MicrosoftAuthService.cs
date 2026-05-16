@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Runtime.Versioning;
+using CQEPC.TimetableSync.Application.UseCases.Workspace;
+using CQEPC.TimetableSync.Infrastructure.Networking;
 using CQEPC.TimetableSync.Application.Abstractions.Sync;
 using CQEPC.TimetableSync.Infrastructure.Persistence.Local;
 using Microsoft.Identity.Client;
@@ -21,14 +23,21 @@ internal sealed class MicrosoftAuthService : IDisposable
 
     private readonly MicrosoftTokenCacheStore tokenCacheStore;
     private readonly string summaryFilePath;
+    private readonly NetworkProxyHttpClientFactory? httpClientFactory;
 
-    public MicrosoftAuthService(LocalStoragePaths storagePaths)
+    public MicrosoftAuthService(
+        LocalStoragePaths storagePaths,
+        Func<NetworkProxySettings>? networkProxySettingsProvider = null,
+        Func<string?>? networkProxyPasswordProvider = null)
     {
         ArgumentNullException.ThrowIfNull(storagePaths);
 
         var rootDirectory = Path.Combine(storagePaths.ProviderTokensDirectory, "microsoft");
         tokenCacheStore = new MicrosoftTokenCacheStore(Path.Combine(rootDirectory, "msal-token-cache.bin"));
         summaryFilePath = Path.Combine(rootDirectory, "connection-summary.bin");
+        httpClientFactory = networkProxySettingsProvider is null
+            ? null
+            : new NetworkProxyHttpClientFactory(networkProxySettingsProvider, networkProxyPasswordProvider);
     }
 
     public async Task<ProviderConnectionState> GetConnectionStateAsync(CancellationToken cancellationToken)
@@ -130,6 +139,11 @@ internal sealed class MicrosoftAuthService : IDisposable
             .WithDefaultRedirectUri()
             .WithAuthority(AzureCloudInstance.AzurePublic, string.IsNullOrWhiteSpace(connectionContext.TenantId) ? "common" : connectionContext.TenantId.Trim());
 
+        if (httpClientFactory is not null)
+        {
+            builder = builder.WithHttpClientFactory(httpClientFactory);
+        }
+
         if (connectionContext.UseBroker)
         {
             builder = builder.WithBroker(new BrokerOptions(BrokerOptions.OperatingSystems.Windows));
@@ -179,6 +193,7 @@ internal sealed class MicrosoftAuthService : IDisposable
 
     public void Dispose()
     {
+        httpClientFactory?.Dispose();
         tokenCacheStore.Dispose();
     }
 }

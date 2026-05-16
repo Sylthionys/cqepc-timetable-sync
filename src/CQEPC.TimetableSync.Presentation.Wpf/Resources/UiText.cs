@@ -229,7 +229,7 @@ public static class UiText
     public static string SettingsImportStatusLabel => GetString(nameof(SettingsImportStatusLabel), "Import status: {0}");
     public static string SettingsParseStatusLabel => GetString(nameof(SettingsParseStatusLabel), "Parse status: {0}");
     public static string SettingsTimetableResolutionTitle => GetString(nameof(SettingsTimetableResolutionTitle), "Timetable Resolution");
-    public static string SettingsFirstWeekStartOverrideTitle => GetString(nameof(SettingsFirstWeekStartOverrideTitle), "First Week Start Override");
+    public static string SettingsFirstWeekStartOverrideTitle => GetString(nameof(SettingsFirstWeekStartOverrideTitle), "First Week Start");
     public static string SettingsFirstWeekStartSourceTitle => GetString(nameof(SettingsFirstWeekStartSourceTitle), "Current Source");
     public static string SettingsUseXlsDateButton => GetString(nameof(SettingsUseXlsDateButton), "Use XLS Date");
     public static string SettingsParsedClassTitle => GetString(nameof(SettingsParsedClassTitle), "Parsed Class");
@@ -316,6 +316,7 @@ public static class UiText
     public static string ImportChangesTitle => GetString(nameof(ImportChangesTitle), "Changes");
     public static string ImportAddedTitle => GetString(nameof(ImportAddedTitle), "Added");
     public static string ImportUpdatedTitle => GetString(nameof(ImportUpdatedTitle), "Updated");
+    public static string ImportMetadataOnlyTitle => GetString(nameof(ImportMetadataOnlyTitle), "Metadata only");
     public static string ImportDeletedTitle => GetString(nameof(ImportDeletedTitle), "Deleted");
     public static string ImportConflictTitle => GetString(nameof(ImportConflictTitle), "Conflict");
     public static string ImportShowSelectedOnlyButton => GetString(nameof(ImportShowSelectedOnlyButton), "Show Selected");
@@ -447,6 +448,16 @@ public static class UiText
     public static string RemoteCalendarEditorValidationDate => GetString(nameof(RemoteCalendarEditorValidationDate), "Start date and end date are required.");
     public static string RemoteCalendarEditorValidationTime => GetString(nameof(RemoteCalendarEditorValidationTime), "Enter valid start and end times in HH:mm format.");
     public static string RemoteCalendarEditorValidationRange => GetString(nameof(RemoteCalendarEditorValidationRange), "End time must be later than the start time.");
+
+    public static string HomeRenderCacheRestoredFormat => GetString(nameof(HomeRenderCacheRestoredFormat), "Loaded the last rendered home calendar from {0}.");
+
+    public static string HomeRenderCacheLoadFailedFormat => GetString(nameof(HomeRenderCacheLoadFailedFormat), "Could not load the last rendered home calendar: {0}");
+
+    public static string FormatHomeRenderCacheRestored(DateTimeOffset savedAt) =>
+        Format(HomeRenderCacheRestoredFormat, savedAt.ToString("g", CultureInfo.CurrentCulture));
+
+    public static string FormatHomeRenderCacheLoadFailed(string reason) =>
+        Format(HomeRenderCacheLoadFailedFormat, reason);
 
     public static string AboutSummary => GetString(
         nameof(AboutSummary),
@@ -588,6 +599,18 @@ public static class UiText
     public static string WorkspaceLoadedMicrosoftDestinationsFormat => GetString(
         nameof(WorkspaceLoadedMicrosoftDestinationsFormat),
         "Loaded {0} Microsoft calendar(s) and {1} task list(s).");
+    public static string ProviderDataNeverSynced => GetString(nameof(ProviderDataNeverSynced), "Not synced");
+    public static string ProviderDataLastSyncFormat => GetString(nameof(ProviderDataLastSyncFormat), "Last sync: {0}");
+    public static string ProviderDataRefreshToolTip => GetString(nameof(ProviderDataRefreshToolTip), "Refresh provider data");
+    public static string ProviderDataRefreshGoogleToolTip => GetString(nameof(ProviderDataRefreshGoogleToolTip), "Refresh Google data");
+    public static string ProviderDataRefreshMicrosoftToolTip => GetString(nameof(ProviderDataRefreshMicrosoftToolTip), "Refresh Microsoft data");
+    public static string ProviderConnectionIssueTitle => GetString(nameof(ProviderConnectionIssueTitle), "Unable to connect");
+    public static string ProviderConnectionIssueFormat => GetString(nameof(ProviderConnectionIssueFormat), "Unable to connect: {0}");
+    public static string ProviderConnectionMissingGoogleOAuth => GetString(nameof(ProviderConnectionMissingGoogleOAuth), "Add an OAuth desktop client JSON first.");
+    public static string ProviderConnectionMissingFileFormat => GetString(nameof(ProviderConnectionMissingFileFormat), "Connection file not found: {0}");
+    public static string ProviderConnectionGoogleNotSignedIn => GetString(nameof(ProviderConnectionGoogleNotSignedIn), "Sign in to Google first, or reconnect the expired session.");
+    public static string ProviderConnectionMissingMicrosoftClientId => GetString(nameof(ProviderConnectionMissingMicrosoftClientId), "Add a Microsoft public client application ID first.");
+    public static string ProviderConnectionMicrosoftNotSignedIn => GetString(nameof(ProviderConnectionMicrosoftNotSignedIn), "Sign in to Microsoft first, or reconnect the expired session.");
     public static string WorkspaceMicrosoftDestinationRefreshFailedFormat => GetString(
         nameof(WorkspaceMicrosoftDestinationRefreshFailedFormat),
         "Microsoft destination refresh failed: {0}");
@@ -714,8 +737,7 @@ public static class UiText
         string.Join(
             SummarySeparator,
             GetProviderDisplayName(provider),
-            Format(ImportCalendarDestinationFormat, calendarDestination),
-            Format(ImportTaskListDestinationFormat, taskListDestination));
+            Format(ImportCalendarDestinationFormat, calendarDestination));
 
     public static string FormatImportSelectionSummary(string className, string timeProfile, int warnings, int unresolved) =>
         string.Join(
@@ -808,6 +830,15 @@ public static class UiText
 
     public static string FormatLoadedMicrosoftDestinations(int calendarCount, int taskListCount) =>
         Format(WorkspaceLoadedMicrosoftDestinationsFormat, calendarCount, taskListCount);
+
+    public static string FormatProviderDataLastSync(string value) =>
+        Format(ProviderDataLastSyncFormat, value);
+
+    public static string FormatProviderConnectionIssue(string reason) =>
+        Format(ProviderConnectionIssueFormat, reason);
+
+    public static string FormatProviderConnectionMissingFile(string path) =>
+        Format(ProviderConnectionMissingFileFormat, path);
 
     public static string FormatMicrosoftDestinationRefreshFailed(string message) =>
         Format(WorkspaceMicrosoftDestinationRefreshFailedFormat, message);

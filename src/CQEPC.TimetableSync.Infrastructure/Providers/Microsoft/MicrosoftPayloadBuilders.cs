@@ -49,6 +49,7 @@ internal static class MicrosoftPayloadBuilders
     {
         ArgumentNullException.ThrowIfNull(occurrence);
 
+        var effectiveTimeZoneId = ResolveEffectiveTimeZoneId(occurrence, timeZoneId);
         var payload = new JsonObject
         {
             ["title"] = occurrence.Metadata.CourseTitle,
@@ -57,9 +58,9 @@ internal static class MicrosoftPayloadBuilders
                 ["contentType"] = "text",
                 ["content"] = MicrosoftPayloadTextFormatter.BuildTaskNotes(occurrence),
             },
-            ["startDateTime"] = BuildDateTimeTimeZone(occurrence.Start, timeZoneId),
-            ["dueDateTime"] = BuildDateTimeTimeZone(occurrence.Start, timeZoneId),
-            ["reminderDateTime"] = BuildDateTimeTimeZone(occurrence.Start, timeZoneId),
+            ["startDateTime"] = BuildDateTimeTimeZone(occurrence.Start, effectiveTimeZoneId),
+            ["dueDateTime"] = BuildDateTimeTimeZone(occurrence.Start, effectiveTimeZoneId),
+            ["reminderDateTime"] = BuildDateTimeTimeZone(occurrence.Start, effectiveTimeZoneId),
             ["isReminderOn"] = true,
         };
 
@@ -110,6 +111,7 @@ internal static class MicrosoftPayloadBuilders
 
     private static JsonObject BuildBaseEvent(ResolvedOccurrence occurrence, string timeZoneId, string? categoryName)
     {
+        var effectiveTimeZoneId = ResolveEffectiveTimeZoneId(occurrence, timeZoneId);
         var payload = new JsonObject
         {
             ["subject"] = occurrence.Metadata.CourseTitle,
@@ -122,13 +124,18 @@ internal static class MicrosoftPayloadBuilders
             {
                 ["displayName"] = occurrence.Metadata.Location ?? string.Empty,
             },
-            ["start"] = BuildDateTimeTimeZone(occurrence.Start, timeZoneId),
-            ["end"] = BuildDateTimeTimeZone(occurrence.End, timeZoneId),
+            ["start"] = BuildDateTimeTimeZone(occurrence.Start, effectiveTimeZoneId),
+            ["end"] = BuildDateTimeTimeZone(occurrence.End, effectiveTimeZoneId),
         };
 
         AddCategories(payload, categoryName);
         return payload;
     }
+
+    private static string ResolveEffectiveTimeZoneId(ResolvedOccurrence occurrence, string timeZoneId) =>
+        string.IsNullOrWhiteSpace(occurrence.CalendarTimeZoneId)
+            ? timeZoneId
+            : occurrence.CalendarTimeZoneId.Trim();
 
     private static JsonObject BuildDateTimeTimeZone(DateTimeOffset value, string timeZoneId) =>
         new()

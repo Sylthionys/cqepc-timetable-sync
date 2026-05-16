@@ -11,9 +11,66 @@
             <TextBlock Text="{Binding DisplayName}" />
         </DataTemplate>
 
-        <DataTemplate x:Key="ProgramSettingsGoogleTimeZoneOptionTemplate">
+        <DataTemplate x:Key="ProgramSettingsNetworkProxyOptionTemplate">
             <TextBlock Text="{Binding DisplayName}" />
         </DataTemplate>
+
+        <DataTemplate x:Key="ProgramSettingsGoogleTimeZoneOptionTemplate">
+            <TextBlock TextTrimming="CharacterEllipsis"
+                       Text="{Binding LocalizedDisplayName}" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="ProgramSettingsGoogleTimeZoneCategoryTemplate">
+            <TextBlock TextTrimming="CharacterEllipsis"
+                       Text="{Binding DisplayName}" />
+        </DataTemplate>
+
+        <Style x:Key="ProgramSettingsTimeZoneListBoxStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        </Style>
+
+        <Style x:Key="ProgramSettingsTimeZoneListBoxItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="Margin" Value="0,0,0,2" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource PopupHighlightBrush}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource PopupSelectedBrush}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.48" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
         <Style x:Key="ProgramSettingsPanelStyle" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
@@ -52,6 +109,73 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="24" />
             <Setter Property="Padding" Value="18" />
+        </Style>
+
+        <Style x:Key="ProgramSettingsInputPlaceholderTextStyle" TargetType="TextBlock">
+            <Setter Property="Margin" Value="28,0,12,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="Opacity" Value="0.52" />
+        </Style>
+
+        <Style x:Key="ProgramSettingsVisibleWhenTrueStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="ProgramSettingsTimeZonePickerToggleStyle" TargetType="ToggleButton">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="MinHeight" Value="46" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="16">
+                            <Grid Margin="{TemplateBinding Padding}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter VerticalAlignment="Center"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
+                                <TextBlock Grid.Column="1"
+                                           Margin="10,0,0,0"
+                                           VerticalAlignment="Center"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource SubtleTextBrush}"
+                                           Text="v" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource SurfaceBrush}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource StrongBorderBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource SurfaceBrush}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="ProgramSettingsSwitchStyle" TargetType="ToggleButton">
@@ -268,11 +392,123 @@
                         <StackPanel>
                             <TextBlock Style="{StaticResource EyebrowTextStyle}"
                                        Text="{Binding Workspace.GoogleTimeZoneSelectionTitle}" />
-                            <ComboBox Margin="0,14,0,0"
-                                      AutomationProperties.AutomationId="ProgramSettings.GoogleTimeZoneCombo"
-                                      ItemsSource="{Binding Workspace.GoogleTimeZoneOptions}"
-                                      ItemTemplate="{StaticResource ProgramSettingsGoogleTimeZoneOptionTemplate}"
-                                      SelectedItem="{Binding Workspace.SelectedGoogleTimeZoneOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <Grid Margin="0,14,0,0">
+                                <ToggleButton x:Name="ProgramGoogleTimeZoneDropDownToggle"
+                                              AutomationProperties.AutomationId="ProgramSettings.GoogleTimeZoneCombo"
+                                              IsChecked="{Binding IsOpen, ElementName=ProgramGoogleTimeZonePopup, Mode=TwoWay}"
+                                              Style="{StaticResource ProgramSettingsTimeZonePickerToggleStyle}">
+                                    <TextBlock TextTrimming="CharacterEllipsis"
+                                               Text="{Binding Workspace.SelectedGoogleTimeZoneOption.LocalizedDisplayName}" />
+                                </ToggleButton>
+
+                                <Popup x:Name="ProgramGoogleTimeZonePopup"
+                                       AllowsTransparency="True"
+                                       Closed="HandleGoogleTimeZonePopupClosed"
+                                       DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+                                       Opened="HandleGoogleTimeZonePopupOpened"
+                                       Placement="Bottom"
+                                       PlacementTarget="{Binding ElementName=ProgramGoogleTimeZoneDropDownToggle}"
+                                       StaysOpen="False">
+                                    <Border Width="640"
+                                            Margin="0,6,0,0"
+                                            Padding="12"
+                                            Background="{DynamicResource PopupSurfaceBrush}"
+                                            BorderBrush="{DynamicResource StrongBorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="16"
+                                            Effect="{StaticResource PopupShadowEffect}">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="12" />
+                                                <RowDefinition Height="280" />
+                                            </Grid.RowDefinitions>
+
+                                            <Grid>
+                                                <TextBox x:Name="ProgramGoogleTimeZoneSearchBox"
+                                                         AutomationProperties.AutomationId="ProgramSettings.GoogleTimeZoneSearchBox"
+                                                         Background="{DynamicResource PopupAltSurfaceBrush}"
+                                                         BorderBrush="{DynamicResource BorderBrush}"
+                                                         CaretBrush="{DynamicResource TextBrush}"
+                                                         Foreground="{DynamicResource TextBrush}"
+                                                         InputMethod.IsInputMethodEnabled="True"
+                                                         InputMethod.PreferredImeState="On"
+                                                         MinHeight="42"
+                                                         Padding="12,0"
+                                                         SelectionBrush="{DynamicResource AccentBrush}"
+                                                         SelectionTextBrush="White"
+                                                         VerticalContentAlignment="Center"
+                                                         Text="{Binding Workspace.GoogleTimeZoneSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                                <TextBlock Opacity="0.52"
+                                                           Text="{Binding Workspace.GoogleTimeZoneSearchPlaceholder}">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock" BasedOn="{StaticResource ProgramSettingsInputPlaceholderTextStyle}">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Workspace.HasGoogleTimeZoneSearchText}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Grid>
+
+                                            <Grid Grid.Row="2">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="160" />
+                                                    <ColumnDefinition Width="12" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+
+                                                <Grid>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="*" />
+                                                    </Grid.RowDefinitions>
+                                                    <TextBlock Margin="2,0,0,8"
+                                                               FontSize="12"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource SubtleTextBrush}"
+                                                               Text="{Binding Workspace.GoogleTimeZoneCategoryLabel}" />
+                                                    <ListBox Grid.Row="1"
+                                                             AutomationProperties.AutomationId="ProgramSettings.GoogleTimeZoneCategoryList"
+                                                             ItemContainerStyle="{StaticResource ProgramSettingsTimeZoneListBoxItemStyle}"
+                                                             ItemTemplate="{StaticResource ProgramSettingsGoogleTimeZoneCategoryTemplate}"
+                                                             ItemsSource="{Binding Workspace.GoogleTimeZoneCategoryOptions}"
+                                                             SelectedItem="{Binding Workspace.SelectedGoogleTimeZoneCategoryOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             Style="{StaticResource ProgramSettingsTimeZoneListBoxStyle}" />
+                                                </Grid>
+
+                                                <Grid Grid.Column="2">
+                                                    <ListBox AutomationProperties.AutomationId="ProgramSettings.GoogleTimeZoneResultList"
+                                                             ItemContainerStyle="{StaticResource ProgramSettingsTimeZoneListBoxItemStyle}"
+                                                             ItemTemplate="{StaticResource ProgramSettingsGoogleTimeZoneOptionTemplate}"
+                                                             ItemsSource="{Binding Workspace.FilteredGoogleTimeZoneOptions}"
+                                                             SelectedItem="{Binding Workspace.SelectedGoogleTimeZoneOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             SelectionChanged="HandleGoogleTimeZoneResultSelectionChanged"
+                                                             Style="{StaticResource ProgramSettingsTimeZoneListBoxStyle}" />
+                                                    <TextBlock HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource SubtleTextBrush}"
+                                                               Text="{Binding Workspace.GoogleTimeZoneNoResultsText}">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Workspace.FilteredGoogleTimeZoneOptions.Count}" Value="0">
+                                                                        <Setter Property="Visibility" Value="Visible" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </Grid>
+                                            </Grid>
+                                        </Grid>
+                                    </Border>
+                                </Popup>
+                            </Grid>
                         </StackPanel>
                     </Border>
 
@@ -314,6 +550,48 @@
                     <Border Grid.Row="3"
                             Grid.ColumnSpan="3"
                             Margin="0,14,0,0"
+                            Style="{StaticResource ProgramSettingsCardStyle}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource EyebrowTextStyle}"
+                                       Text="{Binding Workspace.NetworkProxySelectionTitle}" />
+                            <TextBlock Margin="0,8,0,0"
+                                       Foreground="{DynamicResource SubtleTextBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="{Binding Workspace.NetworkProxySelectionSummary}" />
+                            <ComboBox Margin="0,12,0,0"
+                                      AutomationProperties.AutomationId="ProgramSettings.NetworkProxyCombo"
+                                      ItemsSource="{Binding Workspace.NetworkProxyOptions}"
+                                      ItemTemplate="{StaticResource ProgramSettingsNetworkProxyOptionTemplate}"
+                                      SelectedItem="{Binding Workspace.SelectedNetworkProxyOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <Grid Margin="0,10,0,0"
+                                  Style="{StaticResource ProgramSettingsVisibleWhenTrueStyle}"
+                                  DataContext="{Binding Workspace.IsCustomNetworkProxySelected}">
+                                <TextBox MinHeight="42"
+                                         Padding="12,0"
+                                         VerticalContentAlignment="Center"
+                                         AutomationProperties.AutomationId="ProgramSettings.CustomNetworkProxyUri"
+                                         DataContext="{Binding DataContext.Workspace, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                         Text="{Binding CustomNetworkProxyUri, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+                                <TextBlock DataContext="{Binding DataContext.Workspace, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                           Text="{Binding CustomNetworkProxyPlaceholder}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource ProgramSettingsInputPlaceholderTextStyle}">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasCustomNetworkProxyUri}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="4"
+                            Grid.ColumnSpan="3"
+                            Margin="0,14,0,0"
                             Background="Transparent"
                             BorderThickness="0"
                             Padding="0">
@@ -333,6 +611,35 @@
                                               Loaded="ThemeToggleButton_OnLoaded">
                                     <Grid Width="56"
                                           Height="56">
+                                        <Ellipse x:Name="ThemeToggleGlow"
+                                                 Width="48"
+                                                 Height="26"
+                                                 Margin="0,0,0,7"
+                                                 HorizontalAlignment="Center"
+                                                 VerticalAlignment="Bottom"
+                                                 Opacity="0"
+                                                 RenderTransformOrigin="0.5,0.5">
+                                            <Ellipse.Fill>
+                                                <RadialGradientBrush Center="0.5,0.5"
+                                                                     GradientOrigin="0.5,0.5"
+                                                                     RadiusX="0.56"
+                                                                     RadiusY="0.5">
+                                                    <GradientStop Color="#66FFD782"
+                                                                  Offset="0" />
+                                                    <GradientStop Color="#22FFB14A"
+                                                                  Offset="0.62" />
+                                                    <GradientStop Color="#00FFB14A"
+                                                                  Offset="1" />
+                                                </RadialGradientBrush>
+                                            </Ellipse.Fill>
+                                            <Ellipse.RenderTransform>
+                                                <TransformGroup>
+                                                    <ScaleTransform ScaleX="0.68"
+                                                                    ScaleY="0.56" />
+                                                    <TranslateTransform Y="5" />
+                                                </TransformGroup>
+                                            </Ellipse.RenderTransform>
+                                        </Ellipse>
                                         <TextBlock x:Name="ThemeSunIcon"
                                                    FontFamily="Segoe Fluent Icons"
                                                    FontSize="20"
@@ -364,7 +671,7 @@
                                                     <ScaleTransform ScaleX="0.82"
                                                                     ScaleY="0.82" />
                                                     <TranslateTransform X="-2"
-                                                                        Y="2" />
+                                                                        Y="18" />
                                                 </TransformGroup>
                                             </TextBlock.RenderTransform>
                                         </TextBlock>

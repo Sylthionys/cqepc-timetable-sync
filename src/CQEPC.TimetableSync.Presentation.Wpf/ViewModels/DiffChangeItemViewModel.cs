@@ -13,7 +13,7 @@ public sealed class DiffChangeItemViewModel : ObservableObject
     public DiffChangeItemViewModel(PlannedSyncChange plannedChange)
     {
         PlannedChange = plannedChange ?? throw new ArgumentNullException(nameof(plannedChange));
-        isSelected = plannedChange.ChangeKind != SyncChangeKind.Unresolved;
+        isSelected = plannedChange.ChangeKind is not SyncChangeKind.Unresolved and not SyncChangeKind.MetadataOnly;
         ToggleSelectionCommand = new RelayCommand(() => IsSelected = !IsSelected);
     }
 
@@ -42,6 +42,7 @@ public sealed class DiffChangeItemViewModel : ObservableObject
         {
             SyncChangeKind.Added => "#2E8B57",
             SyncChangeKind.Updated => "#D48C1F",
+            SyncChangeKind.MetadataOnly => "#5A6472",
             SyncChangeKind.Deleted => "#C8515D",
             _ => "#5A6472",
         };
@@ -49,6 +50,8 @@ public sealed class DiffChangeItemViewModel : ObservableObject
     public bool IsAdded => ChangeKind == SyncChangeKind.Added;
 
     public bool IsUpdated => ChangeKind == SyncChangeKind.Updated;
+
+    public bool IsMetadataOnly => ChangeKind == SyncChangeKind.MetadataOnly;
 
     public bool IsDeleted => ChangeKind == SyncChangeKind.Deleted;
 

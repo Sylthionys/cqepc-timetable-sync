@@ -36,6 +36,8 @@ public sealed class GooglePayloadBuildersTests
             new KeyValuePair<string, string>(GoogleSyncConstants.ClassNameKey, occurrence.ClassName));
         payload.ExtendedProperties.Private__.Should().Contain(
             new KeyValuePair<string, string>(GoogleSyncConstants.TargetKindKey, occurrence.TargetKind.ToString()));
+        payload.ExtendedProperties.Private__.Should().Contain(
+            new KeyValuePair<string, string>(GoogleSyncConstants.TimeZoneIdKey, GooglePayloadBuilders.ResolveGoogleTimeZoneId()));
         payload.Start.Should().NotBeNull();
         payload.Start!.DateTimeDateTimeOffset.Should().Be(occurrence.Start);
         payload.Start.TimeZone.Should().Be(GooglePayloadBuilders.ResolveGoogleTimeZoneId());
@@ -186,6 +188,25 @@ public sealed class GooglePayloadBuildersTests
     }
 
     [Fact]
+    public void BuildSingleEventResolvesPreferredIanaTimeZoneOffsetForPayloadWallTime()
+    {
+        var occurrence = CreateOccurrence(
+            new DateOnly(2026, 7, 15),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            SyncTargetKind.CalendarEvent,
+            courseTitle: "Circuits",
+            sourceHash: "circuits-new-york");
+
+        var payload = GooglePayloadBuilders.BuildSingleEvent(occurrence, preferredTimeZoneId: "America/New_York");
+
+        payload.Start!.DateTimeDateTimeOffset.Should().Be(new DateTimeOffset(2026, 7, 15, 8, 0, 0, TimeSpan.FromHours(-4)));
+        payload.End!.DateTimeDateTimeOffset.Should().Be(new DateTimeOffset(2026, 7, 15, 9, 40, 0, TimeSpan.FromHours(-4)));
+        payload.Start.TimeZone.Should().Be("America/New_York");
+        payload.End.TimeZone.Should().Be("America/New_York");
+    }
+
+    [Fact]
     public void BuildSingleEventPrefersOccurrenceSpecificTimeZoneAndColorOverDefaults()
     {
         var occurrence = new ResolvedOccurrence(
@@ -211,6 +232,8 @@ public sealed class GooglePayloadBuildersTests
 
         payload.Start!.TimeZone.Should().Be("Asia/Tokyo");
         payload.End!.TimeZone.Should().Be("Asia/Tokyo");
+        payload.ExtendedProperties!.Private__.Should().Contain(
+            new KeyValuePair<string, string>(GoogleSyncConstants.TimeZoneIdKey, "Asia/Tokyo"));
         payload.ColorId.Should().Be("9");
     }
 

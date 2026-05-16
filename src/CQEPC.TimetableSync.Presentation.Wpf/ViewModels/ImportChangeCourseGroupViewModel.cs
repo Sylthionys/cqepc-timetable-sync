@@ -66,8 +66,6 @@ public sealed class ImportChangeCourseGroupViewModel : ObservableObject
         !HasRuleComparison
         && !string.IsNullOrWhiteSpace(SingleRuleSummary);
 
-    public string CourseTypeLabel => UiText.ImportRequiredCourseType;
-
     public string DateRangeText
     {
         get
@@ -109,7 +107,17 @@ public sealed class ImportChangeCourseGroupViewModel : ObservableObject
     {
         get
         {
-            var parts = new List<string> { $"{UiText.ImportUpdatedTitle} {UpdatedCount}" };
+            var parts = new List<string>();
+
+            if (UpdatedCount > 0)
+            {
+                parts.Add($"{UiText.ImportUpdatedTitle} {UpdatedCount}");
+            }
+
+            if (MetadataOnlyCount > 0)
+            {
+                parts.Add($"{UiText.ImportMetadataOnlyTitle} {MetadataOnlyCount}");
+            }
 
             if (AddedCount > 0)
             {
@@ -126,7 +134,9 @@ public sealed class ImportChangeCourseGroupViewModel : ObservableObject
                 parts.Add($"{UiText.ImportConflictTitle} {ConflictCount}");
             }
 
-            return string.Join(UiText.SummarySeparator, parts);
+            return parts.Count == 0
+                ? $"{UiText.ImportUpdatedTitle} 0"
+                : string.Join(UiText.SummarySeparator, parts);
         }
     }
 
@@ -134,17 +144,31 @@ public sealed class ImportChangeCourseGroupViewModel : ObservableObject
 
     public int UpdatedCount => CountByKind(SyncChangeKind.Updated);
 
+    public int MetadataOnlyCount => CountByKind(SyncChangeKind.MetadataOnly);
+
     public int DeletedCount => CountByKind(SyncChangeKind.Deleted);
 
     public int ConflictCount => RuleGroups.Sum(static group => group.ConflictCount);
 
     public string AddedCountText => $"{UiText.ImportAddedTitle} {AddedCount}";
 
+    public bool HasAddedCount => AddedCount > 0;
+
     public string UpdatedCountText => $"{UiText.ImportUpdatedTitle} {UpdatedCount}";
+
+    public bool HasUpdatedCount => UpdatedCount > 0;
+
+    public string MetadataOnlyCountText => $"{UiText.ImportMetadataOnlyTitle} {MetadataOnlyCount}";
+
+    public bool HasMetadataOnlyCount => MetadataOnlyCount > 0;
 
     public string DeletedCountText => $"{UiText.ImportDeletedTitle} {DeletedCount}";
 
+    public bool HasDeletedCount => DeletedCount > 0;
+
     public string ConflictCountText => $"{UiText.ImportConflictTitle} {ConflictCount}";
+
+    public bool HasConflictCount => ConflictCount > 0;
 
     public ObservableCollection<ImportChangeRuleGroupViewModel> RuleGroups { get; }
 
@@ -162,6 +186,9 @@ public sealed class ImportChangeCourseGroupViewModel : ObservableObject
 
     public ImportChangeRuleGroupViewModel? PrimaryRuleGroup => RuleGroups.FirstOrDefault();
 
+    private IEnumerable<ImportChangeRuleGroupViewModel> SelectableRuleGroups =>
+        RuleGroups.Where(static item => item.CanSelect);
+
     public bool IsExpanded
     {
         get => isExpanded;
@@ -176,7 +203,11 @@ public sealed class ImportChangeCourseGroupViewModel : ObservableObject
 
     public bool IsSelected
     {
-        get => RuleGroups.Count > 0 && RuleGroups.All(static item => item.IsSelected);
+        get
+        {
+            var selectableRuleGroups = SelectableRuleGroups.ToArray();
+            return selectableRuleGroups.Length > 0 && selectableRuleGroups.All(static item => item.IsSelected);
+        }
         set
         {
             if (value != IsSelected)
@@ -186,17 +217,14 @@ public sealed class ImportChangeCourseGroupViewModel : ObservableObject
         }
     }
 
-    public bool HasPartialSelection => RuleGroups.Any(static item => item.IsSelected) && !IsSelected;
+    public bool HasPartialSelection => SelectableRuleGroups.Any(static item => item.IsSelected) && !IsSelected;
 
     public bool? SelectionState
     {
         get => HasPartialSelection ? null : IsSelected;
         set
         {
-            if (value.HasValue)
-            {
-                IsSelected = value.Value;
-            }
+            IsSelected = value ?? false;
         }
     }
 
@@ -205,8 +233,6 @@ public sealed class ImportChangeCourseGroupViewModel : ObservableObject
     public IRelayCommand? OpenPresentationEditorCommand { get; }
 
     public bool HasPresentationEditor => OpenPresentationEditorCommand is not null;
-
-    public string HeaderActionAutomationId => "Import.ParsedCourseGroup.InfoButton";
 
     public string ToggleAutomationId => AutomationIdFactory.Create("Import.ChangeCourse.Toggle", Title);
 
@@ -219,7 +245,7 @@ public sealed class ImportChangeCourseGroupViewModel : ObservableObject
 
     private void SetSelection(bool shouldSelect)
     {
-        foreach (var item in RuleGroups)
+        foreach (var item in SelectableRuleGroups)
         {
             item.IsSelected = shouldSelect;
         }
@@ -240,6 +266,7 @@ public sealed class ImportChangeCourseGroupViewModel : ObservableObject
         {
             SyncChangeKind.Added => RuleGroups.SelectMany(static group => group.OccurrenceItems).Count(static item => item.IsAdded),
             SyncChangeKind.Updated => RuleGroups.SelectMany(static group => group.OccurrenceItems).Count(static item => item.IsUpdated),
+            SyncChangeKind.MetadataOnly => RuleGroups.SelectMany(static group => group.OccurrenceItems).Count(static item => item.IsMetadataOnly),
             SyncChangeKind.Deleted => RuleGroups.SelectMany(static group => group.OccurrenceItems).Count(static item => item.IsDeleted),
             _ => RuleGroups.Count(group => group.ChangeKind == kind),
         };

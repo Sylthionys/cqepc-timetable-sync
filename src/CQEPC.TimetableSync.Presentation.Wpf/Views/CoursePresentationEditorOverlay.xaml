@@ -1,12 +1,10 @@
 <UserControl x:Class="CQEPC.TimetableSync.Presentation.Wpf.Views.CoursePresentationEditorOverlay"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Controls"
              Focusable="True"
              AutomationProperties.AutomationId="CoursePresentationEditorOverlay.Root">
     <UserControl.Resources>
-        <DataTemplate x:Key="CoursePresentationTimeZoneOptionTemplate">
-            <TextBlock Text="{Binding DisplayName}" />
-        </DataTemplate>
         <DataTemplate x:Key="CoursePresentationColorOptionTemplate">
             <StackPanel Orientation="Horizontal">
                 <Ellipse Width="12"
@@ -43,12 +41,18 @@
             <TextBlock Margin="0,20,0,0"
                        FontWeight="SemiBold"
                        Text="{DynamicResource CourseEditorTimeZoneLabel}" />
-            <ComboBox Margin="0,8,0,0"
-                      x:Name="TimeZoneComboBox"
-                      AutomationProperties.AutomationId="CoursePresentationEditor.TimeZoneCombo"
-                      ItemTemplate="{StaticResource CoursePresentationTimeZoneOptionTemplate}"
-                      ItemsSource="{Binding TimeZoneOptions}"
-                      SelectedItem="{Binding SelectedTimeZoneOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <controls:TimeZonePicker Margin="0,8,0,0"
+                                      x:Name="TimeZoneComboBox"
+                                      AutomationProperties.AutomationId="CoursePresentationEditor.TimeZoneCombo"
+                                      ItemsSource="{Binding TimeZoneOptions}"
+                                      RecentTimeZoneIds="{Binding RecentTimeZoneIds}"
+                                      SelectedItem="{Binding SelectedTimeZoneOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      SearchAutomationId="CoursePresentationEditor.TimeZoneSearchBox"
+                                      CategoryAutomationId="CoursePresentationEditor.TimeZoneCategoryList"
+                                      ResultAutomationId="CoursePresentationEditor.TimeZoneResultList"
+                                      PopupMinWidth="380"
+                                      PopupMaxWidth="560"
+                                      PopupMaxHeight="320" />
 
             <TextBlock Margin="0,18,0,0"
                        FontWeight="SemiBold"

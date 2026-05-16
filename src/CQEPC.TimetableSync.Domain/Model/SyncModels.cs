@@ -127,7 +127,14 @@ public sealed record ProviderRemoteCalendarEvent
         string? parentRemoteItemId = null,
         DateTimeOffset? originalStartTimeUtc = null,
         string? googleCalendarColorId = null,
-        string? className = null)
+        string? className = null,
+        string? calendarTimeZoneId = null,
+        string? startTimeZoneId = null,
+        string? endTimeZoneId = null,
+        string? originalStartTimeZoneId = null,
+        bool hasExplicitStartTimeZone = false,
+        bool hasExplicitEndTimeZone = false,
+        bool hasExplicitOriginalStartTimeZone = false)
     {
         if (string.IsNullOrWhiteSpace(remoteItemId))
         {
@@ -164,6 +171,13 @@ public sealed record ProviderRemoteCalendarEvent
         OriginalStartTimeUtc = originalStartTimeUtc?.ToUniversalTime();
         GoogleCalendarColorId = Normalize(googleCalendarColorId);
         ClassName = Normalize(className);
+        CalendarTimeZoneId = Normalize(calendarTimeZoneId);
+        StartTimeZoneId = Normalize(startTimeZoneId);
+        EndTimeZoneId = Normalize(endTimeZoneId);
+        OriginalStartTimeZoneId = Normalize(originalStartTimeZoneId);
+        HasExplicitStartTimeZone = hasExplicitStartTimeZone;
+        HasExplicitEndTimeZone = hasExplicitEndTimeZone;
+        HasExplicitOriginalStartTimeZone = hasExplicitOriginalStartTimeZone;
     }
 
     public string RemoteItemId { get; }
@@ -195,6 +209,20 @@ public sealed record ProviderRemoteCalendarEvent
     public string? GoogleCalendarColorId { get; }
 
     public string? ClassName { get; }
+
+    public string? CalendarTimeZoneId { get; }
+
+    public string? StartTimeZoneId { get; }
+
+    public string? EndTimeZoneId { get; }
+
+    public string? OriginalStartTimeZoneId { get; }
+
+    public bool HasExplicitStartTimeZone { get; }
+
+    public bool HasExplicitEndTimeZone { get; }
+
+    public bool HasExplicitOriginalStartTimeZone { get; }
 
     public string LocalStableId =>
         $"remote|{CalendarId}|{RemoteItemId}|{Start.ToUniversalTime():O}";

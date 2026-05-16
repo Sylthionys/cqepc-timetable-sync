@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Windows;
 using System.Windows.Threading;
@@ -5,6 +6,7 @@ using System.Diagnostics;
 using CQEPC.TimetableSync.Application.UseCases.Onboarding;
 using CQEPC.TimetableSync.Application.UseCases.Workspace;
 using CQEPC.TimetableSync.Infrastructure.Normalization;
+using CQEPC.TimetableSync.Infrastructure.Networking;
 using CQEPC.TimetableSync.Infrastructure.Parsing.Pdf;
 using CQEPC.TimetableSync.Infrastructure.Parsing.Spreadsheet;
 using CQEPC.TimetableSync.Infrastructure.Parsing.Word;
@@ -30,6 +32,10 @@ public partial class App : System.Windows.Application
     private ShellViewModel? shellViewModel;
     private AppLaunchOptions? launchOptions;
     private Task? deferredInitializationTask;
+    private readonly CancellationTokenSource shutdownCancellation = new();
+    private bool shellWindowCloseAllowed;
+    private bool shutdownPreparationStarted;
+    private bool shutdownPreparationCompleted;
 
     public App()
     {
@@ -65,6 +71,11 @@ public partial class App : System.Windows.Application
             var localSourceRepository = new JsonLocalSourceCatalogRepository(storagePaths);
             var preferencesRepository = new JsonUserPreferencesRepository(storagePaths);
             var startupPreferences = await preferencesRepository.LoadAsync(CancellationToken.None);
+            var activeNetworkProxySettings = startupPreferences.ProgramBehavior.NetworkProxy;
+            var networkProxySecretStore = new DpapiNetworkProxySecretStore(storagePaths);
+            var activeNetworkProxyPassword = await networkProxySecretStore
+                .GetPasswordAsync(activeNetworkProxySettings, CancellationToken.None)
+                .ConfigureAwait(true);
             var localizationService = new LocalizationService(Resources);
             var themeService = new ThemeService(Resources);
             themeService.ApplyTheme(startupPreferences.Appearance.ThemeMode);
@@ -81,8 +92,16 @@ public partial class App : System.Windows.Application
             var diffService = new LocalSnapshotSyncDiffService(workspaceRepository);
             var taskGenerationService = new RuleBasedTaskGenerationService();
             var exportGroupBuilder = new ExportGroupBuilder();
-            var googleProviderAdapter = new GoogleSyncProviderAdapter(storagePaths);
-            var microsoftProviderAdapter = new MicrosoftSyncProviderAdapter(storagePaths);
+            NetworkProxySettings GetActiveNetworkProxySettings() => activeNetworkProxySettings;
+            string? GetActiveNetworkProxyPassword() => activeNetworkProxyPassword;
+            var googleProviderAdapter = new GoogleSyncProviderAdapter(
+                storagePaths,
+                networkProxySettingsProvider: GetActiveNetworkProxySettings,
+                networkProxyPasswordProvider: GetActiveNetworkProxyPassword);
+            var microsoftProviderAdapter = new MicrosoftSyncProviderAdapter(
+                storagePaths,
+                networkProxySettingsProvider: GetActiveNetworkProxySettings,
+                networkProxyPasswordProvider: GetActiveNetworkProxyPassword);
             var previewService = new WorkspacePreviewService(
                 timetableParser,
                 academicCalendarParser,
@@ -96,6 +115,7 @@ public partial class App : System.Windows.Application
                 providerAdapters: [googleProviderAdapter, microsoftProviderAdapter],
                 exportGroupBuilder: exportGroupBuilder);
             var filePickerService = new LocalFilePickerService();
+            var homeScheduleRenderCacheStore = new HomeScheduleRenderCacheStore(storagePaths);
 
             var workspace = new WorkspaceSessionViewModel(
                 onboardingService,
@@ -105,12 +125,26 @@ public partial class App : System.Windows.Application
                 googleProviderAdapter,
                 microsoftProviderAdapter,
                 localizationService,
-                themeService);
+                themeService,
+                homeScheduleRenderCacheStore: homeScheduleRenderCacheStore,
+                networkProxySecretStore: networkProxySecretStore,
+                networkProxyConnectionTester: new NetworkProxyConnectionTester(),
+                networkProxySettingsChanged: (settings, password) =>
+                {
+                    activeNetworkProxySettings = settings;
+                    activeNetworkProxyPassword = password;
+                });
             var settingsViewModel = new SettingsPageViewModel(workspace);
             shellViewModel = new ShellViewModel(workspace, settingsViewModel, effectiveTimeProvider);
             var shellWindow = new ShellWindow(shellViewModel);
+            shellWindow.Closing += HandleShellWindowClosing;
             shellWindow.UpdateTitleBarTheme(themeService.ActiveTheme);
-            themeService.ThemeChanged += (_, _) => shellWindow.UpdateTitleBarTheme(themeService.ActiveTheme);
+            themeService.ThemeChanging += (_, args) => shellWindow.PrepareThemeTransition(args.NewTheme);
+            themeService.ThemeChanged += (_, _) =>
+            {
+                shellWindow.UpdateTitleBarTheme(themeService.ActiveTheme);
+                shellWindow.PlayThemeTransition(themeService.ActiveTheme);
+            };
             if (launchOptions.IsUiTestMode)
             {
                 shellWindow.ApplyUiWindowMode(launchOptions.Width, launchOptions.Height, launchOptions.WindowMode);
@@ -122,35 +156,24 @@ public partial class App : System.Windows.Application
             if (launchOptions.UseDeferredInteractiveInitialization)
             {
                 shellWindow.Show();
-                deferredInitializationTask = CompleteDeferredInitializationAsync(shellViewModel);
+                deferredInitializationTask = CompleteDeferredInitializationAsync(shellViewModel, shutdownCancellation.Token);
                 return;
             }
 
-            await shellViewModel.InitializeAsync();
-
-            if (launchOptions.IsScreenshotMode && launchOptions.WindowMode == UiWindowMode.RenderOnly)
+            var showShellBeforeInitialization = !launchOptions.IsScreenshotMode;
+            if (showShellBeforeInitialization)
             {
-                var screenshotPath = launchOptions.ScreenshotPath
-                    ?? throw new InvalidOperationException("UI test mode requires a screenshot output path.");
-
-                try
-                {
-                    using var renderOnlyTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
-                    await UiScreenshotExporter.ExportPageWithoutShowingAsync(
-                        shellWindow,
-                        UiScreenshotExporter.GetAutomationIdForPage(launchOptions.RequestedPage),
-                        screenshotPath,
-                        renderOnlyTimeout.Token);
-                    Shutdown(0);
-                    return;
-                }
-                catch (Exception) when (!Debugger.IsAttached)
-                {
-                    shellWindow.ApplyUiWindowMode(launchOptions.Width, launchOptions.Height, UiWindowMode.Background);
-                }
+                shellWindow.Show();
             }
 
-            shellWindow.Show();
+            await shellViewModel.InitializeAsync(shutdownCancellation.Token);
+
+            if (!showShellBeforeInitialization)
+            {
+                shellWindow.Show();
+                ForceRequestedPageMaterialization(shellViewModel, launchOptions.RequestedPage);
+                await WaitForInitialShellLayoutAsync(shellWindow);
+            }
 
             if (launchOptions.IsAutomationMode)
             {
@@ -166,7 +189,7 @@ public partial class App : System.Windows.Application
                     UiScreenshotExporter.GetAutomationIdForPage(launchOptions.RequestedPage),
                     screenshotPath,
                     CancellationToken.None);
-                Shutdown(0);
+                ShutdownApplication(0);
             }
         }
         catch (Exception exception)
@@ -177,19 +200,18 @@ public partial class App : System.Windows.Application
             {
                 Console.Error.WriteLine($"Diagnostic log: {logPath}");
             }
-            Shutdown(StartupFailureExitCode);
+            ShutdownApplication(StartupFailureExitCode);
         }
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
-        if (deferredInitializationTask is not null)
+        if (!shutdownPreparationCompleted)
         {
-            deferredInitializationTask.GetAwaiter().GetResult();
-            deferredInitializationTask = null;
+            PrepareForExitSynchronously(flush: e.ApplicationExitCode == 0);
         }
 
-        shellViewModel?.FlushAsync().GetAwaiter().GetResult();
+        shellViewModel?.Dispose();
 
         if (uiAutomationBridge is not null)
         {
@@ -203,7 +225,159 @@ public partial class App : System.Windows.Application
         }
 
         uiTestWorkspace = null;
+        shutdownCancellation.Dispose();
         base.OnExit(e);
+    }
+
+    private async void HandleShellWindowClosing(object? sender, CancelEventArgs e)
+    {
+        if (shellWindowCloseAllowed || launchOptions?.IsScreenshotMode == true)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+
+        if (shutdownPreparationStarted)
+        {
+            return;
+        }
+
+        shutdownPreparationStarted = true;
+        if (sender is Window window)
+        {
+            window.IsEnabled = false;
+        }
+
+        try
+        {
+            await PrepareForExitAsync(flush: true).ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            startupDiagnostics?.ReportUnexpectedFailure("Application shutdown", exception, showDialog: false);
+        }
+        finally
+        {
+            shutdownPreparationCompleted = true;
+            shellWindowCloseAllowed = true;
+            ShutdownApplication(0);
+        }
+    }
+
+    private void ShutdownApplication(int exitCode)
+    {
+        shellWindowCloseAllowed = true;
+        Shutdown(exitCode);
+    }
+
+    private async Task PrepareForExitAsync(bool flush)
+    {
+        shutdownCancellation.Cancel();
+        var canFlush = await CompleteDeferredInitializationForExitAsync().ConfigureAwait(true);
+
+        if (flush && canFlush && shellViewModel is not null)
+        {
+            await shellViewModel.FlushAsync().ConfigureAwait(true);
+        }
+    }
+
+    private void PrepareForExitSynchronously(bool flush)
+    {
+        shutdownCancellation.Cancel();
+        var canFlush = CompleteDeferredInitializationForExit();
+
+        if (flush && canFlush && shellViewModel is not null)
+        {
+            var flushTask = shellViewModel.FlushAsync();
+            try
+            {
+                if (flushTask.Wait(TimeSpan.FromSeconds(2)))
+                {
+                    flushTask.GetAwaiter().GetResult();
+                }
+            }
+            catch (Exception exception)
+            {
+                startupDiagnostics?.ReportUnexpectedFailure("Application shutdown", exception, showDialog: false);
+            }
+        }
+
+        shutdownPreparationCompleted = true;
+    }
+
+    private async Task<bool> CompleteDeferredInitializationForExitAsync()
+    {
+        if (deferredInitializationTask is null)
+        {
+            return true;
+        }
+
+        var initializationTask = deferredInitializationTask;
+        if (!initializationTask.IsCompleted)
+        {
+            var completedTask = await Task.WhenAny(
+                    initializationTask,
+                    Task.Delay(TimeSpan.FromSeconds(2)))
+                .ConfigureAwait(true);
+            if (!ReferenceEquals(completedTask, initializationTask))
+            {
+                return false;
+            }
+        }
+
+        var completed = ObserveDeferredInitializationCompletion(initializationTask);
+        if (completed)
+        {
+            deferredInitializationTask = null;
+        }
+
+        return completed;
+    }
+
+    private bool CompleteDeferredInitializationForExit()
+    {
+        if (deferredInitializationTask is null)
+        {
+            return true;
+        }
+
+        if (!deferredInitializationTask.IsCompleted)
+        {
+            try
+            {
+                deferredInitializationTask.Wait(TimeSpan.FromSeconds(2));
+            }
+            catch (AggregateException) when (shutdownCancellation.IsCancellationRequested)
+            {
+            }
+        }
+
+        var completed = deferredInitializationTask.IsCompleted;
+        if (completed)
+        {
+            completed = ObserveDeferredInitializationCompletion(deferredInitializationTask);
+        }
+
+        if (completed)
+        {
+            deferredInitializationTask = null;
+        }
+
+        return completed;
+    }
+
+    private bool ObserveDeferredInitializationCompletion(Task initializationTask)
+    {
+        try
+        {
+            initializationTask.GetAwaiter().GetResult();
+            return true;
+        }
+        catch (OperationCanceledException) when (shutdownCancellation.IsCancellationRequested)
+        {
+            return true;
+        }
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
@@ -245,6 +419,23 @@ public partial class App : System.Windows.Application
             showDialog: false);
     }
 
+    private static async Task WaitForInitialShellLayoutAsync(Window window)
+    {
+        window.UpdateLayout();
+        await window.Dispatcher.InvokeAsync(static () => { }, DispatcherPriority.Loaded);
+        await window.Dispatcher.InvokeAsync(static () => { }, DispatcherPriority.Render);
+        await window.Dispatcher.InvokeAsync(static () => { }, DispatcherPriority.ApplicationIdle);
+        window.UpdateLayout();
+    }
+
+    private static void ForceRequestedPageMaterialization(ShellViewModel shellViewModel, ShellPage requestedPage)
+    {
+        shellViewModel.CurrentPage = requestedPage == ShellPage.Home
+            ? ShellPage.Import
+            : ShellPage.Home;
+        shellViewModel.CurrentPage = requestedPage;
+    }
+
     private static ResourceDictionary CreateWritableResources(ResourceDictionary source)
     {
         var writable = new ResourceDictionary();
@@ -267,11 +458,14 @@ public partial class App : System.Windows.Application
             ? freezable.Clone()
             : value;
 
-    private async Task CompleteDeferredInitializationAsync(ShellViewModel shell)
+    private async Task CompleteDeferredInitializationAsync(ShellViewModel shell, CancellationToken cancellationToken)
     {
         try
         {
-            await shell.InitializeAsync();
+            await shell.InitializeAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         catch (Exception exception)
         {
@@ -282,7 +476,7 @@ public partial class App : System.Windows.Application
                 Console.Error.WriteLine($"Diagnostic log: {logPath}");
             }
 
-            Shutdown(StartupFailureExitCode);
+            ShutdownApplication(StartupFailureExitCode);
         }
     }
 

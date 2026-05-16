@@ -1,6 +1,7 @@
 using System.Globalization;
 using CQEPC.TimetableSync.Application.Abstractions.Persistence;
 using CQEPC.TimetableSync.Application.Abstractions.Sync;
+using CQEPC.TimetableSync.Application.UseCases.Workspace;
 using CQEPC.TimetableSync.Domain.Enums;
 using CQEPC.TimetableSync.Domain.Model;
 
@@ -309,6 +310,13 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
                         continue;
                     }
 
+                    if (HasCalendarTimeZoneMetadataDrift(pair.Value, mappedRemoteEvent)
+                        && TryAddMetadataOnlyChange(reconciliationChanges, pair.Key, pair.Value, mappedRemoteEvent))
+                    {
+                        consumedMappedLocalIds.Add(pair.Key);
+                        continue;
+                    }
+
                     consumedMappedLocalIds.Add(pair.Key);
                     exactMatchRemoteEventIds.Add(mappedRemoteEvent.RemoteItemId);
                     exactMatchOccurrenceIds.Add(pair.Key);
@@ -369,6 +377,13 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
                             reason: "Managed Google event metadata differs from the parsed timetable and will be refreshed."));
                     }
 
+                    consumedMappedLocalIds.Add(pair.Key);
+                    continue;
+                }
+
+                if (HasCalendarTimeZoneMetadataDrift(pair.Value, directRemoteEvent)
+                    && TryAddMetadataOnlyChange(reconciliationChanges, pair.Key, pair.Value, directRemoteEvent))
+                {
                     consumedMappedLocalIds.Add(pair.Key);
                     continue;
                 }
@@ -501,6 +516,11 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
             var before = previousItems[previousIndex];
             var after = currentItems[currentIndex];
             if (string.Equals(CreatePayloadFingerprint(before), CreatePayloadFingerprint(after), StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (HasOnlyEquivalentRegionalTimeZoneDrift(before, after))
             {
                 continue;
             }
@@ -694,16 +714,11 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
     }
 
     private static ResolvedOccurrence[] DeduplicateComparableOccurrences(
-        IEnumerable<ResolvedOccurrence> previousOccurrences)
-    {
-        return previousOccurrences
-            .GroupBy(CreateComparableOccurrenceShapeKey, StringComparer.Ordinal)
-            .SelectMany(group =>
-                group
-                    .GroupBy(CreateComparableOccurrenceKey, StringComparer.Ordinal)
-                    .Select(static duplicateGroup => duplicateGroup.First()))
+        IEnumerable<ResolvedOccurrence> occurrences) =>
+        occurrences
+            .GroupBy(CreateComparableOccurrenceKey, StringComparer.Ordinal)
+            .Select(static group => group.First())
             .ToArray();
-    }
 
     private static void EnrichLocalSnapshotChangesWithManagedRemoteEvents(
         List<PlannedSyncChange> changes,
@@ -762,9 +777,61 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
             occurrence.Metadata.TeachingClassComposition ?? string.Empty,
             occurrence.CourseType ?? string.Empty,
             occurrence.TimeProfileId,
+            occurrence.CalendarTimeZoneId ?? string.Empty,
             occurrence.GoogleCalendarColorId ?? string.Empty);
 
-    private static string CreateComparableOccurrenceShapeKey(ResolvedOccurrence occurrence) =>
+    private static bool HasOnlyEquivalentRegionalTimeZoneDrift(ResolvedOccurrence before, ResolvedOccurrence after)
+    {
+        var beforeTimeZoneId = WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(before.CalendarTimeZoneId);
+        var afterTimeZoneId = WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(after.CalendarTimeZoneId);
+        if (string.IsNullOrWhiteSpace(beforeTimeZoneId)
+            || string.IsNullOrWhiteSpace(afterTimeZoneId)
+            || string.Equals(beforeTimeZoneId, afterTimeZoneId, StringComparison.Ordinal)
+            || !IsRegionalTimeZoneId(beforeTimeZoneId)
+            || !IsRegionalTimeZoneId(afterTimeZoneId))
+        {
+            return false;
+        }
+
+        return HasSamePayloadExceptCalendarTimeZone(before, after)
+            && before.Start.ToUniversalTime() == after.Start.ToUniversalTime()
+            && before.End.ToUniversalTime() == after.End.ToUniversalTime()
+            && HasSameWallClockRange(before.Start, before.End, after.Start, after.End)
+            && HasEquivalentRegionalTimeZoneOffsetForOccurrence(after, afterTimeZoneId, beforeTimeZoneId);
+    }
+
+    private static bool HasSamePayloadExceptCalendarTimeZone(ResolvedOccurrence before, ResolvedOccurrence after) =>
+        before.TargetKind == after.TargetKind
+        && string.Equals(before.ClassName, after.ClassName, StringComparison.Ordinal)
+        && before.SchoolWeekNumber == after.SchoolWeekNumber
+        && before.OccurrenceDate == after.OccurrenceDate
+        && string.Equals(before.TimeProfileId, after.TimeProfileId, StringComparison.Ordinal)
+        && before.Weekday == after.Weekday
+        && string.Equals(before.Metadata.CourseTitle, after.Metadata.CourseTitle, StringComparison.Ordinal)
+        && string.Equals(before.Metadata.WeekExpression.RawText, after.Metadata.WeekExpression.RawText, StringComparison.Ordinal)
+        && before.Metadata.PeriodRange == after.Metadata.PeriodRange
+        && string.Equals(before.Metadata.Notes ?? string.Empty, after.Metadata.Notes ?? string.Empty, StringComparison.Ordinal)
+        && string.Equals(before.Metadata.Campus ?? string.Empty, after.Metadata.Campus ?? string.Empty, StringComparison.Ordinal)
+        && string.Equals(before.Metadata.Location ?? string.Empty, after.Metadata.Location ?? string.Empty, StringComparison.Ordinal)
+        && string.Equals(before.Metadata.Teacher ?? string.Empty, after.Metadata.Teacher ?? string.Empty, StringComparison.Ordinal)
+        && string.Equals(before.Metadata.TeachingClassComposition ?? string.Empty, after.Metadata.TeachingClassComposition ?? string.Empty, StringComparison.Ordinal)
+        && before.SourceFingerprint == after.SourceFingerprint
+        && string.Equals(before.CourseType ?? string.Empty, after.CourseType ?? string.Empty, StringComparison.Ordinal)
+        && string.Equals(before.GoogleCalendarColorId ?? string.Empty, after.GoogleCalendarColorId ?? string.Empty, StringComparison.Ordinal);
+
+    private static bool IsRegionalTimeZoneId(string timeZoneId) =>
+        timeZoneId.Contains('/', StringComparison.Ordinal)
+        && !timeZoneId.StartsWith("Etc/", StringComparison.Ordinal);
+
+    private static bool HasEquivalentRegionalTimeZoneOffsetForOccurrence(
+        ResolvedOccurrence occurrence,
+        string occurrenceTimeZoneId,
+        string remoteTimeZoneId) =>
+        IsRegionalTimeZoneId(occurrenceTimeZoneId)
+        && IsRegionalTimeZoneId(remoteTimeZoneId)
+        && HasCompatibleTimeZoneOffsetForOccurrence(occurrence, occurrenceTimeZoneId, remoteTimeZoneId);
+
+    private static string CreateComparableOccurrenceKey(ResolvedOccurrence occurrence) =>
         string.Join(
             "|",
             occurrence.TargetKind,
@@ -775,12 +842,7 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
             occurrence.Metadata.CourseTitle,
             occurrence.Metadata.Location ?? string.Empty,
             occurrence.Metadata.Teacher ?? string.Empty,
-            occurrence.TimeProfileId);
-
-    private static string CreateComparableOccurrenceKey(ResolvedOccurrence occurrence) =>
-        string.Join(
-            "|",
-            CreateComparableOccurrenceShapeKey(occurrence),
+            occurrence.TimeProfileId,
             occurrence.SourceFingerprint.SourceKind,
             occurrence.SourceFingerprint.Hash);
 
@@ -942,10 +1004,115 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
 
     private static bool MatchesRemotePayload(ResolvedOccurrence occurrence, ProviderRemoteCalendarEvent remoteEvent) =>
         string.Equals(occurrence.Metadata.CourseTitle, remoteEvent.Title, StringComparison.Ordinal)
-        && occurrence.Start.ToUniversalTime() == remoteEvent.Start.ToUniversalTime()
-        && occurrence.End.ToUniversalTime() == remoteEvent.End.ToUniversalTime()
+        && MatchesRemoteTimeRange(occurrence, remoteEvent)
         && string.Equals(occurrence.Metadata.Location ?? string.Empty, remoteEvent.Location ?? string.Empty, StringComparison.Ordinal)
         && string.Equals(occurrence.GoogleCalendarColorId ?? string.Empty, remoteEvent.GoogleCalendarColorId ?? string.Empty, StringComparison.Ordinal);
+
+    private static bool MatchesRemoteTimeRange(ResolvedOccurrence occurrence, ProviderRemoteCalendarEvent remoteEvent) =>
+        occurrence.Start.ToUniversalTime() == remoteEvent.Start.ToUniversalTime()
+        && occurrence.End.ToUniversalTime() == remoteEvent.End.ToUniversalTime()
+        && HasSameWallClockRange(occurrence.Start, occurrence.End, remoteEvent.Start, remoteEvent.End);
+
+    private static bool HasSameWallClockRange(
+        DateTimeOffset expectedStart,
+        DateTimeOffset expectedEnd,
+        DateTimeOffset remoteStart,
+        DateTimeOffset remoteEnd) =>
+        expectedStart.DateTime == remoteStart.DateTime
+        && expectedEnd.DateTime == remoteEnd.DateTime;
+
+    private static bool HasCalendarTimeZoneMetadataDrift(ResolvedOccurrence occurrence, ProviderRemoteCalendarEvent remoteEvent)
+    {
+        var occurrenceTimeZoneId = WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(occurrence.CalendarTimeZoneId);
+        if (string.IsNullOrWhiteSpace(occurrenceTimeZoneId))
+        {
+            return false;
+        }
+
+        var remoteTimeZoneId = ResolveRemoteComparableTimeZoneId(remoteEvent);
+        if (string.Equals(occurrenceTimeZoneId, remoteTimeZoneId, StringComparison.Ordinal)
+            && MatchesRemoteTimeRange(occurrence, remoteEvent))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(remoteTimeZoneId)
+            && MatchesRemoteTimeRange(occurrence, remoteEvent)
+            && HasRemoteOffsetCompatibleWithOccurrenceTimeZone(occurrence, occurrenceTimeZoneId, remoteEvent))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(remoteTimeZoneId)
+            && !string.Equals(occurrenceTimeZoneId, remoteTimeZoneId, StringComparison.Ordinal)
+            && MatchesRemoteTimeRange(occurrence, remoteEvent)
+            && HasEquivalentRegionalTimeZoneOffsetForOccurrence(occurrence, occurrenceTimeZoneId, remoteTimeZoneId))
+        {
+            return false;
+        }
+
+        return MatchesRemoteTimeRange(occurrence, remoteEvent)
+            && HasCompatibleTimeZoneOffsetForOccurrence(occurrence, occurrenceTimeZoneId, remoteTimeZoneId);
+    }
+
+    private static string? ResolveRemoteComparableTimeZoneId(ProviderRemoteCalendarEvent remoteEvent) =>
+        WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(remoteEvent.CalendarTimeZoneId)
+        ?? WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(remoteEvent.StartTimeZoneId)
+        ?? WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(remoteEvent.EndTimeZoneId)
+        ?? WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(remoteEvent.OriginalStartTimeZoneId);
+
+    private static bool HasRemoteOffsetCompatibleWithOccurrenceTimeZone(
+        ResolvedOccurrence occurrence,
+        string occurrenceTimeZoneId,
+        ProviderRemoteCalendarEvent remoteEvent)
+    {
+        var occurrenceStartOffset = WorkspaceTimeZoneCatalog.TryGetUtcOffset(occurrenceTimeZoneId, occurrence.Start.DateTime);
+        var occurrenceEndOffset = WorkspaceTimeZoneCatalog.TryGetUtcOffset(occurrenceTimeZoneId, occurrence.End.DateTime);
+        return occurrenceStartOffset == remoteEvent.Start.Offset
+            && occurrenceEndOffset == remoteEvent.End.Offset;
+    }
+
+    private static bool HasCompatibleTimeZoneOffsetForOccurrence(
+        ResolvedOccurrence occurrence,
+        string occurrenceTimeZoneId,
+        string? remoteTimeZoneId)
+    {
+        if (string.IsNullOrWhiteSpace(remoteTimeZoneId))
+        {
+            return true;
+        }
+
+        var occurrenceStartOffset = WorkspaceTimeZoneCatalog.TryGetUtcOffset(occurrenceTimeZoneId, occurrence.Start.DateTime);
+        var occurrenceEndOffset = WorkspaceTimeZoneCatalog.TryGetUtcOffset(occurrenceTimeZoneId, occurrence.End.DateTime);
+        var remoteStartOffset = WorkspaceTimeZoneCatalog.TryGetUtcOffset(remoteTimeZoneId, occurrence.Start.DateTime);
+        var remoteEndOffset = WorkspaceTimeZoneCatalog.TryGetUtcOffset(remoteTimeZoneId, occurrence.End.DateTime);
+        return occurrenceStartOffset == remoteStartOffset
+            && occurrenceEndOffset == remoteEndOffset;
+    }
+
+    private static bool TryAddMetadataOnlyChange(
+        List<PlannedSyncChange> changes,
+        string localStableId,
+        ResolvedOccurrence occurrence,
+        ProviderRemoteCalendarEvent remoteEvent)
+    {
+        var remoteOccurrence = ConvertRemoteEvent(remoteEvent);
+        if (remoteOccurrence is null)
+        {
+            return false;
+        }
+
+        changes.Add(new PlannedSyncChange(
+            SyncChangeKind.MetadataOnly,
+            SyncTargetKind.CalendarEvent,
+            localStableId,
+            SyncChangeSource.RemoteManaged,
+            before: remoteOccurrence,
+            after: occurrence,
+            remoteEvent: remoteEvent,
+            reason: "Google event only differs by time zone metadata and can be normalized later."));
+        return true;
+    }
 
     private static bool MatchesRemotePayloadAndClass(ResolvedOccurrence occurrence, ProviderRemoteCalendarEvent remoteEvent) =>
         MatchesRemoteClass(occurrence, remoteEvent)
@@ -1046,6 +1213,7 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
                 remoteEvent.IsManagedByApp ? "google-managed" : "google-remote",
                 remoteEvent.RemoteItemId),
             targetKind: SyncTargetKind.CalendarEvent,
+            calendarTimeZoneId: remoteEvent.CalendarTimeZoneId,
             googleCalendarColorId: remoteEvent.GoogleCalendarColorId);
     }
 

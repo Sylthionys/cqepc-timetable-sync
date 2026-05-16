@@ -36,6 +36,27 @@ public sealed class MicrosoftPayloadBuildersTests
     }
 
     [Fact]
+    public void BuildSingleEventPrefersOccurrenceSpecificTimeZone()
+    {
+        var occurrence = CreateOccurrence(
+            new DateOnly(2026, 3, 4),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            SyncTargetKind.CalendarEvent,
+            courseTitle: "Signals",
+            calendarTimeZoneId: "America/New_York");
+
+        var payload = MicrosoftPayloadBuilders.BuildSingleEvent(
+            occurrence,
+            timeZoneId: "China Standard Time",
+            categoryName: "Microsoft Theory");
+
+        payload["start"]!["dateTime"]!.GetValue<string>().Should().Be("2026-03-04T08:00:00");
+        payload["start"]!["timeZone"]!.GetValue<string>().Should().Be("America/New_York");
+        payload["end"]!["timeZone"]!.GetValue<string>().Should().Be("America/New_York");
+    }
+
+    [Fact]
     public void BuildRecurringEventAddsWeeklyRecurrenceWithOccurrenceCount()
     {
         var firstOccurrence = CreateOccurrence(
@@ -168,7 +189,8 @@ public sealed class MicrosoftPayloadBuildersTests
         TimeOnly end,
         SyncTargetKind targetKind,
         string courseTitle,
-        string? sourceHash = null) =>
+        string? sourceHash = null,
+        string? calendarTimeZoneId = null) =>
         new(
             className: "Class A",
             schoolWeekNumber: 1,
@@ -188,5 +210,6 @@ public sealed class MicrosoftPayloadBuildersTests
                 teachingClassComposition: "Class A / Class B"),
             sourceFingerprint: new SourceFingerprint("pdf", sourceHash ?? $"{courseTitle}-{date:yyyyMMdd}"),
             targetKind: targetKind,
-            courseType: "Theory");
+            courseType: "Theory",
+            calendarTimeZoneId: calendarTimeZoneId);
 }

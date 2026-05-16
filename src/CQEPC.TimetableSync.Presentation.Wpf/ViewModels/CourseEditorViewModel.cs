@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Collections.ObjectModel;
+using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CQEPC.TimetableSync.Application.UseCases.Workspace;
@@ -11,6 +12,13 @@ namespace CQEPC.TimetableSync.Presentation.Wpf.ViewModels;
 
 public sealed class CourseEditorViewModel : ObservableObject
 {
+    private static readonly CompositeFormat MonthlyPatternDayOfMonthFormat =
+        CompositeFormat.Parse(UiText.CourseEditorMonthlyPatternDayOfMonthFormat);
+    private static readonly CompositeFormat MonthlyPatternLastWeekdayFormat =
+        CompositeFormat.Parse(UiText.CourseEditorMonthlyPatternLastWeekdayFormat);
+    private static readonly CompositeFormat RepeatEveryIntervalFormat =
+        CompositeFormat.Parse(UiText.CourseEditorRepeatEveryIntervalFormat);
+
     private readonly Func<CourseEditorSaveRequest, Task> saveAsync;
     private readonly Func<CourseEditorResetRequest, Task> resetAsync;
     private SourceFingerprint? currentSourceFingerprint;
@@ -73,6 +81,7 @@ public sealed class CourseEditorViewModel : ObservableObject
             new CourseScheduleRepeatOptionViewModel(CourseScheduleRepeatKind.Yearly, UiText.CourseEditorRepeatYearly),
         ]);
         TimeZoneOptions = new ObservableCollection<GoogleTimeZoneOptionViewModel>();
+        RecentTimeZoneIds = new ObservableCollection<string>();
         ColorOptions = new ObservableCollection<GoogleCalendarColorOptionViewModel>();
         RepeatUnitOptions = new ObservableCollection<CourseScheduleRepeatUnitOptionViewModel>(
         [
@@ -99,6 +108,8 @@ public sealed class CourseEditorViewModel : ObservableObject
     public ObservableCollection<CourseScheduleRepeatOptionViewModel> RepeatOptions { get; }
 
     public ObservableCollection<GoogleTimeZoneOptionViewModel> TimeZoneOptions { get; }
+
+    public ObservableCollection<string> RecentTimeZoneIds { get; }
 
     public ObservableCollection<GoogleCalendarColorOptionViewModel> ColorOptions { get; }
 
@@ -498,6 +509,7 @@ public sealed class CourseEditorViewModel : ObservableObject
         Location = request.Location;
         Notes = request.Notes;
         ReplaceOptions(TimeZoneOptions, request.TimeZoneOptions ?? Array.Empty<GoogleTimeZoneOptionViewModel>());
+        ReplaceOptions(RecentTimeZoneIds, request.RecentTimeZoneIds ?? Array.Empty<string>());
         ReplaceOptions(ColorOptions, request.ColorOptions ?? Array.Empty<GoogleCalendarColorOptionViewModel>());
         SelectedTimeZoneOption = TimeZoneOptions.FirstOrDefault(option => string.Equals(option.TimeZoneId, request.SelectedTimeZoneId, StringComparison.Ordinal))
             ?? TimeZoneOptions.FirstOrDefault();
@@ -605,8 +617,8 @@ public sealed class CourseEditorViewModel : ObservableObject
             return;
         }
 
-        await resetAsync(new CourseEditorResetRequest(currentClassName, currentSourceFingerprint, currentSourceOccurrenceDate));
         Close();
+        await resetAsync(new CourseEditorResetRequest(currentClassName, currentSourceFingerprint, currentSourceOccurrenceDate));
     }
 
     private void SelectRepeat(CourseScheduleRepeatKind repeatKind)
@@ -767,10 +779,10 @@ public sealed class CourseEditorViewModel : ObservableObject
         MonthlyPatternOptions.Clear();
         MonthlyPatternOptions.Add(new CourseScheduleMonthlyPatternOptionViewModel(
             CourseScheduleMonthlyPattern.DayOfMonth,
-            string.Format(CultureInfo.CurrentCulture, UiText.CourseEditorMonthlyPatternDayOfMonthFormat, start.Day)));
+            string.Format(CultureInfo.CurrentCulture, MonthlyPatternDayOfMonthFormat, start.Day)));
         MonthlyPatternOptions.Add(new CourseScheduleMonthlyPatternOptionViewModel(
             CourseScheduleMonthlyPattern.LastWeekday,
-            string.Format(CultureInfo.CurrentCulture, UiText.CourseEditorMonthlyPatternLastWeekdayFormat, weekdayName)));
+            string.Format(CultureInfo.CurrentCulture, MonthlyPatternLastWeekdayFormat, weekdayName)));
         SelectedMonthlyPatternOption = MonthlyPatternOptions.FirstOrDefault(option => option.MonthlyPattern == selectedPattern)
             ?? MonthlyPatternOptions[0];
     }
@@ -820,7 +832,7 @@ public sealed class CourseEditorViewModel : ObservableObject
                 ? UiText.CourseEditorRepeatBiweekly
                 : interval == 1
                     ? UiText.CourseEditorRepeatWeekly
-                    : string.Format(CultureInfo.CurrentCulture, UiText.CourseEditorRepeatEveryIntervalFormat, interval, UiText.CourseEditorRepeatUnitWeek);
+                    : string.Format(CultureInfo.CurrentCulture, RepeatEveryIntervalFormat, interval, UiText.CourseEditorRepeatUnitWeek);
             return $"{weeklyLabel}{UiText.SummarySeparator}{string.Join(UiText.ImportInlineListSeparator, SelectedWeekdays().Select(UiText.GetDayShortDisplayName))}";
         }
 
@@ -831,7 +843,7 @@ public sealed class CourseEditorViewModel : ObservableObject
             CourseScheduleRepeatUnit.Year => UiText.CourseEditorRepeatUnitYear,
             _ => UiText.CourseEditorRepeatUnitWeek,
         };
-        var label = string.Format(CultureInfo.CurrentCulture, UiText.CourseEditorRepeatEveryIntervalFormat, interval, unitLabel);
+        var label = string.Format(CultureInfo.CurrentCulture, RepeatEveryIntervalFormat, interval, unitLabel);
         if (unit == CourseScheduleRepeatUnit.Month && SelectedMonthlyPatternOption is not null)
         {
             label = $"{label}{UiText.SummarySeparator}{SelectedMonthlyPatternOption.Label}";
@@ -1007,6 +1019,7 @@ public sealed record CourseEditorOpenRequest(
     string? TeachingClassComposition = null,
     string? Notes = null,
     IReadOnlyList<GoogleTimeZoneOptionViewModel>? TimeZoneOptions = null,
+    IReadOnlyList<string>? RecentTimeZoneIds = null,
     IReadOnlyList<GoogleCalendarColorOptionViewModel>? ColorOptions = null,
     string? SelectedTimeZoneId = null,
     string? SelectedColorId = null,

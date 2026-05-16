@@ -85,7 +85,11 @@ internal sealed class UiAppSession : IAsyncDisposable
 
         while (DateTime.UtcNow < deadline)
         {
-            var element = GetActiveMainWindow().FindFirstDescendant(cf => cf.ByAutomationId(automationId));
+            var element = GetActiveMainWindow()
+                .FindAllDescendants(cf => cf.ByAutomationId(automationId))
+                .OrderByDescending(HasUsableBounds)
+                .ThenByDescending(GetBoundsArea)
+                .FirstOrDefault();
             if (element is not null)
             {
                 return element;
@@ -95,6 +99,18 @@ internal sealed class UiAppSession : IAsyncDisposable
         }
 
         throw new XunitException($"Timed out waiting for automation element '{automationId}'.");
+    }
+
+    private static bool HasUsableBounds(AutomationElement element)
+    {
+        var bounds = element.BoundingRectangle;
+        return bounds.Width > 0 && bounds.Height > 0;
+    }
+
+    private static double GetBoundsArea(AutomationElement element)
+    {
+        var bounds = element.BoundingRectangle;
+        return Math.Max(0, bounds.Width) * Math.Max(0, bounds.Height);
     }
 
     public Button WaitForButton(string automationId, TimeSpan? timeout = null) =>
@@ -441,6 +457,17 @@ internal sealed class UiAppSession : IAsyncDisposable
         return filePath;
     }
 
+    public async Task<string> CaptureAutomationElementScreenshotAsync(string automationId, string fileNamePrefix)
+    {
+        var screenshotDirectory = Path.Combine(UiTestPaths.SolutionRoot, "tmp", "ui-test-screenshots");
+        Directory.CreateDirectory(screenshotDirectory);
+        var filePath = Path.Combine(
+            screenshotDirectory,
+            $"{SanitizeFileName(fileNamePrefix)}-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}.png");
+        await RequestAppRenderedScreenshotAsync(automationId, filePath);
+        return filePath;
+    }
+
     public string CaptureWindowScreenshotAsyncCompatible() => CaptureWindowScreenshot();
 
     public Task OpenAboutOverlayAsync() => SendAutomationCommandAsync("open-about");
@@ -479,6 +506,22 @@ internal sealed class UiAppSession : IAsyncDisposable
         {
             throw new XunitException($"The automation bridge failed to select combo-box '{automationId}' index {index}: {response.Error}");
         }
+    }
+
+    public async Task<string> GetTimeZoneSelectionAsync(string automationId)
+    {
+        var response = await SendAutomationRequestAsync("get-time-zone-selection", automationId);
+        if (response is null)
+        {
+            throw new XunitException($"The automation bridge returned no response for time-zone picker '{automationId}'.");
+        }
+
+        if (!response.Success)
+        {
+            throw new XunitException($"The automation bridge failed to read time-zone picker '{automationId}': {response.Error}");
+        }
+
+        return response.Value ?? string.Empty;
     }
 
     public async Task SetFirstWeekStartOverrideAsync(DateOnly date)

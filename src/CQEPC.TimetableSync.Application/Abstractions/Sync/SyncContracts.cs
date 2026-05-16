@@ -89,7 +89,9 @@ public sealed record ProviderConnectionState(
 public sealed record ProviderCalendarDescriptor(
     string Id,
     string DisplayName,
-    bool IsPrimary)
+    bool IsPrimary,
+    string? BackgroundColorHex = null,
+    string? CalendarColorId = null)
 {
     public override string ToString() => DisplayName;
 }

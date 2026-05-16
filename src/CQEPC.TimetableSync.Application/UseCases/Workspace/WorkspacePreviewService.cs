@@ -218,6 +218,7 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
                 effectiveTimetableResolution,
                 schoolWeeks,
                 timeProfiles);
+            normalizationResult = ApplyDefaultCalendarTimeZone(normalizationResult, request.Preferences);
             normalizationResult = ApplyDefaultCalendarColor(normalizationResult, request.Preferences.GetDefaults(request.Preferences.DefaultProvider));
 
             var taskRules = request.IncludeRuleBasedTasks
@@ -234,7 +235,7 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
                 .ThenBy(static occurrence => occurrence.Metadata.CourseTitle, StringComparer.Ordinal)
                 .ToArray();
 
-            deletionWindow = ResolveDeletionWindow(schoolWeeks, syncOccurrences);
+            deletionWindow = ResolveDeletionWindow(schoolWeeks, syncOccurrences, request.Preferences);
             displayWindow = ResolveDisplayWindow(request.Preferences, request.Preferences.DefaultProvider, deletionWindow);
             var existingMappingsTask = syncMappingRepository.LoadAsync(request.Preferences.DefaultProvider, cancellationToken);
             var rawRemotePreviewEventsTask = LoadRemotePreviewEventsAsync(
@@ -555,6 +556,7 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
 
                     break;
                 case SyncChangeKind.Updated:
+                case SyncChangeKind.MetadataOnly:
                     if (plannedChange.Before is not null)
                     {
                         _ = mergedOccurrences.Remove(plannedChange.Before);
@@ -1031,14 +1033,16 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
 
     private static PreviewDateWindow? ResolveDeletionWindow(
         SchoolWeek[] schoolWeeks,
-        ResolvedOccurrence[] occurrences)
+        ResolvedOccurrence[] occurrences,
+        UserPreferences preferences)
     {
+        var timeZoneId = ResolvePreviewWindowTimeZoneId(preferences);
         if (schoolWeeks.Length > 0)
         {
             var orderedWeeks = schoolWeeks.OrderBy(static week => week.StartDate).ToArray();
             return new PreviewDateWindow(
-                CreateOffsetDateTime(orderedWeeks[0].StartDate, TimeOnly.MinValue),
-                CreateOffsetDateTime(orderedWeeks[^1].EndDate.AddDays(1), TimeOnly.MinValue));
+                CreateOffsetDateTime(orderedWeeks[0].StartDate, TimeOnly.MinValue, timeZoneId),
+                CreateOffsetDateTime(orderedWeeks[^1].EndDate.AddDays(1), TimeOnly.MinValue, timeZoneId));
         }
 
         if (occurrences.Length == 0)
@@ -1048,8 +1052,8 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
 
         var ordered = occurrences.OrderBy(static occurrence => occurrence.Start).ToArray();
         return new PreviewDateWindow(
-            CreateOffsetDateTime(ordered[0].OccurrenceDate, TimeOnly.MinValue),
-            CreateOffsetDateTime(ordered[^1].OccurrenceDate.AddDays(1), TimeOnly.MinValue));
+            CreateOffsetDateTime(ordered[0].OccurrenceDate, TimeOnly.MinValue, timeZoneId),
+            CreateOffsetDateTime(ordered[^1].OccurrenceDate.AddDays(1), TimeOnly.MinValue, timeZoneId));
     }
 
     private static PreviewDateWindow? ResolveDisplayWindow(
@@ -1127,7 +1131,9 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
                         mapping.SourceFingerprint.SourceKind,
                         remoteEvent.ParentRemoteItemId,
                         remoteEvent.OriginalStartTimeUtc,
-                        remoteEvent.GoogleCalendarColorId);
+                        remoteEvent.GoogleCalendarColorId,
+                        remoteEvent.ClassName,
+                        remoteEvent.CalendarTimeZoneId);
                 })
             .ToArray();
     }
@@ -1410,6 +1416,35 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
                         occurrence.CourseType,
                         occurrence.CalendarTimeZoneId,
                         defaultColorId.Trim()))
+            .ToArray();
+
+        return new NormalizationResult(
+            normalizationResult.CourseBlocks,
+            occurrences,
+            BuildExportGroups(occurrences),
+            normalizationResult.UnresolvedItems,
+            normalizationResult.AppliedTimeProfileOverrideCount,
+            normalizationResult.TimeProfileFallbackConfirmations);
+    }
+
+    private NormalizationResult ApplyDefaultCalendarTimeZone(
+        NormalizationResult normalizationResult,
+        UserPreferences preferences)
+    {
+        ArgumentNullException.ThrowIfNull(normalizationResult);
+        ArgumentNullException.ThrowIfNull(preferences);
+
+        if (preferences.DefaultProvider != ProviderKind.Google)
+        {
+            return normalizationResult;
+        }
+
+        var defaultTimeZoneId = ResolveGooglePreferredTimeZoneId(preferences.GoogleSettings);
+        var occurrences = normalizationResult.Occurrences
+            .Select(
+                occurrence => occurrence.TargetKind != SyncTargetKind.CalendarEvent || !string.IsNullOrWhiteSpace(occurrence.CalendarTimeZoneId)
+                    ? occurrence
+                    : RebuildOccurrenceDateTimes(occurrence, defaultTimeZoneId, defaultTimeZoneId))
             .ToArray();
 
         return new NormalizationResult(
@@ -1706,12 +1741,8 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
             occurrence.CalendarTimeZoneId ?? string.Empty,
             occurrence.GoogleCalendarColorId ?? string.Empty);
 
-    private static DateTimeOffset CreateOffsetDateTime(DateOnly date, TimeOnly time)
-    {
-        var localDateTime = date.ToDateTime(time);
-        var offset = TimeZoneInfo.Local.GetUtcOffset(localDateTime);
-        return new DateTimeOffset(localDateTime, offset);
-    }
+    private static DateTimeOffset CreateOffsetDateTime(DateOnly date, TimeOnly time, string? timeZoneId = null)
+        => WorkspaceTimeZoneCatalog.ResolveLocalDateTime(date, time, timeZoneId ?? WorkspaceTimeZoneCatalog.DefaultTimeZoneId);
 
     private static string CreateCoursePresentationKey(string className, string courseTitle) =>
         string.Concat(className, "\u001F", courseTitle);
@@ -1719,57 +1750,49 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
     private static ResolvedOccurrence ApplyCoursePresentationOverride(
         ResolvedOccurrence occurrence,
         CoursePresentationOverride presentationOverride) =>
+        RebuildOccurrenceDateTimes(
+            occurrence,
+            presentationOverride.CalendarTimeZoneId,
+            presentationOverride.CalendarTimeZoneId,
+            presentationOverride.GoogleCalendarColorId);
+
+    private static ResolvedOccurrence RebuildOccurrenceDateTimes(
+        ResolvedOccurrence occurrence,
+        string? resolveTimeZoneId,
+        string? calendarTimeZoneId,
+        string? googleCalendarColorId = null) =>
         new(
             occurrence.ClassName,
             occurrence.SchoolWeekNumber,
             occurrence.OccurrenceDate,
-            RebuildOccurrenceDateTime(occurrence.OccurrenceDate, TimeOnly.FromDateTime(occurrence.Start.DateTime), presentationOverride.CalendarTimeZoneId),
-            RebuildOccurrenceDateTime(occurrence.OccurrenceDate, TimeOnly.FromDateTime(occurrence.End.DateTime), presentationOverride.CalendarTimeZoneId),
+            RebuildOccurrenceDateTime(occurrence.OccurrenceDate, TimeOnly.FromDateTime(occurrence.Start.DateTime), resolveTimeZoneId),
+            RebuildOccurrenceDateTime(occurrence.OccurrenceDate, TimeOnly.FromDateTime(occurrence.End.DateTime), resolveTimeZoneId),
             occurrence.TimeProfileId,
             occurrence.Weekday,
             occurrence.Metadata,
             occurrence.SourceFingerprint,
             occurrence.TargetKind,
             occurrence.CourseType,
-            presentationOverride.CalendarTimeZoneId,
-            presentationOverride.GoogleCalendarColorId);
+            calendarTimeZoneId,
+            googleCalendarColorId ?? occurrence.GoogleCalendarColorId);
 
     private static DateTimeOffset RebuildOccurrenceDateTime(DateOnly date, TimeOnly time, string? timeZoneId)
-    {
-        if (TryResolveTimeZone(timeZoneId) is not { } timeZone)
-        {
-            return CreateOffsetDateTime(date, time);
-        }
+        => WorkspaceTimeZoneCatalog.ResolveLocalDateTime(
+            date,
+            time,
+            WorkspaceTimeZoneCatalog.IsKnownTimeZoneId(timeZoneId)
+                ? WorkspaceTimeZoneCatalog.NormalizeTimeZoneId(timeZoneId)
+                : WorkspaceTimeZoneCatalog.DefaultTimeZoneId);
 
-        var localDateTime = date.ToDateTime(time);
-        return new DateTimeOffset(localDateTime, timeZone.GetUtcOffset(localDateTime));
-    }
+    private static string ResolvePreviewWindowTimeZoneId(UserPreferences preferences) =>
+        preferences.DefaultProvider == ProviderKind.Google
+            ? ResolveGooglePreferredTimeZoneId(preferences.GoogleSettings)
+            : WorkspaceTimeZoneCatalog.DefaultTimeZoneId;
 
-    private static TimeZoneInfo? TryResolveTimeZone(string? timeZoneId)
-    {
-        if (string.IsNullOrWhiteSpace(timeZoneId))
-        {
-            return null;
-        }
-
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
-        }
-        catch (TimeZoneNotFoundException)
-        {
-            if (TimeZoneInfo.TryConvertIanaIdToWindowsId(timeZoneId, out var windowsId))
-            {
-                return TimeZoneInfo.FindSystemTimeZoneById(windowsId);
-            }
-
-            return null;
-        }
-        catch (InvalidTimeZoneException)
-        {
-            return null;
-        }
-    }
+    private static string ResolveGooglePreferredTimeZoneId(GoogleProviderSettings settings) =>
+        WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(settings.PreferredCalendarTimeZoneId)
+        ?? WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(WorkspacePreferenceDefaults.CreateGoogleSettings().PreferredCalendarTimeZoneId)
+        ?? WorkspaceTimeZoneCatalog.DefaultTimeZoneId;
 
     private sealed class NoOpTaskGenerationService : ITaskGenerationService
     {

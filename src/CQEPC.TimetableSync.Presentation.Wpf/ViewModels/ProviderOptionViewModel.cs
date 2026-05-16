@@ -4,13 +4,21 @@ namespace CQEPC.TimetableSync.Presentation.Wpf.ViewModels;
 
 public sealed class ProviderOptionViewModel
 {
-    public ProviderOptionViewModel(ProviderKind provider, string displayName)
+    public ProviderOptionViewModel(ProviderKind provider, string displayName, string? connectedAccountSummary = null)
     {
         Provider = provider;
-        DisplayName = displayName;
+        ProviderDisplayName = displayName;
+        ConnectedAccountSummary = connectedAccountSummary;
+        DisplayName = string.IsNullOrWhiteSpace(connectedAccountSummary)
+            ? displayName
+            : $"{displayName}: {connectedAccountSummary.Trim()}";
     }
 
     public ProviderKind Provider { get; }
+
+    public string ProviderDisplayName { get; }
+
+    public string? ConnectedAccountSummary { get; }
 
     public string DisplayName { get; }
 

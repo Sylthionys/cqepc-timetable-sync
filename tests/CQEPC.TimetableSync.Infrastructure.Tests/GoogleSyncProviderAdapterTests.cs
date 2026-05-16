@@ -314,12 +314,140 @@ public sealed class GoogleSyncProviderAdapterTests
     }
 
     [Fact]
+    public void TryResolveEventDateTimeOffsetUsesTzdbDstForEventTimeZone()
+    {
+        var eventDateTime = new EventDateTime
+        {
+            DateTimeDateTimeOffset = new DateTimeOffset(2026, 7, 15, 12, 0, 0, TimeSpan.Zero),
+            TimeZone = "America/New_York",
+        };
+
+        var resolved = GoogleSyncProviderAdapter.TryResolveEventDateTimeOffset(eventDateTime);
+
+        resolved.Should().Be(new DateTimeOffset(2026, 7, 15, 8, 0, 0, TimeSpan.FromHours(-4)));
+    }
+
+    [Fact]
+    public void ResolveGoogleTimeZoneIdNormalizesWindowsIdToIanaId()
+    {
+        GooglePayloadBuilders.ResolveGoogleTimeZoneId("China Standard Time").Should().Be("Asia/Shanghai");
+    }
+
+    [Fact]
     public void CalendarPreviewEventFieldsRequestsTimeZoneForTimedInstances()
     {
         GoogleSyncProviderAdapter.CalendarPreviewEventFields.Should().Contain("start/timeZone");
         GoogleSyncProviderAdapter.CalendarPreviewEventFields.Should().Contain("end/timeZone");
         GoogleSyncProviderAdapter.CalendarPreviewEventFields.Should().Contain("originalStartTime/timeZone");
         GoogleSyncProviderAdapter.CalendarPreviewEventFields.Should().Contain("colorId");
+    }
+
+    [Fact]
+    public void MapRemoteEventPreservesGoogleTimeZoneFieldsAndExplicitFlags()
+    {
+        var item = new Event
+        {
+            Id = "remote-1",
+            Summary = "Signals",
+            Start = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 8, 30, 0, TimeSpan.FromHours(8)),
+                TimeZone = "Asia/Hong_Kong",
+            },
+            End = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 9, 50, 0, TimeSpan.FromHours(8)),
+                TimeZone = "Asia/Hong_Kong",
+            },
+            OriginalStartTime = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 8, 30, 0, TimeSpan.FromHours(8)),
+                TimeZone = "Asia/Hong_Kong",
+            },
+            ExtendedProperties = new Event.ExtendedPropertiesData
+            {
+                Private__ = new Dictionary<string, string>
+                {
+                    [GoogleSyncConstants.ManagedByKey] = GoogleSyncConstants.ManagedByValue,
+                    [GoogleSyncConstants.TimeZoneIdKey] = "Asia/Shanghai",
+                },
+            },
+        };
+
+        var remoteEvent = GoogleSyncProviderAdapter.MapRemoteEvent(item, "google-cal", fallbackTimeZoneId: null);
+
+        remoteEvent.CalendarTimeZoneId.Should().Be("Asia/Shanghai");
+        remoteEvent.StartTimeZoneId.Should().Be("Asia/Hong_Kong");
+        remoteEvent.EndTimeZoneId.Should().Be("Asia/Hong_Kong");
+        remoteEvent.OriginalStartTimeZoneId.Should().Be("Asia/Hong_Kong");
+        remoteEvent.HasExplicitStartTimeZone.Should().BeTrue();
+        remoteEvent.HasExplicitEndTimeZone.Should().BeTrue();
+        remoteEvent.HasExplicitOriginalStartTimeZone.Should().BeTrue();
+    }
+
+    [Fact]
+    public void MapRemoteEventUsesOriginalStartTimeZoneAsDeclaredZoneWhenInstanceStartZoneIsMissing()
+    {
+        var item = new Event
+        {
+            Id = "remote-1",
+            Summary = "Signals",
+            Start = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 8, 30, 0, TimeSpan.FromHours(8)),
+            },
+            End = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 9, 50, 0, TimeSpan.FromHours(8)),
+            },
+            OriginalStartTime = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 8, 30, 0, TimeSpan.FromHours(8)),
+                TimeZone = "Asia/Hong_Kong",
+            },
+            ExtendedProperties = new Event.ExtendedPropertiesData
+            {
+                Private__ = new Dictionary<string, string>
+                {
+                    [GoogleSyncConstants.ManagedByKey] = GoogleSyncConstants.ManagedByValue,
+                },
+            },
+        };
+
+        var remoteEvent = GoogleSyncProviderAdapter.MapRemoteEvent(item, "google-cal", fallbackTimeZoneId: null);
+
+        remoteEvent.CalendarTimeZoneId.Should().Be("Asia/Hong_Kong");
+        remoteEvent.StartTimeZoneId.Should().BeNull();
+        remoteEvent.EndTimeZoneId.Should().BeNull();
+        remoteEvent.OriginalStartTimeZoneId.Should().Be("Asia/Hong_Kong");
+        remoteEvent.HasExplicitStartTimeZone.Should().BeFalse();
+        remoteEvent.HasExplicitOriginalStartTimeZone.Should().BeTrue();
+    }
+
+    [Fact]
+    public void MapRemoteEventDoesNotInventDeclaredZoneWhenGoogleTimeZoneIsMissing()
+    {
+        var item = new Event
+        {
+            Id = "remote-1",
+            Summary = "Signals",
+            Start = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 8, 30, 0, TimeSpan.FromHours(8)),
+            },
+            End = new EventDateTime
+            {
+                DateTimeDateTimeOffset = new DateTimeOffset(2026, 4, 9, 9, 50, 0, TimeSpan.FromHours(8)),
+            },
+        };
+
+        var remoteEvent = GoogleSyncProviderAdapter.MapRemoteEvent(item, "google-cal", fallbackTimeZoneId: "Asia/Shanghai");
+
+        remoteEvent.CalendarTimeZoneId.Should().BeNull();
+        remoteEvent.StartTimeZoneId.Should().BeNull();
+        remoteEvent.EndTimeZoneId.Should().BeNull();
+        remoteEvent.HasExplicitStartTimeZone.Should().BeFalse();
+        remoteEvent.Start.Should().Be(new DateTimeOffset(2026, 4, 9, 8, 30, 0, TimeSpan.FromHours(8)));
     }
 
     private static ResolvedOccurrence CreateOccurrence(DateOnly date, string sourceHash) =>

@@ -130,6 +130,8 @@ public sealed record ProviderTaskRuleSetting
 
 public sealed record GoogleProviderSettings
 {
+    private const int MaxRecentCalendarTimeZoneIds = 6;
+
     public GoogleProviderSettings(
         string? oauthClientConfigurationPath,
         string? connectedAccountSummary,
@@ -139,7 +141,8 @@ public sealed record GoogleProviderSettings
         IReadOnlyList<ProviderTaskRuleSetting>? taskRules = null,
         bool importCalendarIntoHomePreviewEnabled = true,
         string? preferredCalendarTimeZoneId = null,
-        string? remoteReadFallbackTimeZoneId = null)
+        string? remoteReadFallbackTimeZoneId = null,
+        IReadOnlyList<string>? recentCalendarTimeZoneIds = null)
     {
         OAuthClientConfigurationPath = Normalize(oauthClientConfigurationPath);
         ConnectedAccountSummary = Normalize(connectedAccountSummary);
@@ -150,6 +153,7 @@ public sealed record GoogleProviderSettings
         ImportCalendarIntoHomePreviewEnabled = importCalendarIntoHomePreviewEnabled;
         PreferredCalendarTimeZoneId = Normalize(preferredCalendarTimeZoneId);
         RemoteReadFallbackTimeZoneId = Normalize(remoteReadFallbackTimeZoneId);
+        RecentCalendarTimeZoneIds = NormalizeRecentTimeZoneIds(recentCalendarTimeZoneIds);
     }
 
     public string? OAuthClientConfigurationPath { get; }
@@ -169,6 +173,8 @@ public sealed record GoogleProviderSettings
     public string? PreferredCalendarTimeZoneId { get; }
 
     public string? RemoteReadFallbackTimeZoneId { get; }
+
+    public IReadOnlyList<string> RecentCalendarTimeZoneIds { get; }
 
     internal static IReadOnlyList<ProviderCalendarDescriptor> NormalizeCalendars(IReadOnlyList<ProviderCalendarDescriptor> calendars) =>
         calendars
@@ -197,6 +203,15 @@ public sealed record GoogleProviderSettings
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string[] NormalizeRecentTimeZoneIds(IReadOnlyList<string>? timeZoneIds) =>
+        (timeZoneIds ?? Array.Empty<string>())
+            .Select(static id => Normalize(id))
+            .Where(static id => id is not null)
+            .Select(static id => id!)
+            .Distinct(StringComparer.Ordinal)
+            .Take(MaxRecentCalendarTimeZoneIds)
+            .ToArray();
 }
 
 public sealed record MicrosoftProviderSettings
@@ -854,6 +869,97 @@ public enum ThemeMode
     Dark,
 }
 
+public enum NetworkProxyMode
+{
+    System,
+    Direct,
+    [Obsolete("Use Direct instead.")]
+    None = Direct,
+    Custom,
+}
+
+public sealed record NetworkProxySettings
+{
+    private static readonly string[] DefaultBypassListValues = ["localhost", "127.0.0.1", "::1"];
+
+    public NetworkProxySettings(
+        NetworkProxyMode mode,
+        string? customProxyUri,
+        string? customProxyUsername = null,
+        bool customProxyHasPassword = false,
+        bool bypassLocal = true,
+        IReadOnlyList<string>? bypassList = null)
+    {
+        Mode = mode;
+        CustomProxyUri = mode == NetworkProxyMode.Custom
+            ? Normalize(customProxyUri)
+            : null;
+        CustomProxyUsername = mode == NetworkProxyMode.Custom
+            ? Normalize(customProxyUsername)
+            : null;
+        CustomProxyHasPassword = mode == NetworkProxyMode.Custom && customProxyHasPassword;
+        BypassLocal = bypassLocal;
+        BypassList = NormalizeBypassList(bypassList);
+    }
+
+    public NetworkProxyMode Mode { get; }
+
+    public string? CustomProxyUri { get; }
+
+    public string? CustomProxyUsername { get; }
+
+    public bool CustomProxyHasPassword { get; }
+
+    public bool BypassLocal { get; }
+
+    public IReadOnlyList<string> BypassList { get; }
+
+    public bool HasCustomProxyUri => !string.IsNullOrWhiteSpace(CustomProxyUri);
+
+    private static string? Normalize(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string[] NormalizeBypassList(IReadOnlyList<string>? values)
+    {
+        var normalized = (values is null || values.Count == 0 ? DefaultBypassListValues : values)
+            .Select(static value => Normalize(value))
+            .Where(static value => value is not null)
+            .Select(static value => value!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return normalized.Length == 0 ? DefaultBypassListValues : normalized;
+    }
+}
+
+public enum NetworkProxyConnectionTestStatus
+{
+    Success,
+    ConfigurationError,
+    ProxyUnreachable,
+    GoogleApiUnreachable,
+    AuthenticationOrPermissionFailed,
+}
+
+public sealed record NetworkProxyConnectionTestResult(
+    NetworkProxyConnectionTestStatus Status,
+    string Message);
+
+public interface INetworkProxyConnectionTester
+{
+    Task<NetworkProxyConnectionTestResult> TestGoogleApiAsync(
+        NetworkProxySettings settings,
+        string? customProxyPassword,
+        CancellationToken cancellationToken);
+}
+
+public interface INetworkProxySecretStore
+{
+    Task<string?> GetPasswordAsync(NetworkProxySettings settings, CancellationToken cancellationToken);
+
+    Task SavePasswordAsync(NetworkProxySettings settings, string? password, CancellationToken cancellationToken);
+}
+
 public sealed record AppearanceSettings
 {
     public AppearanceSettings(ThemeMode themeMode)
@@ -866,15 +972,37 @@ public sealed record AppearanceSettings
 
 public sealed record ProgramBehaviorSettings
 {
-    public ProgramBehaviorSettings(bool syncGoogleCalendarOnStartup, bool showStatusNotifications)
+    public ProgramBehaviorSettings(
+        bool syncGoogleCalendarOnStartup,
+        bool showStatusNotifications,
+        int statusNotificationDurationSeconds = 3,
+        bool loadCloudCalendarDuringStartup = true,
+        bool cacheHomeScheduleRendering = true,
+        bool restoreHomeScheduleRenderingOnStartup = true,
+        NetworkProxySettings? networkProxy = null)
     {
         SyncGoogleCalendarOnStartup = syncGoogleCalendarOnStartup;
         ShowStatusNotifications = showStatusNotifications;
+        StatusNotificationDurationSeconds = Math.Clamp(statusNotificationDurationSeconds, 1, 15);
+        LoadCloudCalendarDuringStartup = loadCloudCalendarDuringStartup;
+        CacheHomeScheduleRendering = cacheHomeScheduleRendering;
+        RestoreHomeScheduleRenderingOnStartup = restoreHomeScheduleRenderingOnStartup;
+        NetworkProxy = networkProxy ?? WorkspacePreferenceDefaults.CreateNetworkProxySettings();
     }
 
     public bool SyncGoogleCalendarOnStartup { get; }
 
     public bool ShowStatusNotifications { get; }
+
+    public int StatusNotificationDurationSeconds { get; }
+
+    public bool LoadCloudCalendarDuringStartup { get; }
+
+    public bool CacheHomeScheduleRendering { get; }
+
+    public bool RestoreHomeScheduleRenderingOnStartup { get; }
+
+    public NetworkProxySettings NetworkProxy { get; }
 }
 
 public sealed record UserPreferences
@@ -1150,7 +1278,11 @@ public static class WorkspacePreferenceDefaults
     public static ProgramBehaviorSettings CreateProgramBehaviorSettings() =>
         new(
             syncGoogleCalendarOnStartup: true,
-            showStatusNotifications: true);
+            showStatusNotifications: true,
+            statusNotificationDurationSeconds: 3);
+
+    public static NetworkProxySettings CreateNetworkProxySettings() =>
+        new(NetworkProxyMode.System, customProxyUri: null);
 
     public static TimetableResolutionSettings CreateTimetableResolutionSettings() =>
         new(

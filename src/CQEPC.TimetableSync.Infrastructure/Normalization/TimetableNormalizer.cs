@@ -598,11 +598,7 @@ public sealed partial class TimetableNormalizer : ITimetableNormalizer
         };
 
     private static DateTimeOffset CreateOffsetDateTime(DateOnly date, TimeOnly time)
-    {
-        var localDateTime = date.ToDateTime(time);
-        var offset = TimeZoneInfo.Local.GetUtcOffset(localDateTime);
-        return new DateTimeOffset(localDateTime, offset);
-    }
+        => WorkspaceTimeZoneCatalog.ResolveLocalDateTime(date, time, WorkspaceTimeZoneCatalog.DefaultTimeZoneId);
 
     private static ExportGroup[] BuildExportGroups(IReadOnlyList<ResolvedOccurrence> occurrences)
     {

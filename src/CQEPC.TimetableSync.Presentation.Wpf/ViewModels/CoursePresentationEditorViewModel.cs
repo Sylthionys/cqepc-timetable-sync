@@ -24,6 +24,7 @@ public sealed class CoursePresentationEditorViewModel : ObservableObject
         this.saveAsync = saveAsync ?? throw new ArgumentNullException(nameof(saveAsync));
         this.resetAsync = resetAsync ?? throw new ArgumentNullException(nameof(resetAsync));
         TimeZoneOptions = new ObservableCollection<GoogleTimeZoneOptionViewModel>();
+        RecentTimeZoneIds = new ObservableCollection<string>();
         ColorOptions = new ObservableCollection<GoogleCalendarColorOptionViewModel>();
         CancelCommand = new RelayCommand(Close);
         SaveCommand = new AsyncRelayCommand(SaveInternalAsync, () => IsOpen);
@@ -31,6 +32,8 @@ public sealed class CoursePresentationEditorViewModel : ObservableObject
     }
 
     public ObservableCollection<GoogleTimeZoneOptionViewModel> TimeZoneOptions { get; }
+
+    public ObservableCollection<string> RecentTimeZoneIds { get; }
 
     public ObservableCollection<GoogleCalendarColorOptionViewModel> ColorOptions { get; }
 
@@ -99,6 +102,7 @@ public sealed class CoursePresentationEditorViewModel : ObservableObject
         Summary = request.Summary;
 
         ReplaceOptions(TimeZoneOptions, request.TimeZoneOptions);
+        ReplaceOptions(RecentTimeZoneIds, request.RecentTimeZoneIds);
         ReplaceOptions(ColorOptions, request.ColorOptions);
 
         SelectedTimeZoneOption = TimeZoneOptions.FirstOrDefault(option => string.Equals(option.TimeZoneId, request.SelectedTimeZoneId, StringComparison.Ordinal))
@@ -145,6 +149,7 @@ public sealed record CoursePresentationEditorOpenRequest(
     string CourseTitle,
     string Summary,
     IReadOnlyList<GoogleTimeZoneOptionViewModel> TimeZoneOptions,
+    IReadOnlyList<string> RecentTimeZoneIds,
     IReadOnlyList<GoogleCalendarColorOptionViewModel> ColorOptions,
     string? SelectedTimeZoneId,
     string? SelectedColorId,

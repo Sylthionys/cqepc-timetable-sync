@@ -4,9 +4,6 @@
              xmlns:controls="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Controls"
              AutomationProperties.AutomationId="CourseEditorOverlay.Root">
     <UserControl.Resources>
-        <DataTemplate x:Key="CourseEditorTimeZoneOptionTemplate">
-            <TextBlock Text="{Binding DisplayName}" />
-        </DataTemplate>
         <DataTemplate x:Key="CourseEditorColorOptionTemplate">
             <StackPanel Orientation="Horizontal">
                 <Ellipse Width="12"
@@ -164,10 +161,16 @@
 
                                     <StackPanel>
                                         <TextBlock Style="{StaticResource CourseEditorFieldLabelStyle}" Text="{DynamicResource CourseEditorTimeZoneLabel}" />
-                                        <ComboBox AutomationProperties.AutomationId="CourseEditor.TimeZoneCombo"
-                                                  ItemTemplate="{StaticResource CourseEditorTimeZoneOptionTemplate}"
-                                                  ItemsSource="{Binding TimeZoneOptions}"
-                                                  SelectedItem="{Binding SelectedTimeZoneOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        <controls:TimeZonePicker AutomationProperties.AutomationId="CourseEditor.TimeZoneCombo"
+                                                                 ItemsSource="{Binding TimeZoneOptions}"
+                                                                 RecentTimeZoneIds="{Binding RecentTimeZoneIds}"
+                                                                 SelectedItem="{Binding SelectedTimeZoneOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                 SearchAutomationId="CourseEditor.TimeZoneSearchBox"
+                                                                 CategoryAutomationId="CourseEditor.TimeZoneCategoryList"
+                                                                 ResultAutomationId="CourseEditor.TimeZoneResultList"
+                                                                 PopupMinWidth="420"
+                                                                 PopupMaxWidth="600"
+                                                                 PopupMaxHeight="340" />
                                     </StackPanel>
 
                                     <StackPanel Grid.Column="2">

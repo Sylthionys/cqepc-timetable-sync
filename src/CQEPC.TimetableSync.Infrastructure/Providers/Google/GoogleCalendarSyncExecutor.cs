@@ -179,6 +179,7 @@ internal sealed class GoogleCalendarSyncExecutor
                 break;
 
             case SyncChangeKind.Updated:
+            case SyncChangeKind.MetadataOnly:
                 if (change.After is null)
                 {
                     return;

@@ -76,6 +76,8 @@ internal sealed class ThemeService : IThemeService
         EnsureMutableThemeResources();
     }
 
+    public event EventHandler<ThemeChangingEventArgs>? ThemeChanging;
+
     public event EventHandler? ThemeChanged;
 
     public ThemeMode ActiveTheme { get; private set; } = ThemeMode.Light;
@@ -84,6 +86,12 @@ internal sealed class ThemeService : IThemeService
     {
         var themeChanged = ActiveTheme != themeMode;
         var palette = themeMode == ThemeMode.Dark ? ThemePalette.Dark : ThemePalette.Light;
+        var previousTheme = ActiveTheme;
+
+        if (themeChanged)
+        {
+            ThemeChanging?.Invoke(this, new ThemeChangingEventArgs(previousTheme, themeMode));
+        }
 
         SetBrushColor("WindowBackgroundBrush", palette.WindowBackground);
         SetGradient("ChromeBackgroundBrush", palette.ChromeStart, palette.ChromeEnd);

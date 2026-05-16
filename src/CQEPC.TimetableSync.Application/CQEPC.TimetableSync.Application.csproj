@@ -4,6 +4,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="NodaTime" />
     <ProjectReference Include="..\CQEPC.TimetableSync.Domain\CQEPC.TimetableSync.Domain.csproj" />
   </ItemGroup>
 </Project>
