@@ -11,7 +11,7 @@ public enum ShellPage
     Settings,
 }
 
-public sealed class ShellViewModel : ObservableObject
+public sealed class ShellViewModel : ObservableObject, IDisposable
 {
     private readonly WorkspaceSessionViewModel workspace;
     private ShellPage currentPage;
@@ -19,6 +19,11 @@ public sealed class ShellViewModel : ObservableObject
     private string applicationTitle = UiText.ApplicationTitle;
     private bool isSidebarExpanded = true;
     private bool isTaskCenterExpanded;
+    private bool? sidebarExpandedBeforeSettings;
+    private bool showProviderConnectionIssue;
+    private string providerConnectionIssueTitle = UiText.ProviderConnectionIssueTitle;
+    private string providerConnectionIssueReason = string.Empty;
+    private CancellationTokenSource? providerConnectionIssueDismissal;
 
     public ShellViewModel(
         WorkspaceSessionViewModel workspace,
@@ -28,17 +33,29 @@ public sealed class ShellViewModel : ObservableObject
         this.workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         Settings = settings ?? throw new ArgumentNullException(nameof(settings));
 
-        ShowHomeCommand = new RelayCommand(() => CurrentPage = ShellPage.Home);
-        ShowImportCommand = new RelayCommand(() => CurrentPage = ShellPage.Import);
-        ShowSettingsCommand = new RelayCommand(() => CurrentPage = ShellPage.Settings);
+        ShowHomeCommand = new RelayCommand(() => ShowNonSettingsPage(ShellPage.Home));
+        ShowImportCommand = new RelayCommand(() => ShowNonSettingsPage(ShellPage.Import));
+        ShowSettingsCommand = new RelayCommand(ShowSettings);
         ToggleSidebarCommand = new RelayCommand(() => IsSidebarExpanded = !IsSidebarExpanded);
         ToggleTaskCenterCommand = new RelayCommand(() => IsTaskCenterExpanded = !IsTaskCenterExpanded);
         HandleDroppedFilesCommand = new AsyncRelayCommand<string[]?>(workspace.HandleDroppedFilesAsync);
+        RefreshProviderDataCommand = new AsyncRelayCommand(RefreshProviderDataAsync);
+        DismissProviderConnectionIssueCommand = new RelayCommand(DismissProviderConnectionIssue);
 
-        Home = new HomePageViewModel(workspace, ShowSettingsCommand, ShowImportCommand, timeProvider);
         ImportDiff = new ImportDiffPageViewModel(workspace);
+        Home = new HomePageViewModel(
+            workspace,
+            ShowSettingsCommand,
+            ShowImportCommand,
+            timeProvider,
+            item =>
+            {
+                ShowImportCommand.Execute(null);
+                ImportDiff.OpenUnresolvedItemFromExternal(item);
+            });
 
         workspace.WorkspaceStateChanged += (_, _) => ApplyWorkspaceState();
+        workspace.ProviderConnectionIssueRaised += HandleProviderConnectionIssueRaised;
         workspace.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName is nameof(WorkspaceSessionViewModel.HasActiveTasks)
@@ -149,6 +166,24 @@ public sealed class ShellViewModel : ObservableObject
 
     public IReadOnlyList<TaskExecutionViewModel> ActiveTasks => workspace.ActiveTasks;
 
+    public bool ShowProviderConnectionIssue
+    {
+        get => showProviderConnectionIssue;
+        private set => SetProperty(ref showProviderConnectionIssue, value);
+    }
+
+    public string ProviderConnectionIssueTitle
+    {
+        get => providerConnectionIssueTitle;
+        private set => SetProperty(ref providerConnectionIssueTitle, value);
+    }
+
+    public string ProviderConnectionIssueReason
+    {
+        get => providerConnectionIssueReason;
+        private set => SetProperty(ref providerConnectionIssueReason, value);
+    }
+
     public string SidebarToggleGlyph => IsSidebarExpanded ? "<" : ">";
 
     public static string HomeGlyph => "\uE80F";
@@ -175,6 +210,10 @@ public sealed class ShellViewModel : ObservableObject
 
     public IAsyncRelayCommand<string[]?> HandleDroppedFilesCommand { get; }
 
+    public IAsyncRelayCommand RefreshProviderDataCommand { get; }
+
+    public IRelayCommand DismissProviderConnectionIssueCommand { get; }
+
     public Task InitializeAsync(CancellationToken cancellationToken = default) =>
         workspace.InitializeAsync(cancellationToken);
 
@@ -197,5 +236,100 @@ public sealed class ShellViewModel : ObservableObject
         OnPropertyChanged(nameof(IsProgramSettingsOverlayOpen));
         OnPropertyChanged(nameof(IsProgramSettingsOverlayVisible));
         OnPropertyChanged(nameof(IsAboutOverlayOpen));
+    }
+
+    private void ShowSettings()
+    {
+        if (CurrentPage == ShellPage.Settings)
+        {
+            return;
+        }
+
+        sidebarExpandedBeforeSettings = IsSidebarExpanded;
+        CurrentPage = ShellPage.Settings;
+        if (IsSidebarExpanded)
+        {
+            IsSidebarExpanded = false;
+        }
+    }
+
+    private void ShowSettingsConnections()
+    {
+        ShowSettings();
+        Settings.SelectedSection = SettingsSection.Connections;
+    }
+
+    private void ShowNonSettingsPage(ShellPage page)
+    {
+        var wasInSettings = CurrentPage == ShellPage.Settings;
+        CurrentPage = page;
+
+        if (wasInSettings)
+        {
+            if (sidebarExpandedBeforeSettings == true)
+            {
+                IsSidebarExpanded = true;
+            }
+
+            sidebarExpandedBeforeSettings = null;
+        }
+    }
+
+    private async Task RefreshProviderDataAsync()
+    {
+        var issue = workspace.GetCurrentProviderConnectionIssue();
+        if (issue is not null)
+        {
+            ShowProviderConnectionIssueToast(issue);
+            return;
+        }
+
+        await workspace.RefreshSelectedProviderDataAsync();
+    }
+
+    private void HandleProviderConnectionIssueRaised(object? sender, ProviderConnectionIssueEventArgs e)
+    {
+        if (e.Provider == workspace.DefaultProvider)
+        {
+            ShowProviderConnectionIssueToast(e.Reason);
+        }
+    }
+
+    private void ShowProviderConnectionIssueToast(string reason)
+    {
+        ShowSettingsConnections();
+        ProviderConnectionIssueReason = reason;
+        ShowProviderConnectionIssue = true;
+        providerConnectionIssueDismissal?.Cancel();
+        providerConnectionIssueDismissal?.Dispose();
+        providerConnectionIssueDismissal = new CancellationTokenSource();
+        _ = DismissProviderConnectionIssueAfterDelayAsync(providerConnectionIssueDismissal.Token);
+    }
+
+    private async Task DismissProviderConnectionIssueAfterDelayAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(workspace.StatusNotificationDurationSeconds, 1, 15)), cancellationToken);
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                ShowProviderConnectionIssue = false;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void DismissProviderConnectionIssue()
+    {
+        providerConnectionIssueDismissal?.Cancel();
+        ShowProviderConnectionIssue = false;
+    }
+
+    public void Dispose()
+    {
+        providerConnectionIssueDismissal?.Cancel();
+        providerConnectionIssueDismissal?.Dispose();
     }
 }

@@ -15,10 +15,12 @@ internal sealed class MicrosoftGraphClient
     ];
 
     private readonly HttpClient httpClient;
+    private readonly Func<HttpClient>? httpClientProvider;
 
-    public MicrosoftGraphClient(HttpClient? httpClient = null)
+    public MicrosoftGraphClient(HttpClient? httpClient = null, Func<HttpClient>? httpClientProvider = null)
     {
         this.httpClient = httpClient ?? new HttpClient();
+        this.httpClientProvider = httpClientProvider;
     }
 
     public async Task<IReadOnlyList<ProviderCalendarDescriptor>> ListWritableCalendarsAsync(
@@ -284,7 +286,7 @@ internal sealed class MicrosoftGraphClient
             request.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
         }
 
-        return await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        return await (httpClientProvider?.Invoke() ?? httpClient).SendAsync(request, cancellationToken).ConfigureAwait(false);
     }
 
     private static InvalidOperationException CreateGraphException(HttpStatusCode statusCode, string? content)

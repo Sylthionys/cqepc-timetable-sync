@@ -59,14 +59,8 @@ public sealed class ImportChangeOccurrenceItemViewModel : ObservableObject
         NoteDiffLines = new ObservableCollection<ImportTextDiffLineViewModel>(
             noteDiffLines ?? Array.Empty<ImportTextDiffLineViewModel>());
         ToggleSelectionCommand = new RelayCommand(() => { });
-        ChangeBadges =
-        [
-            new ImportBadgeViewModel(UiText.ImportUnchangedTitle, "#243446", "#A5B9D4"),
-        ];
-        DetailBadges =
-        [
-            new ImportBadgeViewModel(UiText.ImportUnchangedTitle, "#243446", "#A5B9D4"),
-        ];
+        ChangeBadges = [];
+        DetailBadges = [];
     }
 
     public string LocalStableId => source?.LocalStableId ?? SyncIdentity.CreateOccurrenceId(unchangedOccurrence!);
@@ -81,13 +75,21 @@ public sealed class ImportChangeOccurrenceItemViewModel : ObservableObject
 
     public bool IsUpdated => source?.IsUpdated == true;
 
+    public bool IsMetadataOnly => source?.IsMetadataOnly == true;
+
     public bool IsAdded => source?.IsAdded == true;
 
     public bool IsDeleted => source?.IsDeleted == true;
 
     public bool IsConflict => source?.PlannedChange.ChangeSource == SyncChangeSource.RemoteTitleConflict;
 
+    public bool IsUnchanged => source is null;
+
+    public bool HasChangeSummary => source is not null;
+
     public bool CanSelect => source is not null;
+
+    public bool HasPrimaryStatusBadge => !IsUnchanged;
 
     public bool IsActiveSelection
     {
@@ -154,6 +156,7 @@ public sealed class ImportChangeOccurrenceItemViewModel : ObservableObject
         {
             SyncChangeKind.Added => "#1A3528",
             SyncChangeKind.Updated => "#372B1D",
+            SyncChangeKind.MetadataOnly => "#243446",
             SyncChangeKind.Deleted => "#3A2028",
             _ => "#243446",
         };
@@ -163,6 +166,7 @@ public sealed class ImportChangeOccurrenceItemViewModel : ObservableObject
         {
             SyncChangeKind.Added => "#67D37E",
             SyncChangeKind.Updated => "#FFAA3C",
+            SyncChangeKind.MetadataOnly => "#A5B9D4",
             SyncChangeKind.Deleted => "#FF6D6D",
             _ => "#A5B9D4",
         };
@@ -275,6 +279,7 @@ public sealed class ImportChangeOccurrenceItemViewModel : ObservableObject
                 {
                     SyncChangeKind.Added => "#1A3528",
                     SyncChangeKind.Updated => "#372B1D",
+                    SyncChangeKind.MetadataOnly => "#243446",
                     SyncChangeKind.Deleted => "#3A2028",
                     _ => "#243446",
                 },
@@ -282,6 +287,7 @@ public sealed class ImportChangeOccurrenceItemViewModel : ObservableObject
                 {
                     SyncChangeKind.Added => "#67D37E",
                     SyncChangeKind.Updated => "#FFAA3C",
+                    SyncChangeKind.MetadataOnly => "#A5B9D4",
                     SyncChangeKind.Deleted => "#FF6D6D",
                     _ => "#A5B9D4",
                 }),
@@ -311,6 +317,7 @@ public sealed class ImportChangeOccurrenceItemViewModel : ObservableObject
         {
             SyncChangeKind.Added => UiText.ImportAddedTitle,
             SyncChangeKind.Updated => UiText.ImportUpdatedTitle,
+            SyncChangeKind.MetadataOnly => UiText.ImportMetadataOnlyTitle,
             SyncChangeKind.Deleted => UiText.ImportDeletedTitle,
             _ => UiText.ImportChangesTitle,
         };

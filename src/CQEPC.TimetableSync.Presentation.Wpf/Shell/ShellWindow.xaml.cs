@@ -15,6 +15,10 @@ public partial class ShellWindow : System.Windows.Window
     private const double CollapsedSidebarWidth = 72d;
     private const double ExpandedSidebarGap = 10d;
     private const double CollapsedSidebarGap = 8d;
+    private const double SettingsSubNavWidth = 126d;
+    private const double CompactSettingsSubNavWidth = 112d;
+    private const double SettingsSubNavGap = 8d;
+    private const double CompactShellWidth = 1180d;
     private const double PreferredWindowAspectRatio = 1380d / 900d;
     private const int WmSizing = 0x0214;
     private const int WmszLeft = 1;
@@ -36,6 +40,8 @@ public partial class ShellWindow : System.Windows.Window
     private bool backgroundWindowConfigured;
     private HwndSource? windowSource;
     private ThemeMode titleBarTheme = ThemeMode.Light;
+    private bool hasPreparedThemeTransition;
+    private bool shellColumnUpdateQueued;
 
     public ShellWindow(ShellViewModel viewModel)
     {
@@ -45,6 +51,7 @@ public partial class ShellWindow : System.Windows.Window
         DataContextChanged += HandleDataContextChanged;
         DataContext = viewModel;
         Loaded += (_, _) => UpdateSidebarWidth(animate: false);
+        SizeChanged += (_, _) => UpdateShellColumns(animate: false);
         SourceInitialized += HandleWindowSourceInitialized;
         Closed += (_, _) => DetachFromViewModel();
     }
@@ -76,36 +83,382 @@ public partial class ShellWindow : System.Windows.Window
 
     private void HandleViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (!string.Equals(e.PropertyName, nameof(ShellViewModel.IsSidebarExpanded), StringComparison.Ordinal))
+        if (string.Equals(e.PropertyName, nameof(ShellViewModel.IsSidebarExpanded), StringComparison.Ordinal)
+            || string.Equals(e.PropertyName, nameof(ShellViewModel.IsSettingsSelected), StringComparison.Ordinal))
+        {
+            QueueShellColumnUpdate();
+            return;
+        }
+
+        if (string.Equals(e.PropertyName, nameof(ShellViewModel.CurrentPageViewModel), StringComparison.Ordinal)
+            || string.Equals(e.PropertyName, nameof(ShellViewModel.CurrentPage), StringComparison.Ordinal))
+        {
+            Dispatcher.Invoke(PlayPageTransition);
+            return;
+        }
+    }
+
+    private void QueueShellColumnUpdate()
+    {
+        if (shellColumnUpdateQueued)
         {
             return;
         }
 
-        Dispatcher.Invoke(() => UpdateSidebarWidth(animate: true));
+        shellColumnUpdateQueued = true;
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                shellColumnUpdateQueued = false;
+                UpdateShellColumns(animate: true);
+            },
+            System.Windows.Threading.DispatcherPriority.Render);
     }
 
     private void UpdateSidebarWidth(bool animate)
     {
+        UpdateShellColumns(animate);
+    }
+
+    private void UpdateShellColumns(bool animate)
+    {
         var isExpanded = (DataContext as ShellViewModel)?.IsSidebarExpanded != false;
+        var isSettingsSelected = (DataContext as ShellViewModel)?.IsSettingsSelected == true;
         var targetWidth = isExpanded ? ExpandedSidebarWidth : CollapsedSidebarWidth;
         var targetGap = isExpanded ? ExpandedSidebarGap : CollapsedSidebarGap;
+        var targetSettingsWidth = isSettingsSelected ? GetSettingsSubNavWidth() : 0d;
+        var targetSettingsGap = isSettingsSelected ? SettingsSubNavGap : 0d;
 
-        SidebarColumn.Width = new GridLength(targetWidth);
+        SidebarColumn.Width = GridLength.Auto;
         SidebarGapColumn.Width = new GridLength(targetGap);
+        SettingsSubNavColumn.Width = GridLength.Auto;
+        SettingsSubNavGapColumn.Width = new GridLength(targetSettingsGap);
 
         if (!animate)
         {
+            SidebarHost.BeginAnimation(WidthProperty, null);
+            SettingsSubNavHost.BeginAnimation(WidthProperty, null);
             SidebarHost.Width = targetWidth;
+            SettingsSubNavHost.Width = targetSettingsWidth;
             return;
         }
 
-        var animation = new DoubleAnimation(targetWidth, TimeSpan.FromMilliseconds(180))
+        var duration = TimeSpan.FromMilliseconds(180);
+        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var animation = new DoubleAnimation(targetWidth, duration)
         {
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            EasingFunction = easing,
+        };
+        var settingsAnimation = new DoubleAnimation(targetSettingsWidth, duration)
+        {
+            EasingFunction = easing,
         };
 
         SidebarHost.BeginAnimation(WidthProperty, animation, HandoffBehavior.SnapshotAndReplace);
+        SettingsSubNavHost.BeginAnimation(WidthProperty, settingsAnimation, HandoffBehavior.SnapshotAndReplace);
     }
+
+    private void PlayPageTransition()
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        PageHost.BeginAnimation(OpacityProperty, null);
+        PageHostScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        PageHostScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        PageHostTranslate.BeginAnimation(TranslateTransform.YProperty, null);
+
+        PageHost.Opacity = 0;
+        PageHostScale.ScaleX = 0.985;
+        PageHostScale.ScaleY = 0.985;
+        PageHostTranslate.Y = 18;
+
+        var duration = TimeSpan.FromMilliseconds(280);
+        PageHost.BeginAnimation(
+            OpacityProperty,
+            new DoubleAnimation(1, duration) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } },
+            HandoffBehavior.SnapshotAndReplace);
+        PageHostScale.BeginAnimation(
+            ScaleTransform.ScaleXProperty,
+            new DoubleAnimation(1, duration) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } },
+            HandoffBehavior.SnapshotAndReplace);
+        PageHostScale.BeginAnimation(
+            ScaleTransform.ScaleYProperty,
+            new DoubleAnimation(1, duration) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } },
+            HandoffBehavior.SnapshotAndReplace);
+        PageHostTranslate.BeginAnimation(
+            TranslateTransform.YProperty,
+            new DoubleAnimation(0, duration) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } },
+            HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private void HandleNavigationButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not DependencyObject root)
+        {
+            return;
+        }
+
+        var icon = FindAnimatedNavigationIcon(root);
+        if (icon is null)
+        {
+            return;
+        }
+
+        PlayNavigationIconAnimation(icon);
+    }
+
+    private static FrameworkElement? FindAnimatedNavigationIcon(DependencyObject root)
+    {
+        if (root is FrameworkElement element
+            && element.Tag is string tag
+            && tag.StartsWith("AnimatedNavIcon.", StringComparison.Ordinal))
+        {
+            return element;
+        }
+
+        var childCount = VisualTreeHelper.GetChildrenCount(root);
+        for (var index = 0; index < childCount; index++)
+        {
+            var match = FindAnimatedNavigationIcon(VisualTreeHelper.GetChild(root, index));
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private static void PlayNavigationIconAnimation(FrameworkElement icon)
+    {
+        var tag = icon.Tag as string ?? string.Empty;
+        var transforms = EnsureNavigationIconTransforms(icon);
+        icon.RenderTransformOrigin = new Point(0.5, 0.5);
+
+        transforms.Scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        transforms.Scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        transforms.Rotate.BeginAnimation(RotateTransform.AngleProperty, null);
+        transforms.Translate.BeginAnimation(TranslateTransform.XProperty, null);
+        transforms.Translate.BeginAnimation(TranslateTransform.YProperty, null);
+        icon.BeginAnimation(OpacityProperty, null);
+
+        transforms.Scale.ScaleX = 1;
+        transforms.Scale.ScaleY = 1;
+        transforms.Rotate.Angle = 0;
+        transforms.Translate.X = 0;
+        transforms.Translate.Y = 0;
+        icon.Opacity = 1;
+
+        PlayNavigationIconPartAnimation(icon, tag);
+    }
+
+    private static void PlayNavigationIconPartAnimation(FrameworkElement icon, string tag)
+    {
+        if (tag.EndsWith(".Home", StringComparison.Ordinal))
+        {
+            AnimateTranslateY(FindTaggedElement(icon, "NavHome.Roof"), -3.4, 0, 330, 34, back: true);
+            AnimateOpacityPulse(FindTaggedElement(icon, "NavHome.Door"), 1, 0.46, 140);
+            AnimateOpacityPulse(FindTaggedElement(icon, "NavHome.Today"), 1, 0.5, 190);
+            return;
+        }
+
+        if (tag.EndsWith(".Import", StringComparison.Ordinal))
+        {
+            AnimateTranslateY(FindTaggedElement(icon, "NavImport.Arrow"), -4.8, 0.8, 230, 32, back: true);
+            AnimateTranslateY(FindTaggedElement(icon, "NavImport.Tray"), 1.4, 0, 240, 170);
+            AnimateOpacity(FindTaggedElement(icon, "NavImport.Tray"), 0.45, 1, 160, 150);
+            return;
+        }
+
+        if (tag.EndsWith(".Settings", StringComparison.Ordinal))
+        {
+            AnimateRotatePulse(FindTaggedElement(icon, "NavSettings.Gear"), 72, 20);
+            AnimateScalePulse(FindTaggedElement(icon, "NavSettings.Knob"), 1.45, 130);
+            return;
+        }
+
+        if (tag.EndsWith(".Files", StringComparison.Ordinal))
+        {
+            AnimateTranslateX(FindTaggedElement(icon, "NavFiles.Page"), -3.6, 0, 280, 35, back: true);
+            AnimateTranslateY(FindTaggedElement(icon, "NavFiles.Folder"), 1.1, 0, 230, 120);
+            return;
+        }
+
+        if (tag.EndsWith(".Timetable", StringComparison.Ordinal))
+        {
+            AnimateTranslateY(FindTaggedElement(icon, "NavTimetable.Bar1"), -1.5, 0, 230, 35, back: true);
+            AnimateTranslateY(FindTaggedElement(icon, "NavTimetable.Bar2"), -1.1, 0, 230, 115, back: true);
+            AnimateOpacityPulse(FindTaggedElement(icon, "NavTimetable.Dot"), 1, 0.68, 170);
+            return;
+        }
+
+        if (tag.EndsWith(".Connections", StringComparison.Ordinal)
+            || tag.EndsWith(".ProviderGoogle", StringComparison.Ordinal)
+            || tag.EndsWith(".ProviderMicrosoft", StringComparison.Ordinal))
+        {
+            AnimateRotatePulse(FindTaggedElement(icon, "NavConnections.Google.Orbit"), 56, 20);
+            AnimateScalePulse(FindTaggedElement(icon, "NavConnections.Google.Node"), 1.55, 120);
+            AnimateTranslateX(FindTaggedElement(icon, "NavConnections.Microsoft.Panel1"), -1.8, 0, 250, 45);
+            AnimateTranslateX(FindTaggedElement(icon, "NavConnections.Microsoft.Panel2"), 1.8, 0, 250, 120);
+            return;
+        }
+
+        if (tag.EndsWith(".Program", StringComparison.Ordinal))
+        {
+            AnimateTranslateX(FindTaggedElement(icon, "NavProgram.Knob1"), -1.8, 2, 240, 40, back: true);
+            AnimateTranslateX(FindTaggedElement(icon, "NavProgram.Knob2"), 2, -1.8, 240, 130, back: true);
+        }
+    }
+
+    private static FrameworkElement? FindTaggedElement(DependencyObject root, string tag)
+    {
+        if (root is FrameworkElement element
+            && string.Equals(element.Tag as string, tag, StringComparison.Ordinal))
+        {
+            return element;
+        }
+
+        var childCount = VisualTreeHelper.GetChildrenCount(root);
+        for (var index = 0; index < childCount; index++)
+        {
+            var match = FindTaggedElement(VisualTreeHelper.GetChild(root, index), tag);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private static void AnimateTranslateY(FrameworkElement? element, double from, double to, int durationMilliseconds, int delayMilliseconds = 0, bool back = false)
+    {
+        if (element is null)
+        {
+            return;
+        }
+
+        var transforms = EnsureNavigationIconTransforms(element);
+        transforms.Translate.BeginAnimation(
+            TranslateTransform.YProperty,
+            CreateDoubleAnimation(from, to, durationMilliseconds, delayMilliseconds, back),
+            HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private static void AnimateTranslateX(FrameworkElement? element, double from, double to, int durationMilliseconds, int delayMilliseconds = 0, bool back = false)
+    {
+        if (element is null)
+        {
+            return;
+        }
+
+        var transforms = EnsureNavigationIconTransforms(element);
+        transforms.Translate.BeginAnimation(
+            TranslateTransform.XProperty,
+            CreateDoubleAnimation(from, to, durationMilliseconds, delayMilliseconds, back),
+            HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private static void AnimateOpacity(FrameworkElement? element, double from, double to, int durationMilliseconds, int delayMilliseconds = 0)
+    {
+        element?.BeginAnimation(
+            OpacityProperty,
+            CreateDoubleAnimation(from, to, durationMilliseconds, delayMilliseconds, back: false),
+            HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private static void AnimateOpacityPulse(FrameworkElement? element, double peak, double rest, int delayMilliseconds)
+    {
+        if (element is null)
+        {
+            return;
+        }
+
+        var animation = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.Stop };
+        animation.KeyFrames.Add(new EasingDoubleKeyFrame(peak, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(delayMilliseconds + 135)), new CubicEase { EasingMode = EasingMode.EaseOut }));
+        animation.KeyFrames.Add(new EasingDoubleKeyFrame(rest, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(delayMilliseconds + 360)), new CubicEase { EasingMode = EasingMode.EaseOut }));
+        element.BeginAnimation(OpacityProperty, animation, HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private static void AnimateScalePulse(FrameworkElement? element, double peak, int delayMilliseconds)
+    {
+        if (element is null)
+        {
+            return;
+        }
+
+        var transforms = EnsureNavigationIconTransforms(element);
+        var animation = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.Stop };
+        animation.KeyFrames.Add(new EasingDoubleKeyFrame(peak, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(delayMilliseconds + 150)), new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.28 }));
+        animation.KeyFrames.Add(new EasingDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(delayMilliseconds + 380)), new CubicEase { EasingMode = EasingMode.EaseOut }));
+        transforms.Scale.BeginAnimation(ScaleTransform.ScaleXProperty, animation, HandoffBehavior.SnapshotAndReplace);
+        transforms.Scale.BeginAnimation(ScaleTransform.ScaleYProperty, animation.Clone(), HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private static void AnimateRotatePulse(FrameworkElement? element, double peak, int delayMilliseconds)
+    {
+        if (element is null)
+        {
+            return;
+        }
+
+        var transforms = EnsureNavigationIconTransforms(element);
+        var animation = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.Stop };
+        animation.KeyFrames.Add(new EasingDoubleKeyFrame(peak, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(delayMilliseconds + 220)), new CubicEase { EasingMode = EasingMode.EaseOut }));
+        animation.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(delayMilliseconds + 460)), new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.18 }));
+        transforms.Rotate.BeginAnimation(RotateTransform.AngleProperty, animation, HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private static DoubleAnimation CreateDoubleAnimation(double from, double to, int durationMilliseconds, int delayMilliseconds, bool back)
+    {
+        return new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(durationMilliseconds))
+        {
+            BeginTime = TimeSpan.FromMilliseconds(delayMilliseconds),
+            EasingFunction = back
+                ? new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.28 }
+                : new CubicEase { EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.Stop,
+        };
+    }
+
+    private static NavigationIconTransforms EnsureNavigationIconTransforms(FrameworkElement icon)
+    {
+        icon.RenderTransformOrigin = new Point(0.5, 0.5);
+
+        if (icon.RenderTransform is TransformGroup group && !group.IsFrozen)
+        {
+            var scale = group.Children.OfType<ScaleTransform>().FirstOrDefault();
+            var rotate = group.Children.OfType<RotateTransform>().FirstOrDefault();
+            var translate = group.Children.OfType<TranslateTransform>().FirstOrDefault();
+            if (scale is not null && rotate is not null && translate is not null)
+            {
+                return new NavigationIconTransforms(scale, rotate, translate);
+            }
+        }
+
+        var transforms = new NavigationIconTransforms(
+            new ScaleTransform(1, 1),
+            new RotateTransform(0),
+            new TranslateTransform(0, 0));
+        icon.RenderTransform = new TransformGroup
+        {
+            Children =
+            {
+                transforms.Scale,
+                transforms.Rotate,
+                transforms.Translate,
+            },
+        };
+        return transforms;
+    }
+
+    private double GetSettingsSubNavWidth() =>
+        ActualWidth > 0 && ActualWidth <= CompactShellWidth
+            ? CompactSettingsSubNavWidth
+            : SettingsSubNavWidth;
 
     private void DetachFromViewModel()
     {
@@ -234,6 +587,36 @@ public partial class ShellWindow : System.Windows.Window
         backgroundWindowConfigured = true;
     }
 
+    public void PrepareThemeTransition(ThemeMode newTheme)
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        ResetThemeTransitionAnimations();
+        hasPreparedThemeTransition = true;
+        ThemeTransitionCanvas.Background = Brushes.Transparent;
+        ThemeTransitionCanvas.Width = Math.Max(ActualWidth, 1d);
+        ThemeTransitionCanvas.Height = Math.Max(ActualHeight, 1d);
+        ThemeTransitionCanvas.Opacity = 0;
+    }
+
+    public void PlayThemeTransition(ThemeMode newTheme)
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        if (!hasPreparedThemeTransition)
+        {
+            PrepareThemeTransition(newTheme);
+        }
+
+        FinishThemeTransition();
+    }
+
     public void PlayThemeTransition(Point screenPoint)
     {
         if (!IsLoaded)
@@ -241,36 +624,20 @@ public partial class ShellWindow : System.Windows.Window
             return;
         }
 
-        var center = PointFromScreen(screenPoint);
-        ThemeTransitionOrb.Fill = TryFindResource("WorkspaceBackgroundBrush") as Brush
-            ?? TryFindResource("AccentSoftBrush") as Brush
-            ?? Brushes.White;
+        FinishThemeTransition();
+    }
 
-        System.Windows.Controls.Canvas.SetLeft(ThemeTransitionOrb, center.X - (ThemeTransitionOrb.Width / 2d));
-        System.Windows.Controls.Canvas.SetTop(ThemeTransitionOrb, center.Y - (ThemeTransitionOrb.Height / 2d));
+    private void ResetThemeTransitionAnimations()
+    {
+        ThemeTransitionCanvas.BeginAnimation(OpacityProperty, null);
+    }
 
-        ThemeTransitionScale.ScaleX = 0.14;
-        ThemeTransitionScale.ScaleY = 0.14;
-        ThemeTransitionOrb.Opacity = 0.34;
-
-        var radius = Math.Sqrt((ActualWidth * ActualWidth) + (ActualHeight * ActualHeight));
-        var targetScale = Math.Max(8d, radius / (ThemeTransitionOrb.Width / 2d));
-
-        var scaleAnimation = new DoubleAnimation
-        {
-            To = targetScale,
-            Duration = TimeSpan.FromMilliseconds(560),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
-        };
-
-        var opacityAnimation = new DoubleAnimationUsingKeyFrames();
-        opacityAnimation.KeyFrames.Add(new EasingDoubleKeyFrame(0.34, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(0))));
-        opacityAnimation.KeyFrames.Add(new EasingDoubleKeyFrame(0.22, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(200))));
-        opacityAnimation.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(560))));
-
-        ThemeTransitionScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleAnimation, HandoffBehavior.SnapshotAndReplace);
-        ThemeTransitionScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleAnimation, HandoffBehavior.SnapshotAndReplace);
-        ThemeTransitionOrb.BeginAnimation(OpacityProperty, opacityAnimation, HandoffBehavior.SnapshotAndReplace);
+    private void FinishThemeTransition()
+    {
+        ResetThemeTransitionAnimations();
+        ThemeTransitionCanvas.Opacity = 0;
+        ThemeTransitionCanvas.Background = Brushes.Transparent;
+        hasPreparedThemeTransition = false;
     }
 
     private void ApplyNativeTitleBarTheme()
@@ -337,6 +704,11 @@ public partial class ShellWindow : System.Windows.Window
         Color TextColor,
         Color BorderColor,
         bool UseImmersiveDarkMode);
+
+    private readonly record struct NavigationIconTransforms(
+        ScaleTransform Scale,
+        RotateTransform Rotate,
+        TranslateTransform Translate);
 
     internal readonly record struct NativeTitleBarThemeState(
         string ThemeMode,

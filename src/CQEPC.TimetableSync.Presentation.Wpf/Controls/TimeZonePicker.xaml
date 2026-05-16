@@ -1,0 +1,277 @@
+<UserControl x:Class="CQEPC.TimetableSync.Presentation.Wpf.Controls.TimeZonePicker"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:workspace="clr-namespace:CQEPC.TimetableSync.Application.UseCases.Workspace;assembly=CQEPC.TimetableSync.Application"
+             x:Name="Root"
+             Loaded="HandleLoaded"
+             SizeChanged="HandleSizeChanged"
+             Focusable="False">
+    <UserControl.Resources>
+        <DataTemplate x:Key="TimeZonePickerOptionTemplate">
+            <TextBlock VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis"
+                       Text="{Binding LocalizedDisplayName}" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="TimeZonePickerCategoryTemplate">
+            <TextBlock VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Text" Value="{Binding Region}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Region}" Value="{x:Static workspace:WorkspaceTimeZoneRegion.Common}">
+                                <Setter Property="Text" Value="{DynamicResource SettingsTimeZoneCategoryCommon}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Region}" Value="{x:Static workspace:WorkspaceTimeZoneRegion.Asia}">
+                                <Setter Property="Text" Value="{DynamicResource SettingsTimeZoneCategoryAsia}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Region}" Value="{x:Static workspace:WorkspaceTimeZoneRegion.Europe}">
+                                <Setter Property="Text" Value="{DynamicResource SettingsTimeZoneCategoryEurope}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Region}" Value="{x:Static workspace:WorkspaceTimeZoneRegion.NorthAmerica}">
+                                <Setter Property="Text" Value="{DynamicResource SettingsTimeZoneCategoryNorthAmerica}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Region}" Value="{x:Static workspace:WorkspaceTimeZoneRegion.SouthAmerica}">
+                                <Setter Property="Text" Value="{DynamicResource SettingsTimeZoneCategorySouthAmerica}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Region}" Value="{x:Static workspace:WorkspaceTimeZoneRegion.Africa}">
+                                <Setter Property="Text" Value="{DynamicResource SettingsTimeZoneCategoryAfrica}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Region}" Value="{x:Static workspace:WorkspaceTimeZoneRegion.Oceania}">
+                                <Setter Property="Text" Value="{DynamicResource SettingsTimeZoneCategoryOceania}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Region}" Value="{x:Static workspace:WorkspaceTimeZoneRegion.Utc}">
+                                <Setter Property="Text" Value="{DynamicResource SettingsTimeZoneCategoryUtc}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </DataTemplate>
+
+        <Style x:Key="TimeZonePickerToggleStyle" TargetType="ToggleButton">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="MinHeight" Value="46" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="RootBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="16">
+                            <Grid Margin="{TemplateBinding Padding}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter VerticalAlignment="Center"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
+                                <TextBlock Grid.Column="1"
+                                           Margin="10,0,0,0"
+                                           VerticalAlignment="Center"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource SubtleTextBrush}"
+                                           Text="v" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="RootBorder" Property="Background" Value="{DynamicResource SurfaceBrush}" />
+                                <Setter TargetName="RootBorder" Property="BorderBrush" Value="{DynamicResource StrongBorderBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="RootBorder" Property="Background" Value="{DynamicResource SurfaceBrush}" />
+                                <Setter TargetName="RootBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="TimeZonePickerListBoxStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
+            <Setter Property="VirtualizingPanel.ScrollUnit" Value="Pixel" />
+        </Style>
+
+        <Style x:Key="TimeZonePickerListBoxItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="Margin" Value="0,0,0,2" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="ItemRoot"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ItemRoot" Property="Background" Value="{DynamicResource PopupHighlightBrush}" />
+                                <Setter TargetName="ItemRoot" Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemRoot" Property="Background" Value="{DynamicResource PopupSelectedBrush}" />
+                                <Setter TargetName="ItemRoot" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.48" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <ToggleButton x:Name="DropDownToggle"
+                      AutomationProperties.AutomationId="{Binding ElementName=Root, Path=(AutomationProperties.AutomationId)}"
+                      AutomationProperties.Name="{Binding SelectedItem.LocalizedDisplayName, ElementName=Root}"
+                      IsChecked="{Binding IsOpen, ElementName=PickerPopup, Mode=TwoWay}"
+                      Style="{StaticResource TimeZonePickerToggleStyle}">
+            <TextBlock TextTrimming="CharacterEllipsis"
+                       Text="{Binding SelectedItem.LocalizedDisplayName, ElementName=Root}" />
+        </ToggleButton>
+
+        <Popup x:Name="PickerPopup"
+               AllowsTransparency="True"
+               Closed="HandlePopupClosed"
+               Opened="HandlePopupOpened"
+               Placement="Bottom"
+               PlacementTarget="{Binding ElementName=DropDownToggle}"
+               PopupAnimation="Fade"
+               StaysOpen="False">
+            <Border Margin="0,6,0,0"
+                    Padding="12"
+                    Width="{Binding EffectivePopupWidth, ElementName=Root}"
+                    MaxHeight="{Binding PopupMaxHeight, ElementName=Root}"
+                    Background="{DynamicResource PopupSurfaceBrush}"
+                    BorderBrush="{DynamicResource StrongBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="16"
+                    Effect="{DynamicResource PopupShadowEffect}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="12" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid>
+                        <TextBox x:Name="SearchBox"
+                                 AutomationProperties.AutomationId="{Binding SearchAutomationId, ElementName=Root}"
+                                 Background="{DynamicResource PopupAltSurfaceBrush}"
+                                 BorderBrush="{DynamicResource BorderBrush}"
+                                 CaretBrush="{DynamicResource TextBrush}"
+                                 Foreground="{DynamicResource TextBrush}"
+                                 InputMethod.IsInputMethodEnabled="True"
+                                 InputMethod.PreferredImeState="On"
+                                 MinHeight="42"
+                                 Padding="12,0"
+                                 SelectionBrush="{DynamicResource AccentBrush}"
+                                 SelectionTextBrush="White"
+                                 VerticalContentAlignment="Center"
+                                 Text="{Binding SearchText, ElementName=Root, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Margin="28,0,12,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource SubtleTextBrush}"
+                                   IsHitTestVisible="False"
+                                   Opacity="0.52"
+                                   Text="{DynamicResource SettingsTimeZoneSearchPlaceholder}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasSearchText, ElementName=Root}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="{Binding EffectiveCategoryColumnWidth, ElementName=Root}" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Margin="2,0,0,8"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SubtleTextBrush}"
+                                       Text="{DynamicResource SettingsTimeZoneCategoryLabel}" />
+                            <ListBox Grid.Row="1"
+                                     AutomationProperties.AutomationId="{Binding CategoryAutomationId, ElementName=Root}"
+                                     ItemContainerStyle="{StaticResource TimeZonePickerListBoxItemStyle}"
+                                     ItemTemplate="{StaticResource TimeZonePickerCategoryTemplate}"
+                                     ItemsSource="{Binding CategoryOptions, ElementName=Root}"
+                                     SelectedItem="{Binding SelectedCategory, ElementName=Root, Mode=TwoWay}"
+                                     Style="{StaticResource TimeZonePickerListBoxStyle}" />
+                        </Grid>
+
+                        <Grid Grid.Column="2">
+                            <ListBox x:Name="ResultList"
+                                     AutomationProperties.AutomationId="{Binding ResultAutomationId, ElementName=Root}"
+                                     ItemContainerStyle="{StaticResource TimeZonePickerListBoxItemStyle}"
+                                     ItemTemplate="{StaticResource TimeZonePickerOptionTemplate}"
+                                     ItemsSource="{Binding FilteredItems, ElementName=Root}"
+                                     KeyDown="HandleResultKeyDown"
+                                     SelectionChanged="HandleResultSelectionChanged"
+                                     Style="{StaticResource TimeZonePickerListBoxStyle}" />
+                            <TextBlock HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SubtleTextBrush}"
+                                       Text="{DynamicResource SettingsTimeZoneNoResults}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding FilteredItems.Count, ElementName=Root}" Value="0">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Popup>
+    </Grid>
+</UserControl>

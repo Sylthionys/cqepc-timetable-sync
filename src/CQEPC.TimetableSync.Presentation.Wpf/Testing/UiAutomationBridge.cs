@@ -158,6 +158,15 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
                     return await ExecuteUiFuncAsync(GetLocalizationState, cancellationToken).ConfigureAwait(false);
                 case "get-title-bar-theme-state":
                     return await ExecuteUiFuncAsync(GetTitleBarThemeState, cancellationToken).ConfigureAwait(false);
+                case "get-time-zone-selection":
+                    if (string.IsNullOrWhiteSpace(request.AutomationId))
+                    {
+                        return new UiAutomationBridgeResponse(false, "The time-zone selection request was incomplete.");
+                    }
+
+                    return await ExecuteUiFuncAsync(
+                        () => GetTimeZoneSelection(request.AutomationId),
+                        cancellationToken).ConfigureAwait(false);
                 case "get-date-picker-calendar-theme-state":
                     if (string.IsNullOrWhiteSpace(request.AutomationId))
                     {
@@ -357,6 +366,31 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
 
                 workspace.SelectedDefaultCalendarColorId = workspace.GoogleCalendarColorOptions[index].ColorId;
                 return;
+            case "Import.CourseSettings.TimeZoneCombo":
+                if (index < 0 || index >= shellViewModel.ImportDiff.CourseSettingsTimeZoneOptions.Count)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(index), index, $"Combo-box '{automationId}' does not contain item index {index}.");
+                }
+
+                shellViewModel.ImportDiff.SelectedCourseSettingsTimeZoneOption = shellViewModel.ImportDiff.CourseSettingsTimeZoneOptions[index];
+                return;
+            case "Import.CourseEditor.TimeZoneCombo":
+            case "CourseEditor.TimeZoneCombo":
+                if (index < 0 || index >= workspace.CourseEditor.TimeZoneOptions.Count)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(index), index, $"Combo-box '{automationId}' does not contain item index {index}.");
+                }
+
+                workspace.CourseEditor.SelectedTimeZoneOption = workspace.CourseEditor.TimeZoneOptions[index];
+                return;
+            case "CoursePresentationEditor.TimeZoneCombo":
+                if (index < 0 || index >= workspace.CoursePresentationEditor.TimeZoneOptions.Count)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(index), index, $"Combo-box '{automationId}' does not contain item index {index}.");
+                }
+
+                workspace.CoursePresentationEditor.SelectedTimeZoneOption = workspace.CoursePresentationEditor.TimeZoneOptions[index];
+                return;
         }
 
         if (FindElementByAutomationId(window, automationId) is not ComboBox comboBox)
@@ -372,6 +406,28 @@ internal sealed class UiAutomationBridge : IAsyncDisposable
         comboBox.SelectedIndex = index;
         comboBox.IsDropDownOpen = false;
         comboBox.UpdateLayout();
+    }
+
+    private UiAutomationBridgeResponse GetTimeZoneSelection(string automationId)
+    {
+        if (window.DataContext is not ShellViewModel shellViewModel)
+        {
+            return new UiAutomationBridgeResponse(false, "The automation bridge could not access the shell view model.");
+        }
+
+        var workspace = shellViewModel.Settings.Workspace;
+        var selected = automationId switch
+        {
+            "Import.CourseSettings.TimeZoneCombo" => shellViewModel.ImportDiff.SelectedCourseSettingsTimeZoneOption,
+            "Import.CourseEditor.TimeZoneCombo" or "CourseEditor.TimeZoneCombo" => workspace.CourseEditor.SelectedTimeZoneOption,
+            "CoursePresentationEditor.TimeZoneCombo" => workspace.CoursePresentationEditor.SelectedTimeZoneOption,
+            "ProgramSettings.GoogleTimeZoneCombo" => workspace.SelectedGoogleTimeZoneOption,
+            _ => null,
+        };
+
+        return selected is null
+            ? new UiAutomationBridgeResponse(false, $"No time-zone selection is available for '{automationId}'.")
+            : new UiAutomationBridgeResponse(true, null, selected.LocalizedDisplayName);
     }
 
     private void SetFirstWeekStartOverride(string value)

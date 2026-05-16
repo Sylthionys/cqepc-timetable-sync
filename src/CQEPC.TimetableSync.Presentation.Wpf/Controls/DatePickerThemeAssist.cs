@@ -70,6 +70,19 @@ public static class DatePickerThemeAssist
             control.BorderBrush = FindBrush("BorderBrush");
         }
 
+        if (root is Button buttonControl)
+        {
+            buttonControl.Foreground = FindBrush("TextBrush");
+            buttonControl.Background = FindBrush("SurfaceAltBrush");
+            buttonControl.BorderBrush = FindBrush("BorderBrush");
+        }
+        else if (root is RepeatButton repeatButton)
+        {
+            repeatButton.Foreground = FindBrush("TextBrush");
+            repeatButton.Background = FindBrush("SurfaceAltBrush");
+            repeatButton.BorderBrush = FindBrush("BorderBrush");
+        }
+
         if (root is TextBlock textBlock)
         {
             textBlock.Foreground = FindBrush("TextBrush");
@@ -80,8 +93,13 @@ public static class DatePickerThemeAssist
             button.Foreground = FindBrush("TextBrush");
         }
 
-        if (root is Shape shape)
+        if (root is Line line)
         {
+            line.Stroke = FindBrush("TextBrush");
+        }
+        else if (root is Path or Polygon)
+        {
+            var shape = (Shape)root;
             shape.Fill = FindBrush("TextBrush");
             shape.Stroke = FindBrush("TextBrush");
         }
@@ -112,8 +130,12 @@ public static class DatePickerThemeAssist
         resources[SystemColors.ControlDarkBrushKey] = FindBrush("BorderBrush");
         resources[SystemColors.ControlTextBrushKey] = FindBrush("TextBrush");
         resources[SystemColors.GrayTextBrushKey] = FindBrush("SubtleTextBrush");
+        resources[SystemColors.ActiveBorderBrushKey] = FindBrush("StrongBorderBrush");
+        resources[SystemColors.InactiveBorderBrushKey] = FindBrush("BorderBrush");
         resources[SystemColors.HighlightBrushKey] = FindBrush("AccentBrush");
         resources[SystemColors.HighlightTextBrushKey] = Brushes.White;
+        resources[SystemColors.InactiveSelectionHighlightBrushKey] = FindBrush("PopupHighlightBrush");
+        resources[SystemColors.InactiveSelectionHighlightTextBrushKey] = FindBrush("TextBrush");
     }
 
     private static Brush FindBrush(string resourceKey) =>

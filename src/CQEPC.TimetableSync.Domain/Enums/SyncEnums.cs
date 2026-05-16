@@ -16,6 +16,7 @@ public enum SyncChangeKind
 {
     Added,
     Updated,
+    MetadataOnly,
     Deleted,
     Unresolved,
 }

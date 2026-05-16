@@ -32,6 +32,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
     private ImportChangeRuleGroupViewModel? selectedRuleGroup;
     private ImportChangeOccurrenceItemViewModel? selectedOccurrence;
     private UnresolvedItem? selectedUnresolvedItem;
+    private string? selectedParsedOccurrenceId;
     private GoogleTimeZoneOptionViewModel? selectedCourseSettingsTimeZoneOption;
     private GoogleCalendarColorOptionViewModel? selectedCourseSettingsColorOption;
     private string? originalCourseSettingsTimeZoneId;
@@ -51,6 +52,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         this.workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         AddedChanges = new ObservableCollection<DiffChangeItemViewModel>();
         UpdatedChanges = new ObservableCollection<DiffChangeItemViewModel>();
+        MetadataOnlyChanges = new ObservableCollection<DiffChangeItemViewModel>();
         DeletedChanges = new ObservableCollection<DiffChangeItemViewModel>();
         AddedChangeGroups = new ObservableCollection<EditableCourseGroupViewModel>();
         DeletedChangeGroups = new ObservableCollection<EditableCourseGroupViewModel>();
@@ -66,13 +68,13 @@ public sealed class ImportDiffPageViewModel : ObservableObject
                 new ImportWorkflowStepViewModel(3, UiText.ImportWorkflowSyncTitle, UiText.ImportWorkflowSyncSummary, showsConnector: false),
             ]);
         TypeFilterOptions = new ObservableCollection<string>([UiText.ImportTypeFilterAll, UiText.ImportTypeFilterCourses, UiText.ImportTypeFilterTasks]);
-        StatusFilterOptions = new ObservableCollection<string>([UiText.ImportStatusFilterAll, UiText.ImportAddedTitle, UiText.ImportUpdatedTitle, UiText.ImportDeletedTitle, UiText.ImportConflictTitle]);
+        StatusFilterOptions = new ObservableCollection<string>([UiText.ImportStatusFilterAll, UiText.ImportAddedTitle, UiText.ImportUpdatedTitle, UiText.ImportDeletedTitle, UiText.ImportConflictTitle, UiText.ImportMetadataOnlyTitle]);
         GroupOptions = new ObservableCollection<string>([UiText.ImportGroupByCourse, UiText.ImportGroupByStatus]);
         SortOptions = new ObservableCollection<string>([UiText.ImportSortByDate, UiText.ImportSortByCourse]);
         SelectAllCommand = new RelayCommand(SelectAllChanges);
         ClearAllCommand = new RelayCommand(ClearAllChanges);
         ApplySelectedCommand = new AsyncRelayCommand(ApplySelectedAsync, () => CanApplySelected);
-        SyncCurrentCalendarCommand = new AsyncRelayCommand(SyncCurrentCalendarAsync, () => !isApplyingSelection);
+
         ExpandAllGroupsCommand = new RelayCommand(() => SetAllGroupsExpanded(true));
         CollapseAllGroupsCommand = new RelayCommand(() => SetAllGroupsExpanded(false));
         ToggleSelectedOnlyCommand = new RelayCommand(() => ShowSelectedOnly = !ShowSelectedOnly);
@@ -116,9 +118,6 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             workspace.ParserWarningCount,
             workspace.UnresolvedItemCount);
 
-    public string HeaderSecondaryActionText =>
-        UiText.HomeSyncCalendarButton;
-
     public string SelectionSummary =>
         UiText.FormatImportSelectionSummary(
             workspace.EffectiveSelectedClassName,
@@ -154,6 +153,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
     public ObservableCollection<DiffChangeItemViewModel> UpdatedChanges { get; }
 
+    public ObservableCollection<DiffChangeItemViewModel> MetadataOnlyChanges { get; }
+
     public ObservableCollection<DiffChangeItemViewModel> DeletedChanges { get; }
 
     public ObservableCollection<EditableCourseGroupViewModel> AddedChangeGroups { get; }
@@ -187,11 +188,12 @@ public sealed class ImportDiffPageViewModel : ObservableObject
     public int SelectedChangeCount =>
         AddedChanges.Count(static item => item.IsSelected)
         + UpdatedChanges.Count(static item => item.IsSelected)
+        + MetadataOnlyChanges.Count(static item => item.IsSelected)
         + DeletedChanges.Count(static item => item.IsSelected);
 
     public string ApplySelectedLabel => UiText.FormatApplySelectedButton(SelectedChangeCount);
 
-    public int PlannedChangeCount => workspace.PlannedChangeCount;
+    public int PlannedChangeCount => GetEffectivePlannedChanges().Count;
 
     public int AddedCount => AddedChanges.Count;
 
@@ -207,7 +209,9 @@ public sealed class ImportDiffPageViewModel : ObservableObject
     public int CurrentScheduleConflictCount =>
         ScheduleConflictGroups.Sum(static group => group.TimeItems.Count);
 
-    public int UnchangedCount => Math.Max(0, workspace.CurrentOccurrences.Count - PlannedChangeCount);
+    public int UnchangedCount => GetUnchangedCurrentOccurrences().Length;
+
+    private int ReviewMetricTotal => PlannedChangeCount + CurrentScheduleConflictCount + workspace.CurrentUnresolvedItems.Count + UnchangedCount;
 
     public string AddedRatioText => FormatRatio(AddedCount);
 
@@ -217,7 +221,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
     public string ConflictRatioText => FormatConflictRatio();
 
-    public string UnchangedRatioText => FormatRatio(UnchangedCount);
+    public string UnchangedRatioText => FormatUnchangedRatio(UnchangedCount);
 
     public string SelectionProgressText => $"{SelectedChangeCount} / {Math.Max(PlannedChangeCount, 1)}";
 
@@ -232,7 +236,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
     public bool HasReadyPreview => workspace.HasReadyPreview;
 
-    public bool HasChanges => workspace.PlannedChangeCount > 0;
+    public bool HasChanges => PlannedChangeCount > 0;
 
     public bool HasAddedChanges => AddedChanges.Count > 0;
 
@@ -462,7 +466,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         selectedDetailMode switch
         {
             ImportDetailSelectionMode.Course when selectedCourseGroup is not null =>
-                BuildParsedCourseRuleGroupsForDetail(selectedCourseGroup.Title),
+                BuildCourseRuleGroupsForDetail(selectedCourseGroup),
             ImportDetailSelectionMode.CourseSettings when !string.IsNullOrWhiteSpace(selectedCourseSettingsCourseTitle) =>
                 BuildParsedCourseRuleGroupsForDetail(selectedCourseSettingsCourseTitle),
             _ => [],
@@ -509,6 +513,10 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         && SelectedOccurrence?.IsDeleted != true
         && SelectedOccurrence?.Occurrence is not null;
 
+    public bool ShowSelectedGoogleNotesEditor =>
+        HasEditableSelectedGoogleNotes
+        && SelectedOccurrence?.IsUnchanged == true;
+
     public string SelectedGoogleNotesText
     {
         get => selectedGoogleNotesText;
@@ -524,9 +532,13 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
     public bool HasSelectedDetailWriteOptions => SelectedDetailWriteOptions.Count > 0;
 
-    public bool ShowSelectedOccurrenceChangeSummary => selectedDetailMode == ImportDetailSelectionMode.Occurrence;
+    public bool ShowSelectedOccurrenceChangeSummary =>
+        selectedDetailMode == ImportDetailSelectionMode.Occurrence
+        && SelectedOccurrence?.HasChangeSummary == true;
 
     public ObservableCollection<GoogleTimeZoneOptionViewModel> CourseSettingsTimeZoneOptions => workspace.GoogleTimeZoneOptions;
+
+    public IReadOnlyList<string> CourseSettingsRecentTimeZoneIds => workspace.CurrentPreferences.GoogleSettings.RecentCalendarTimeZoneIds;
 
     public ObservableCollection<GoogleCalendarColorOptionViewModel> CourseSettingsColorOptions => workspace.GoogleCalendarColorOptions;
 
@@ -570,8 +582,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
     public bool ShowCourseEditorResetAction => CourseEditor.IsOpen && CourseEditor.CanReset;
 
     public bool HasCourseCustomizations =>
-        workspace.CurrentPreferences.TimetableResolution.CourseScheduleOverrides.Count > 0
-        || workspace.CurrentPreferences.TimetableResolution.CoursePresentationOverrides.Count > 0;
+        workspace.HasResettableImportDefaults;
 
     public bool ShowTopResetCourseCustomizationsAction =>
         HasCourseCustomizations
@@ -655,16 +666,14 @@ public sealed class ImportDiffPageViewModel : ObservableObject
     public bool CanApplySelected =>
         workspace.HasReadyPreview
         && SelectedChangeCount > 0
-        && !isApplyingSelection
-        && !workspace.IsCurrentImportSelectionApplied(GetSelectedChangeIds());
+        && !workspace.IsCurrentImportSelectionApplied(GetSelectedChangeIds())
+        && !isApplyingSelection;
 
     public IRelayCommand SelectAllCommand { get; }
 
     public IRelayCommand ClearAllCommand { get; }
 
     public IAsyncRelayCommand ApplySelectedCommand { get; }
-
-    public IAsyncRelayCommand SyncCurrentCalendarCommand { get; }
 
     public IRelayCommand ExpandAllGroupsCommand { get; }
 
@@ -679,6 +688,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
     public ICommand SelectOccurrenceCommand { get; }
 
     public ICommand EditRuleGroupCommand { get; }
+
+    public event Action<string?>? ParsedOccurrenceScrollRequested;
 
     public IAsyncRelayCommand EditSelectedDetailCommand { get; }
 
@@ -715,6 +726,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
             AddedChanges.Clear();
             UpdatedChanges.Clear();
+            MetadataOnlyChanges.Clear();
             DeletedChanges.Clear();
             AddedChangeGroups.Clear();
             DeletedChangeGroups.Clear();
@@ -726,7 +738,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
             Summary = workspace.WorkspaceStatus;
             Title = UiText.ImportTitle;
-            BuildParsedCourseGroups(workspace.CurrentOccurrences);
+            BuildParsedCourseGroups(GetUnchangedCurrentOccurrences());
             BuildScheduleConflictGroups(workspace.CurrentOccurrences);
             BuildUnresolvedCourseGroups(workspace.CurrentUnresolvedItems);
 
@@ -738,7 +750,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
                     TimeProfileFallbackConfirmations.Add(new TimeProfileFallbackConfirmationCardViewModel(confirmation));
                 }
 
-                foreach (var change in workspace.CurrentPreviewResult.SyncPlan.PlannedChanges)
+                foreach (var change in GetEffectivePlannedChanges())
                 {
                     var item = new DiffChangeItemViewModel(change);
                     if (previousKnownIds.Contains(item.LocalStableId))
@@ -758,6 +770,9 @@ public sealed class ImportDiffPageViewModel : ObservableObject
                             break;
                         case SyncChangeKind.Updated:
                             UpdatedChanges.Add(item);
+                            break;
+                        case SyncChangeKind.MetadataOnly:
+                            MetadataOnlyChanges.Add(item);
                             break;
                         case SyncChangeKind.Deleted:
                             DeletedChanges.Add(item);
@@ -943,7 +958,6 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         isApplyingSelection = true;
         OnPropertyChanged(nameof(CanApplySelected));
         ApplySelectedCommand.NotifyCanExecuteChanged();
-        SyncCurrentCalendarCommand.NotifyCanExecuteChanged();
 
         try
         {
@@ -959,22 +973,14 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             isApplyingSelection = false;
             OnPropertyChanged(nameof(CanApplySelected));
             ApplySelectedCommand.NotifyCanExecuteChanged();
-            SyncCurrentCalendarCommand.NotifyCanExecuteChanged();
         }
-    }
-
-    private async Task SyncCurrentCalendarAsync()
-    {
-        if (isApplyingSelection)
-        {
-            return;
-        }
-
-        await workspace.SyncGoogleCalendarPreviewAsync();
     }
 
     private IEnumerable<DiffChangeItemViewModel> AllChangeItems() =>
-        AddedChanges.Concat(UpdatedChanges).Concat(DeletedChanges);
+        AddedChanges.Concat(UpdatedChanges).Concat(MetadataOnlyChanges).Concat(DeletedChanges);
+
+    private IReadOnlyList<PlannedSyncChange> GetEffectivePlannedChanges() =>
+        workspace.CurrentEffectivePlannedChanges;
 
     private string[] GetSelectedChangeIds() =>
         AllChangeItems()
@@ -1072,6 +1078,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedOccurrenceManagedNoteDiffLines));
         OnPropertyChanged(nameof(HasSelectedOccurrenceManagedNoteDiffLines));
         OnPropertyChanged(nameof(HasEditableSelectedGoogleNotes));
+        OnPropertyChanged(nameof(ShowSelectedGoogleNotesEditor));
         OnPropertyChanged(nameof(HasSelectedDetailWriteOptions));
         OnPropertyChanged(nameof(ShowSelectedOccurrenceChangeSummary));
         OnPropertyChanged(nameof(ShowSelectedOccurrenceBeforeSection));
@@ -1111,6 +1118,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedOccurrenceManagedNoteDiffLines));
         OnPropertyChanged(nameof(HasSelectedOccurrenceManagedNoteDiffLines));
         OnPropertyChanged(nameof(HasEditableSelectedGoogleNotes));
+        OnPropertyChanged(nameof(ShowSelectedGoogleNotesEditor));
         OnPropertyChanged(nameof(SelectedGoogleNotesText));
         OnPropertyChanged(nameof(ShowCourseEditorInline));
         OnPropertyChanged(nameof(CanCancelSelectedDelete));
@@ -1166,7 +1174,17 @@ public sealed class ImportDiffPageViewModel : ObservableObject
     {
         if (item is not null)
         {
+            if (item.IsUnchanged
+                && item.Occurrence is { } unchangedOccurrence
+                && IsVisibleParsedOccurrence(unchangedOccurrence))
+            {
+                SelectParsedOccurrence(unchangedOccurrence, switchToAllTimes: true);
+                return;
+            }
+
             CourseEditor.Close();
+            selectedParsedOccurrenceId = null;
+            RefreshParsedCourseSelection();
             if (ReferenceEquals(SelectedOccurrence, item))
             {
                 selectedDetailMode = ImportDetailSelectionMode.Occurrence;
@@ -1189,6 +1207,12 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         }
     }
 
+    public void OpenUnresolvedItemFromExternal(UnresolvedItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        OpenUnresolvedCourseEditor(item);
+    }
+
     private void EditRuleGroup(ImportChangeRuleGroupViewModel? group)
     {
         if (group is null)
@@ -1206,6 +1230,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             return;
         }
 
+        selectedParsedOccurrenceId = null;
+        RefreshParsedCourseSelection();
         ClearActiveOccurrenceSelection();
         CourseEditor.Close();
         selectedDetailMode = ImportDetailSelectionMode.Course;
@@ -1234,6 +1260,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             return;
         }
 
+        selectedParsedOccurrenceId = null;
+        RefreshParsedCourseSelection();
         ClearActiveOccurrenceSelection();
         CourseEditor.Close();
         selectedDetailMode = ImportDetailSelectionMode.CourseSettings;
@@ -1252,6 +1280,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             return;
         }
 
+        selectedParsedOccurrenceId = null;
+        RefreshParsedCourseSelection();
         ClearActiveOccurrenceSelection();
         CourseEditor.Close();
         selectedDetailMode = ImportDetailSelectionMode.Rule;
@@ -1308,6 +1338,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
     {
         ArgumentNullException.ThrowIfNull(item);
 
+        selectedParsedOccurrenceId = null;
+        RefreshParsedCourseSelection();
         ClearActiveOccurrenceSelection();
         selectedDetailMode = ImportDetailSelectionMode.Unresolved;
         selectedCourseGroup = null;
@@ -1357,6 +1389,15 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             .Select(static item => item.Occurrence)
             .Where(static occurrence => occurrence is not null)
             .Cast<ResolvedOccurrence>()
+            .GroupBy(static occurrence => string.Join(
+                "|",
+                occurrence.ClassName,
+                occurrence.TargetKind,
+                occurrence.Metadata.CourseTitle,
+                occurrence.OccurrenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                occurrence.Start.ToString("O", CultureInfo.InvariantCulture),
+                occurrence.End.ToString("O", CultureInfo.InvariantCulture)))
+            .Select(static group => group.Last())
             .OrderBy(static occurrence => occurrence.OccurrenceDate)
             .ThenBy(static occurrence => occurrence.Start)
             .ToArray();
@@ -1385,6 +1426,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         selectedDetailMode = ImportDetailSelectionMode.CourseSettings;
         ClearActiveOccurrenceSelection();
         LoadCourseSettingsSelection(courseTitle);
+        OnPropertyChanged(nameof(CourseSettingsRecentTimeZoneIds));
         RaiseDetailPanelChanged();
         RaiseSelectedOccurrenceChanged();
     }
@@ -1700,6 +1742,30 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         }
     }
 
+    private ResolvedOccurrence[] GetUnchangedCurrentOccurrences()
+    {
+        var changedOccurrenceIds = new HashSet<string>(StringComparer.Ordinal);
+        if (workspace.CurrentPreviewResult?.SyncPlan is not null)
+        {
+            foreach (var change in GetEffectivePlannedChanges())
+            {
+                if (change.Before is not null)
+                {
+                    changedOccurrenceIds.Add(SyncIdentity.CreateOccurrenceId(change.Before));
+                }
+
+                if (change.After is not null)
+                {
+                    changedOccurrenceIds.Add(SyncIdentity.CreateOccurrenceId(change.After));
+                }
+            }
+        }
+
+        return workspace.CurrentOccurrences
+            .Where(occurrence => !changedOccurrenceIds.Contains(SyncIdentity.CreateOccurrenceId(occurrence)))
+            .ToArray();
+    }
+
     private void BuildParsedCourseGroups(IReadOnlyList<ResolvedOccurrence> occurrences)
     {
         if (parsedCourseDisplayMode == ParsedCourseDisplayMode.AllTimes)
@@ -1721,11 +1787,17 @@ public sealed class ImportDiffPageViewModel : ObservableObject
                 {
                     var repeatKind = InferRepeatKind(scheduleGroup);
                     var representative = scheduleGroup[0];
+                    var stableId = SyncIdentity.CreateOccurrenceId(representative);
                     return new EditableCourseTimeItemViewModel(
                         FormatParsedScheduleSummary(scheduleGroup, repeatKind),
                         FormatParsedScheduleDetails(scheduleGroup),
-                        () => workspace.OpenCourseEditor(representative),
-                        UiText.ImportEditDetailsButton);
+                        () => SelectParsedRuleSegment(scheduleGroup),
+                        UiText.ImportEditDetailsButton,
+                        stableId,
+                        scheduleGroup.Any(occurrence => string.Equals(
+                            SyncIdentity.CreateOccurrenceId(occurrence),
+                            selectedParsedOccurrenceId,
+                            StringComparison.Ordinal)));
                 })
                 .ToArray();
 
@@ -1743,13 +1815,92 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         }
     }
 
+    private void SelectParsedRuleSegment(ResolvedOccurrence[] occurrences)
+    {
+        var ruleOccurrences = OrderRuleOccurrences(occurrences);
+        if (ruleOccurrences.Length == 0)
+        {
+            return;
+        }
+
+        selectedParsedOccurrenceId = SyncIdentity.CreateOccurrenceId(ruleOccurrences[0]);
+        RefreshParsedCourseSelection();
+        ClearActiveOccurrenceSelection();
+        CourseEditor.Close();
+        selectedDetailMode = ImportDetailSelectionMode.Rule;
+        selectedRuleGroup = BuildParsedRuleGroup(ruleOccurrences);
+        selectedCourseGroup = null;
+        selectedUnresolvedItem = null;
+        ClearCourseSettingsSelection();
+        RaiseDetailPanelChanged();
+        RaiseSelectedOccurrenceChanged();
+        OnPropertyChanged(nameof(ShowCourseEditorInline));
+    }
+
+    private void SelectParsedOccurrence(ResolvedOccurrence occurrence, bool switchToAllTimes = false)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+
+        selectedParsedOccurrenceId = SyncIdentity.CreateOccurrenceId(occurrence);
+        if (switchToAllTimes && parsedCourseDisplayMode != ParsedCourseDisplayMode.AllTimes)
+        {
+            SetParsedCourseDisplayMode(ParsedCourseDisplayMode.AllTimes);
+        }
+        else
+        {
+            RefreshParsedCourseSelection();
+        }
+
+        CourseEditor.Close();
+        selectedDetailMode = ImportDetailSelectionMode.Occurrence;
+        selectedCourseGroup = null;
+        selectedRuleGroup = null;
+        selectedUnresolvedItem = null;
+        ClearCourseSettingsSelection();
+        SelectedOccurrence = BuildUnchangedOccurrenceItem(occurrence);
+        OnPropertyChanged(nameof(ShowCourseEditorInline));
+
+        ParsedOccurrenceScrollRequested?.Invoke(selectedParsedOccurrenceId);
+    }
+
+    private bool IsVisibleParsedOccurrence(ResolvedOccurrence occurrence)
+    {
+        if (occurrence.TargetKind != SyncTargetKind.CalendarEvent)
+        {
+            return false;
+        }
+
+        var courseTitle = occurrence.Metadata.CourseTitle;
+        if (string.IsNullOrWhiteSpace(courseTitle)
+            || GetChangedCourseTitles().Contains(courseTitle))
+        {
+            return false;
+        }
+
+        var occurrenceId = SyncIdentity.CreateOccurrenceId(occurrence);
+        return GetUnchangedCurrentOccurrences().Any(current => string.Equals(
+            SyncIdentity.CreateOccurrenceId(current),
+            occurrenceId,
+            StringComparison.Ordinal));
+    }
+
+    private void RefreshParsedCourseSelection()
+    {
+        foreach (var item in ParsedCourseGroups.SelectMany(static group => group.TimeItems))
+        {
+            item.IsActiveSelection = !string.IsNullOrWhiteSpace(selectedParsedOccurrenceId)
+                && (string.Equals(item.StableId, selectedParsedOccurrenceId, StringComparison.Ordinal)
+                    || (item.StableId is not null
+                        && item.StableId.Contains(selectedParsedOccurrenceId, StringComparison.Ordinal)));
+        }
+    }
+
     private HashSet<string> GetChangedCourseTitles() =>
-        workspace.CurrentPreviewResult?.SyncPlan?.PlannedChanges
+        GetEffectivePlannedChanges()
             .Select(static change => change.After?.Metadata.CourseTitle ?? change.Before?.Metadata.CourseTitle)
             .Where(static title => !string.IsNullOrWhiteSpace(title))
             .Select(static title => title!)
-            .ToHashSet(StringComparer.Ordinal)
-        ?? new HashSet<string>(StringComparer.Ordinal);
+            .ToHashSet(StringComparer.Ordinal);
 
     private static IEnumerable<ResolvedOccurrence[]> BuildParsedRuleSegments(IEnumerable<ResolvedOccurrence> occurrences) =>
         occurrences
@@ -1827,25 +1978,37 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             .Where(static ruleOccurrences => ruleOccurrences.Length > 0)
             .OrderBy(static ruleOccurrences => ruleOccurrences[0].Start)
             .ThenBy(static ruleOccurrences => ruleOccurrences[0].End)
-            .Select(ruleOccurrences =>
-            {
-                var aggregate = BuildRuleAggregate(ruleOccurrences);
-                return new ImportChangeRuleGroupViewModel(
-                    SyncChangeKind.Unresolved,
-                    aggregate is null
-                        ? UiText.DiffNotPresent
-                        : FormatParsedScheduleSummary(ruleOccurrences, InferRepeatKind(ruleOccurrences)),
-                    null,
-                    null,
-                    aggregate is null ? null : BuildRuleField(BuildDisplayScheduleRuleSummary(ruleOccurrences)),
-                    aggregate is null ? null : BuildRuleRangeSummary(aggregate),
-                    Array.Empty<DiffChangeItemViewModel>(),
-                    BuildOccurrenceItems(Array.Empty<DiffChangeItemViewModel>(), ruleOccurrences).Where(static item => item is not null)!,
-                    BuildRuleOccurrenceDetailFields(ruleOccurrences),
-                    SelectRuleGroup);
-            });
+            .Select(BuildParsedRuleGroup);
 
         return new ObservableCollection<ImportChangeRuleGroupViewModel>(groups);
+    }
+
+    private ImportChangeRuleGroupViewModel BuildParsedRuleGroup(ResolvedOccurrence[] ruleOccurrences)
+    {
+        var aggregate = BuildRuleAggregate(ruleOccurrences);
+        return new ImportChangeRuleGroupViewModel(
+            SyncChangeKind.Unresolved,
+            aggregate is null
+                ? UiText.DiffNotPresent
+                : FormatParsedScheduleSummary(ruleOccurrences, InferRepeatKind(ruleOccurrences)),
+            null,
+            null,
+            aggregate is null ? null : BuildRuleField(BuildDisplayScheduleRuleSummary(ruleOccurrences)),
+            aggregate is null ? null : BuildRuleRangeSummary(aggregate),
+            Array.Empty<DiffChangeItemViewModel>(),
+            BuildOccurrenceItems(Array.Empty<DiffChangeItemViewModel>(), ruleOccurrences).Where(static item => item is not null)!,
+            BuildRuleOccurrenceDetailFields(ruleOccurrences),
+            SelectRuleGroup);
+    }
+
+    private ObservableCollection<ImportChangeRuleGroupViewModel> BuildCourseRuleGroupsForDetail(ImportChangeCourseGroupViewModel courseGroup)
+    {
+        if (courseGroup.HasParsedScheduleDetails)
+        {
+            return BuildParsedCourseRuleGroupsForDetail(courseGroup.Title);
+        }
+
+        return new ObservableCollection<ImportChangeRuleGroupViewModel>(courseGroup.RuleGroups);
     }
 
     private ObservableCollection<ImportDetailFieldViewModel> BuildCourseSettingsDetailFields(string courseTitle)
@@ -1897,7 +2060,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         };
     }
 
-    private static void AddIfMeaningful(ICollection<ImportDetailFieldViewModel> fields, string label, string? value)
+    private static void AddIfMeaningful(List<ImportDetailFieldViewModel> fields, string label, string? value)
     {
         if (!string.IsNullOrWhiteSpace(value))
         {
@@ -1917,11 +2080,17 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             var timeItems = group
                 .OrderBy(static occurrence => occurrence.Start)
                 .ThenBy(static occurrence => occurrence.End)
-                .Select(occurrence => new EditableCourseTimeItemViewModel(
-                    FormatParsedOccurrenceSummary(occurrence),
-                    FormatParsedOccurrenceDetails(occurrence),
-                    () => workspace.OpenCourseEditor(occurrence),
-                    UiText.ImportEditDetailsButton))
+                .Select(occurrence =>
+                {
+                    var stableId = SyncIdentity.CreateOccurrenceId(occurrence);
+                    return new EditableCourseTimeItemViewModel(
+                        FormatParsedOccurrenceSummary(occurrence),
+                        FormatParsedOccurrenceDetails(occurrence),
+                        () => SelectParsedOccurrence(occurrence),
+                        UiText.ImportEditDetailsButton,
+                        stableId,
+                        string.Equals(stableId, selectedParsedOccurrenceId, StringComparison.Ordinal));
+                })
                 .ToArray();
 
             if (timeItems.Length == 0)
@@ -2009,7 +2178,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             .Cast<ResolvedOccurrence>()
             .Select(SyncIdentity.CreateOccurrenceId)
             .ToHashSet(StringComparer.Ordinal);
-        groups.AddRange(BuildUpdatedRuleGroups(items.Where(static item => item.IsUpdated), courseChangedOccurrenceIds));
+        groups.AddRange(BuildUpdatedRuleGroups(items.Where(static item => item.IsUpdated), courseChangedOccurrenceIds, SyncChangeKind.Updated));
+        groups.AddRange(BuildUpdatedRuleGroups(items.Where(static item => item.IsMetadataOnly), courseChangedOccurrenceIds, SyncChangeKind.MetadataOnly));
         groups.AddRange(BuildAddedRuleGroups(items.Where(static item => item.IsAdded), courseChangedOccurrenceIds));
         groups.AddRange(BuildDeletedRuleGroups(items.Where(static item => item.IsDeleted), courseChangedOccurrenceIds));
         groups.AddRange(BuildUnchangedParsedRuleGroups(courseTitle, items));
@@ -2018,9 +2188,10 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             .OrderBy(static group => group.ChangeKind switch
             {
                 SyncChangeKind.Updated => 0,
-                SyncChangeKind.Added => 1,
-                SyncChangeKind.Deleted => 2,
-                _ => 3,
+                SyncChangeKind.MetadataOnly => 1,
+                SyncChangeKind.Added => 2,
+                SyncChangeKind.Deleted => 3,
+                _ => 4,
             })
             .ThenBy(static group => group.IsUnchanged ? 1 : 0)
             .ThenBy(static group => group.Summary, StringComparer.Ordinal);
@@ -2063,7 +2234,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
     private IEnumerable<ImportChangeRuleGroupViewModel> BuildUpdatedRuleGroups(
         IEnumerable<DiffChangeItemViewModel> items,
-        IReadOnlyCollection<string> courseChangedOccurrenceIds) =>
+        IReadOnlyCollection<string> courseChangedOccurrenceIds,
+        SyncChangeKind groupChangeKind) =>
         items
             .GroupBy(static item => new UpdatedRuleGroupKey(
                 CreateScheduleKey(item.PlannedChange.Before),
@@ -2085,7 +2257,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
                 var afterAggregate = BuildRuleAggregate(afterOccurrences);
 
                 return new ImportChangeRuleGroupViewModel(
-                    SyncChangeKind.Updated,
+                    groupChangeKind,
                     BuildRuleGroupSummary(beforeAggregate, afterAggregate, orderedItems),
                     beforeAggregate is null ? null : BuildRuleChangeSummary(UiText.ImportBeforeTitle, beforeAggregate, afterAggregate),
                     afterAggregate is null ? null : BuildRuleChangeSummary(UiText.ImportAfterTitle, afterAggregate, beforeAggregate),
@@ -2172,8 +2344,8 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             });
 
     private ResolvedOccurrence[] ResolveRuleDetailOccurrences(
-        IReadOnlyList<ResolvedOccurrence> preferredOccurrences,
-        IReadOnlyList<ResolvedOccurrence> fallbackOccurrences)
+        ResolvedOccurrence[] preferredOccurrences,
+        ResolvedOccurrence[] fallbackOccurrences)
     {
         var currentRuleOccurrences = ResolveCurrentRuleOccurrences(preferredOccurrences);
         if (currentRuleOccurrences.Length > 0)
@@ -2187,27 +2359,27 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             return currentRuleOccurrences;
         }
 
-        return preferredOccurrences.Count > 0
+        return preferredOccurrences.Length > 0
             ? OrderRuleOccurrences(preferredOccurrences)
             : OrderRuleOccurrences(fallbackOccurrences);
     }
 
-    private ResolvedOccurrence[] ResolveCurrentRuleOccurrences(IReadOnlyList<ResolvedOccurrence> seedOccurrences) =>
+    private ResolvedOccurrence[] ResolveCurrentRuleOccurrences(ResolvedOccurrence[] seedOccurrences) =>
         ResolveRuleOccurrences(workspace.CurrentOccurrences, seedOccurrences);
 
-    private ResolvedOccurrence[] ResolvePreviousRuleOccurrences(IReadOnlyList<ResolvedOccurrence> seedOccurrences) =>
+    private ResolvedOccurrence[] ResolvePreviousRuleOccurrences(ResolvedOccurrence[] seedOccurrences) =>
         ResolveRuleOccurrences(workspace.CurrentPreviewResult?.PreviousSnapshot?.Occurrences ?? Array.Empty<ResolvedOccurrence>(), seedOccurrences);
 
     private static ResolvedOccurrence[] ResolveRuleOccurrences(
         IReadOnlyList<ResolvedOccurrence> source,
-        IReadOnlyList<ResolvedOccurrence> seedOccurrences)
+        ResolvedOccurrence[] seedOccurrences)
     {
-        var first = seedOccurrences.FirstOrDefault();
-        if (first is null)
+        if (seedOccurrences.Length == 0)
         {
             return Array.Empty<ResolvedOccurrence>();
         }
 
+        var first = seedOccurrences[0];
         var scheduleKey = CreateScheduleKey(first);
         var seedDates = seedOccurrences.Select(static occurrence => occurrence.OccurrenceDate).ToHashSet();
         var matchedOccurrences = OrderRuleOccurrences(source.Where(occurrence => IsSameParsedRuleOccurrence(occurrence, first, scheduleKey)));
@@ -2380,8 +2552,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         return new ImportChangeOccurrenceItemViewModel(
             occurrence,
             BuildOccurrenceSummary(occurrence),
-            sharedDetails,
-            BuildNoteDiffLines(occurrence, occurrence, includeUnchanged: true));
+            sharedDetails);
     }
 
     private static ImportDetailFieldViewModel[] BuildChangedDetailLines(IEnumerable<OccurrenceComparisonField> fields, bool useAfterValue) =>
@@ -2465,12 +2636,12 @@ public sealed class ImportDiffPageViewModel : ObservableObject
     private static string[] SplitDiffLines(string value) =>
         NormalizeDescriptionNewLines(value).Split('\n', StringSplitOptions.None);
 
-    private static ImportTextDiffLineViewModel[] BuildLineDiff(IReadOnlyList<string> beforeLines, IReadOnlyList<string> afterLines)
+    private static ImportTextDiffLineViewModel[] BuildLineDiff(string[] beforeLines, string[] afterLines)
     {
-        var lengths = new int[beforeLines.Count + 1, afterLines.Count + 1];
-        for (var i = beforeLines.Count - 1; i >= 0; i--)
+        var lengths = new int[beforeLines.Length + 1, afterLines.Length + 1];
+        for (var i = beforeLines.Length - 1; i >= 0; i--)
         {
-            for (var j = afterLines.Count - 1; j >= 0; j--)
+            for (var j = afterLines.Length - 1; j >= 0; j--)
             {
                 lengths[i, j] = string.Equals(beforeLines[i], afterLines[j], StringComparison.Ordinal)
                     ? lengths[i + 1, j + 1] + 1
@@ -2481,7 +2652,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         var rows = new List<ImportTextDiffLineViewModel>();
         var beforeIndex = 0;
         var afterIndex = 0;
-        while (beforeIndex < beforeLines.Count && afterIndex < afterLines.Count)
+        while (beforeIndex < beforeLines.Length && afterIndex < afterLines.Length)
         {
             if (string.Equals(beforeLines[beforeIndex], afterLines[afterIndex], StringComparison.Ordinal))
             {
@@ -2501,12 +2672,12 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             }
         }
 
-        while (beforeIndex < beforeLines.Count)
+        while (beforeIndex < beforeLines.Length)
         {
             rows.Add(new ImportTextDiffLineViewModel(beforeLines[beforeIndex++], string.Empty, isBeforeChanged: true, isAfterChanged: false));
         }
 
-        while (afterIndex < afterLines.Count)
+        while (afterIndex < afterLines.Length)
         {
             rows.Add(new ImportTextDiffLineViewModel(string.Empty, afterLines[afterIndex++], isBeforeChanged: false, isAfterChanged: true));
         }
@@ -2558,7 +2729,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         return string.Join(UiText.SummarySeparator, parts);
     }
 
-    private static void AddIfMeaningful(ICollection<string> values, string? value)
+    private static void AddIfMeaningful(List<string> values, string? value)
     {
         if (!string.IsNullOrWhiteSpace(value))
         {
@@ -2695,6 +2866,11 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             return item.PlannedChange.ChangeSource == SyncChangeSource.RemoteTitleConflict;
         }
 
+        if (SelectedStatusFilterIndex == 5)
+        {
+            return item.IsMetadataOnly;
+        }
+
         return true;
     }
 
@@ -2734,6 +2910,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             {
                 SyncChangeKind.Added => UiText.ImportAddedTitle,
                 SyncChangeKind.Updated => UiText.ImportUpdatedTitle,
+                SyncChangeKind.MetadataOnly => UiText.ImportMetadataOnlyTitle,
                 SyncChangeKind.Deleted => UiText.ImportDeletedTitle,
                 _ => UiText.ImportStatusOtherTitle,
             };
@@ -2742,16 +2919,17 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         key switch
         {
             _ when string.Equals(key, UiText.ImportUpdatedTitle, StringComparison.Ordinal) => 0,
-            _ when string.Equals(key, UiText.ImportAddedTitle, StringComparison.Ordinal) => 1,
-            _ when string.Equals(key, UiText.ImportDeletedTitle, StringComparison.Ordinal) => 2,
-            _ when string.Equals(key, UiText.ImportConflictTitle, StringComparison.Ordinal) => 3,
-            _ => 4,
+            _ when string.Equals(key, UiText.ImportMetadataOnlyTitle, StringComparison.Ordinal) => 1,
+            _ when string.Equals(key, UiText.ImportAddedTitle, StringComparison.Ordinal) => 2,
+            _ when string.Equals(key, UiText.ImportDeletedTitle, StringComparison.Ordinal) => 3,
+            _ when string.Equals(key, UiText.ImportConflictTitle, StringComparison.Ordinal) => 4,
+            _ => 5,
         };
 
     private static int NormalizeOptionIndex(int value, int optionCount) =>
         value < 0 || value >= optionCount ? 0 : value;
 
-    private string BuildRuleGroupSummary(RuleAggregate? before, RuleAggregate? after, IReadOnlyList<DiffChangeItemViewModel> _)
+    private static string BuildRuleGroupSummary(RuleAggregate? before, RuleAggregate? after, IReadOnlyList<DiffChangeItemViewModel> _)
     {
         var commonSummary = BuildRuleCommonSummary(before, after);
         return string.IsNullOrWhiteSpace(commonSummary)
@@ -2944,7 +3122,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
                 after is null ? UiText.DiffNotPresent : FormatOccurrenceWhen(after),
                 UiText.DiffNotPresent),
             CreateOccurrenceField(UiText.ImportFieldLocation, ResolveDisplayLocation(before, beforeMetadata), ResolveDisplayLocation(after, afterMetadata), UiText.DiffNoLocation),
-            CreateOccurrenceField(UiText.ImportFieldTimeZone, FormatTimeZoneValue(before), FormatTimeZoneValue(after), UiText.DiffNotPresent),
+            CreateOccurrenceField(UiText.ImportFieldTimeZone, FormatTimeZoneValue(before, hideDefault: false), FormatTimeZoneValue(after, hideDefault: false), UiText.DiffNotPresent),
             CreateOccurrenceField(UiText.ImportFieldColor, FormatColorValue(before), FormatColorValue(after), UiText.DiffNotPresent),
             CreateOccurrenceField(UiText.CourseEditorNotesLabel, ResolveNotes(before, beforeMetadata), ResolveNotes(after, afterMetadata), UiText.DiffNoNotes),
         };
@@ -3279,7 +3457,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         return values.Count == 0 ? null : NormalizeNotesDisplayText(string.Join('\n', values));
     }
 
-    private static bool TryExtractNotesFromSegments(string line, ICollection<string> values)
+    private static bool TryExtractNotesFromSegments(string line, List<string> values)
     {
         if (!line.Contains('/', StringComparison.Ordinal))
         {
@@ -3541,7 +3719,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         return summaries.Length == 0 ? UiText.DiffNotPresent : string.Join(UiText.SummarySeparator, summaries);
     }
 
-    private string FormatTimeZoneValue(ResolvedOccurrence? occurrence)
+    private string FormatTimeZoneValue(ResolvedOccurrence? occurrence, bool hideDefault = true)
     {
         if (occurrence is null)
         {
@@ -3556,45 +3734,13 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
         var defaultTimeZoneId = workspace.CurrentPreferences.GoogleSettings.PreferredCalendarTimeZoneId
             ?? WorkspacePreferenceDefaults.CreateGoogleSettings().PreferredCalendarTimeZoneId;
-        if (string.Equals(timeZoneId, defaultTimeZoneId, StringComparison.OrdinalIgnoreCase))
+        if (hideDefault && string.Equals(timeZoneId, defaultTimeZoneId, StringComparison.OrdinalIgnoreCase))
         {
             return UiText.DiffNotPresent;
         }
 
-        var offset = ResolveTimeZoneOffset(timeZoneId, occurrence.Start.DateTime) ?? occurrence.Start.Offset;
-        var sign = offset < TimeSpan.Zero ? "-" : "+";
-        var absolute = offset.Duration();
-        return $"UTC{sign}{absolute:hh\\:mm}";
-    }
-
-    private static TimeSpan? ResolveTimeZoneOffset(string timeZoneId, DateTime referenceDateTime)
-    {
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId).GetUtcOffset(referenceDateTime);
-        }
-        catch (TimeZoneNotFoundException)
-        {
-        }
-        catch (InvalidTimeZoneException)
-        {
-        }
-
-        if (TimeZoneInfo.TryConvertIanaIdToWindowsId(timeZoneId, out var windowsId))
-        {
-            try
-            {
-                return TimeZoneInfo.FindSystemTimeZoneById(windowsId).GetUtcOffset(referenceDateTime);
-            }
-            catch (TimeZoneNotFoundException)
-            {
-            }
-            catch (InvalidTimeZoneException)
-            {
-            }
-        }
-
-        return null;
+        var offset = WorkspaceTimeZoneCatalog.TryGetUtcOffset(timeZoneId, occurrence.Start.DateTime) ?? occurrence.Start.Offset;
+        return $"{timeZoneId} ({WorkspaceTimeZoneCatalog.FormatUtcOffset(offset)})";
     }
 
     private static CompactScheduleKey CreateScheduleKey(ResolvedOccurrence? occurrence) =>
@@ -3835,7 +3981,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
             return CourseScheduleRepeatKind.None;
         }
 
-        if (intervals.All(static interval => interval == 14))
+        if (intervals.All(static interval => interval % 14 == 0))
         {
             return CourseScheduleRepeatKind.Biweekly;
         }
@@ -3892,6 +4038,7 @@ public sealed class ImportDiffPageViewModel : ObservableObject
     {
         if (parsedCourseDisplayMode == mode)
         {
+            RaiseParsedCourseDisplayModeChanged();
             return;
         }
 
@@ -3899,13 +4046,18 @@ public sealed class ImportDiffPageViewModel : ObservableObject
         lock (rebuildSync)
         {
             ParsedCourseGroups.Clear();
-            BuildParsedCourseGroups(workspace.CurrentOccurrences);
+            BuildParsedCourseGroups(GetUnchangedCurrentOccurrences());
             OnPropertyChanged(nameof(HasParsedCourses));
             OnPropertyChanged(nameof(ShowParsedCoursesSection));
-            OnPropertyChanged(nameof(IsParsedCourseDisplayModeRepeatRules));
-            OnPropertyChanged(nameof(IsParsedCourseDisplayModeAllTimes));
-            OnPropertyChanged(nameof(ParsedCoursesHint));
+            RaiseParsedCourseDisplayModeChanged();
         }
+    }
+
+    private void RaiseParsedCourseDisplayModeChanged()
+    {
+        OnPropertyChanged(nameof(IsParsedCourseDisplayModeRepeatRules));
+        OnPropertyChanged(nameof(IsParsedCourseDisplayModeAllTimes));
+        OnPropertyChanged(nameof(ParsedCoursesHint));
     }
 
     private sealed record ParsedRuleKey(
@@ -3974,15 +4126,13 @@ public sealed class ImportDiffPageViewModel : ObservableObject
     }
 
     private string FormatRatio(int count) =>
-        PlannedChangeCount == 0
+        ReviewMetricTotal == 0
             ? "0%"
-            : $"{count * 100d / PlannedChangeCount:0.#}%";
+            : $"{count * 100d / ReviewMetricTotal:0.#}%";
 
-    private string FormatConflictRatio()
-    {
-        var total = PlannedChangeCount + CurrentScheduleConflictCount + workspace.CurrentUnresolvedItems.Count;
-        return total == 0 ? "0%" : $"{ConflictCount * 100d / total:0.#}%";
-    }
+    private string FormatUnchangedRatio(int count) => FormatRatio(count);
+
+    private string FormatConflictRatio() => FormatRatio(ConflictCount);
 
     private string BuildDateRangeSummary()
     {

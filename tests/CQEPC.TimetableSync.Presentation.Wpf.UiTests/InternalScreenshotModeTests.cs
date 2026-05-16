@@ -7,6 +7,43 @@ namespace CQEPC.TimetableSync.Presentation.Wpf.UiTests;
 [Collection(UiAutomationTestCollectionDefinition.Name)]
 public sealed class InternalScreenshotModeTests
 {
+    [Fact]
+    public async Task AutomationWindowCloseExitsProcess()
+    {
+        var storageRoot = Path.Combine(
+            Path.GetTempPath(),
+            "CQEPC.TimetableSync.UiTests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(storageRoot);
+
+        try
+        {
+            await using var session = await UiAppSession.LaunchAsync(
+                nameof(AutomationWindowCloseExitsProcess),
+                storageRoot,
+                width: 900,
+                height: 720);
+
+            session.MainWindow.Close();
+
+            var deadline = DateTime.UtcNow.AddSeconds(8);
+            while (!session.Application.HasExited && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(100);
+            }
+
+            session.Application.HasExited.Should().BeTrue(
+                "closing the main window must release the WPF process and its output DLL locks");
+        }
+        finally
+        {
+            if (Directory.Exists(storageRoot))
+            {
+                Directory.Delete(storageRoot, recursive: true);
+            }
+        }
+    }
+
     [Theory]
     [InlineData("Home")]
     [InlineData("Import")]
@@ -39,6 +76,20 @@ public sealed class InternalScreenshotModeTests
         var standardOutput = await process.StandardOutput.ReadToEndAsync();
         var standardError = await process.StandardError.ReadToEndAsync();
         process.ExitCode.Should().Be(0, $"{standardOutput}{Environment.NewLine}{standardError}");
+        File.Exists(outputPath).Should().BeTrue();
+        new FileInfo(outputPath).Length.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task SettingsShellScreenshotIncludesNavigationRails()
+    {
+        await using var session = await UiAppSession.LaunchAsync(nameof(SettingsShellScreenshotIncludesNavigationRails));
+
+        session.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+        var outputPath = await session.CaptureAutomationElementScreenshotAsync(
+            "Shell.MainWindow",
+            "settings-shell-navigation-rails");
+
         File.Exists(outputPath).Should().BeTrue();
         new FileInfo(outputPath).Length.Should().BeGreaterThan(0);
     }

@@ -9,6 +9,7 @@ using CQEPC.TimetableSync.Application.UseCases.Workspace;
 using CQEPC.TimetableSync.Domain.Enums;
 using CQEPC.TimetableSync.Domain.Model;
 using CQEPC.TimetableSync.Domain.ValueObjects;
+using CQEPC.TimetableSync.Presentation.Wpf.Resources;
 using CQEPC.TimetableSync.Presentation.Wpf.Services;
 using CQEPC.TimetableSync.Presentation.Wpf.ViewModels;
 using FluentAssertions;
@@ -257,6 +258,7 @@ public sealed class WorkspaceSessionResolutionTests
         using var tempDirectory = new TemporaryDirectory();
         var pdfPath = tempDirectory.CreateFile("schedule.pdf");
         var replacementPdfPath = tempDirectory.CreateFile("schedule-updated.pdf");
+        var browsedReplacementPdfPath = tempDirectory.CreateFile("schedule-browsed-update.pdf");
         var xlsPath = tempDirectory.CreateFile("progress.xls");
         var docxPath = tempDirectory.CreateFile("times.docx");
         var repository = new InMemoryLocalSourceCatalogRepository();
@@ -266,14 +268,18 @@ public sealed class WorkspaceSessionResolutionTests
             ImportFiles = [pdfPath, xlsPath, docxPath],
         };
         filePicker.SetSlotFile(LocalSourceFileKind.TimetablePdf, replacementPdfPath);
+        var previewService = new DynamicWorkspacePreviewService();
         var session = new WorkspaceSessionViewModel(
             onboardingService,
             filePicker,
             new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create()),
-            new DynamicWorkspacePreviewService());
+            previewService);
 
         await session.InitializeAsync();
+        var initialPreviewBuildCount = previewService.BuildPreviewCallCount;
+        initialPreviewBuildCount.Should().BeGreaterThan(0);
         await session.BrowseFilesCommand.ExecuteAsync(null);
+        previewService.BuildPreviewCallCount.Should().Be(initialPreviewBuildCount + 1);
 
         session.MissingRequiredFilesSummary.Should().Be("All required source files are selected.");
         session.SourceFiles.Single(card => card.Kind == LocalSourceFileKind.TimetablePdf).SelectedFileName.Should().Be("schedule.pdf");
@@ -283,12 +289,52 @@ public sealed class WorkspaceSessionResolutionTests
         var pdfCard = session.SourceFiles.Single(card => card.Kind == LocalSourceFileKind.TimetablePdf);
         await pdfCard.ReplaceCommand.ExecuteAsync(null);
         pdfCard.SelectedFileName.Should().Be("schedule-updated.pdf");
+        previewService.BuildPreviewCallCount.Should().Be(initialPreviewBuildCount + 2);
+
+        filePicker.SetSlotFile(LocalSourceFileKind.TimetablePdf, browsedReplacementPdfPath);
+        await pdfCard.BrowseCommand.ExecuteAsync(null);
+        pdfCard.SelectedFileName.Should().Be("schedule-browsed-update.pdf");
+        previewService.BuildPreviewCallCount.Should().Be(initialPreviewBuildCount + 3);
 
         var docxCard = session.SourceFiles.Single(card => card.Kind == LocalSourceFileKind.ClassTimeDocx);
         await docxCard.RemoveCommand.ExecuteAsync(null);
+        previewService.BuildPreviewCallCount.Should().Be(initialPreviewBuildCount + 4);
 
         docxCard.HasSelection.Should().BeFalse();
         session.MissingRequiredFilesSummary.Should().Contain("Class-Time DOCX");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionShowsTrackedTaskWhileReplacingSourceFileRefreshesPreview()
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        var replacementPdfPath = tempDirectory.CreateFile("schedule-updated.pdf");
+        var filePicker = new RecordingFilePickerService();
+        filePicker.SetSlotFile(LocalSourceFileKind.TimetablePdf, replacementPdfPath);
+        var previewService = new DynamicWorkspacePreviewService();
+        var session = new WorkspaceSessionViewModel(
+            new StaticOnboardingService(CreateReadyCatalogState()),
+            filePicker,
+            new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create()),
+            previewService);
+
+        await session.InitializeAsync();
+
+        var previewStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePreview = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        previewService.BlockNextBuild(previewStarted, releasePreview);
+
+        var pdfCard = session.SourceFiles.Single(card => card.Kind == LocalSourceFileKind.TimetablePdf);
+        var replaceTask = pdfCard.ReplaceCommand.ExecuteAsync(null);
+        await previewStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        session.HasActiveTasks.Should().BeTrue();
+        session.ActiveTaskTitle.Should().Be(UiText.TaskRefreshLocalPreviewTitle);
+
+        releasePreview.SetResult();
+        await replaceTask;
+
+        session.HasActiveTasks.Should().BeFalse();
     }
 
     [Fact]
@@ -327,13 +373,120 @@ public sealed class WorkspaceSessionResolutionTests
         await session.InitializeAsync();
 
         session.SelectedGoogleTimeZoneOption = session.GoogleTimeZoneOptions.Single(
-            option => option.DisplayName == "UTC");
+            option => option.TimeZoneId == "America/New_York");
         await WaitForAsyncWorkAsync();
 
-        session.CurrentPreferences.GoogleSettings.PreferredCalendarTimeZoneId.Should().Be("UTC");
-        session.CurrentPreferences.GoogleSettings.RemoteReadFallbackTimeZoneId.Should().Be("UTC");
-        preferencesRepository.SavedPreferences.GoogleSettings.PreferredCalendarTimeZoneId.Should().Be("UTC");
-        preferencesRepository.SavedPreferences.GoogleSettings.RemoteReadFallbackTimeZoneId.Should().Be("UTC");
+        session.CurrentPreferences.GoogleSettings.PreferredCalendarTimeZoneId.Should().Be("America/New_York");
+        session.CurrentPreferences.GoogleSettings.RemoteReadFallbackTimeZoneId.Should().Be("America/New_York");
+        preferencesRepository.SavedPreferences.GoogleSettings.PreferredCalendarTimeZoneId.Should().Be("America/New_York");
+        preferencesRepository.SavedPreferences.GoogleSettings.RemoteReadFallbackTimeZoneId.Should().Be("America/New_York");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionFiltersGoogleTimeZonesByCategoryCityCountryAndUtcOffset()
+    {
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create()),
+            new DynamicWorkspacePreviewService());
+
+        await session.InitializeAsync();
+
+        session.GoogleTimeZoneCategoryOptions.Select(static option => option.Region).Should().Equal(
+            WorkspaceTimeZoneRegion.Common,
+            WorkspaceTimeZoneRegion.Asia,
+            WorkspaceTimeZoneRegion.Europe,
+            WorkspaceTimeZoneRegion.NorthAmerica,
+            WorkspaceTimeZoneRegion.SouthAmerica,
+            WorkspaceTimeZoneRegion.Africa,
+            WorkspaceTimeZoneRegion.Oceania,
+            WorkspaceTimeZoneRegion.Utc);
+        session.SelectedGoogleTimeZoneCategoryOption!.Region.Should().Be(WorkspaceTimeZoneRegion.Common);
+
+        session.GoogleTimeZoneSearchText = "China";
+        session.FilteredGoogleTimeZoneOptions.Should().Contain(option => option.TimeZoneId == "Asia/Shanghai");
+
+        session.SelectedGoogleTimeZoneCategoryOption = session.GoogleTimeZoneCategoryOptions.Single(
+            option => option.Region == WorkspaceTimeZoneRegion.Asia);
+        session.GoogleTimeZoneSearchText = "Tokyo";
+        session.FilteredGoogleTimeZoneOptions.Should().ContainSingle(option => option.TimeZoneId == "Asia/Tokyo");
+
+        session.SelectedGoogleTimeZoneCategoryOption = session.GoogleTimeZoneCategoryOptions.Single(
+            option => option.Region == WorkspaceTimeZoneRegion.Utc);
+        session.GoogleTimeZoneSearchText = "Tokyo";
+        session.FilteredGoogleTimeZoneOptions.Should().ContainSingle(option => option.TimeZoneId == "Asia/Tokyo");
+
+        session.GoogleTimeZoneSearchText = "UTC+8";
+        session.FilteredGoogleTimeZoneOptions.Should().Contain(option => option.TimeZoneId == "Etc/GMT-8");
+        session.FilteredGoogleTimeZoneOptions.Select(static option => option.TimeZoneId)
+            .Should()
+            .OnlyHaveUniqueItems();
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionKeepsCommonTimeZonesToPopularAndRecentSelections()
+    {
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            preferencesRepository,
+            new DynamicWorkspacePreviewService());
+
+        await session.InitializeAsync();
+
+        session.FilteredGoogleTimeZoneOptions.Select(static option => option.TimeZoneId).Should().StartWith(
+            WorkspaceTimeZoneCatalog.PopularTimeZoneIds);
+        session.FilteredGoogleTimeZoneOptions.Should().NotContain(option => option.TimeZoneId == "Antarctica/South_Pole");
+
+        session.SelectedGoogleTimeZoneOption = session.GoogleTimeZoneOptions.Single(
+            option => option.TimeZoneId == "America/New_York");
+        await WaitForAsyncWorkAsync();
+        session.SelectedGoogleTimeZoneOption = session.GoogleTimeZoneOptions.Single(
+            option => option.TimeZoneId == "Asia/Tokyo");
+        await WaitForAsyncWorkAsync();
+
+        session.SelectedGoogleTimeZoneCategoryOption = session.GoogleTimeZoneCategoryOptions.Single(
+            option => option.Region == WorkspaceTimeZoneRegion.Common);
+        session.GoogleTimeZoneSearchText = string.Empty;
+
+        session.FilteredGoogleTimeZoneOptions.Select(static option => option.TimeZoneId).Should().StartWith(
+            "Asia/Tokyo",
+            "America/New_York",
+            "Asia/Shanghai");
+        preferencesRepository.SavedPreferences.GoogleSettings.RecentCalendarTimeZoneIds.Should().Equal(
+            "Asia/Tokyo",
+            "America/New_York");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionLocalizesPopularGoogleTimeZoneDisplayAndSearchText()
+    {
+        var localizationService = new FakeLocalizationService();
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create()),
+            new DynamicWorkspacePreviewService(),
+            localizationService);
+
+        await session.InitializeAsync();
+
+        session.SelectedLocalizationOption = session.LocalizationOptions.Single(
+            option => option.PreferredCultureName == "zh-CN");
+        await WaitForAsyncWorkAsync();
+
+        session.GoogleTimeZoneSearchText = "\u4e2d\u56fd\u4e0a\u6d77";
+
+        var shanghai = session.FilteredGoogleTimeZoneOptions.Should()
+            .ContainSingle(option => option.TimeZoneId == "Asia/Shanghai")
+            .Subject;
+        shanghai.DisplayName.Should().Be("Asia/Shanghai (UTC+08:00)");
+        shanghai.LocalizedDisplayName.Should().StartWith("\u4e2d\u56fd\u4e0a\u6d77 - Asia/Shanghai");
+
+        session.GoogleTimeZoneSearchText = "\u57c3\u53ca";
+        var cairo = session.FilteredGoogleTimeZoneOptions.Should()
+            .ContainSingle(option => option.TimeZoneId == "Africa/Cairo")
+            .Subject;
+        cairo.LocalizedDisplayName.Should().StartWith("\u57c3\u53ca\u5f00\u7f57 - Africa/Cairo");
     }
 
     [Fact]
@@ -434,6 +587,80 @@ public sealed class WorkspaceSessionResolutionTests
         session.CurrentPreferences.Appearance.ThemeMode.Should().Be(ThemeMode.Dark);
         preferencesRepository.SavedPreferences.Appearance.ThemeMode.Should().Be(ThemeMode.Dark);
         themeService.ActiveTheme.Should().Be(ThemeMode.Dark);
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionPersistsNetworkProxySelectionAndPublishesRuntimeChange()
+    {
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var publishedSettings = new List<NetworkProxySettings>();
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            preferencesRepository,
+            new DynamicWorkspacePreviewService(),
+            networkProxySettingsChanged: (settings, _) => publishedSettings.Add(settings));
+
+        await session.InitializeAsync();
+
+        session.SelectedNetworkProxyOption = session.NetworkProxyOptions.Single(option => option.Mode == NetworkProxyMode.Custom);
+        session.CustomNetworkProxyUri = "http://127.0.0.1:7890";
+        await WaitForAsyncWorkAsync();
+
+        session.CurrentPreferences.ProgramBehavior.NetworkProxy.Mode.Should().Be(NetworkProxyMode.Custom);
+        session.CurrentPreferences.ProgramBehavior.NetworkProxy.CustomProxyUri.Should().Be("http://127.0.0.1:7890");
+        preferencesRepository.SavedPreferences.ProgramBehavior.NetworkProxy.Mode.Should().Be(NetworkProxyMode.Custom);
+        preferencesRepository.SavedPreferences.ProgramBehavior.NetworkProxy.CustomProxyUri.Should().Be("http://127.0.0.1:7890");
+        publishedSettings.Should().Contain(setting => setting.Mode == NetworkProxyMode.Custom);
+        publishedSettings.Should().Contain(setting => string.Equals(setting.CustomProxyUri, "http://127.0.0.1:7890", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionPersistsCustomProxyCredentialsAndBypassSettings()
+    {
+        var secretStore = new RecordingNetworkProxySecretStore();
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var publishedSettings = new List<(NetworkProxySettings Settings, string? Password)>();
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            preferencesRepository,
+            new DynamicWorkspacePreviewService(),
+            networkProxySecretStore: secretStore,
+            networkProxySettingsChanged: (settings, password) => publishedSettings.Add((settings, password)));
+
+        await session.InitializeAsync();
+
+        session.SelectedNetworkProxyOption = session.NetworkProxyOptions.Single(option => option.Mode == NetworkProxyMode.Custom);
+        session.CustomNetworkProxyUri = "http://proxy.example.test:8080";
+        session.CustomNetworkProxyUsername = "student";
+        session.CustomNetworkProxyPassword = "secret";
+        session.CustomNetworkProxyBypassLocal = true;
+        session.CustomNetworkProxyBypassListText = "localhost\n127.0.0.1\n::1\n*.internal.example";
+        await WaitForAsyncWorkAsync();
+
+        preferencesRepository.SavedPreferences.ProgramBehavior.NetworkProxy.CustomProxyUsername.Should().Be("student");
+        preferencesRepository.SavedPreferences.ProgramBehavior.NetworkProxy.CustomProxyHasPassword.Should().BeTrue();
+        preferencesRepository.SavedPreferences.ProgramBehavior.NetworkProxy.BypassList.Should().Contain("*.internal.example");
+        secretStore.SavedPassword.Should().Be("secret");
+        publishedSettings.Should().Contain(entry => entry.Settings.CustomProxyUsername == "student" && entry.Password == "secret");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionReportsNetworkProxyConnectionTestResult()
+    {
+        var tester = new RecordingNetworkProxyConnectionTester(
+            new NetworkProxyConnectionTestResult(NetworkProxyConnectionTestStatus.ProxyUnreachable, "proxy refused connection"));
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create()),
+            new DynamicWorkspacePreviewService(),
+            networkProxyConnectionTester: tester);
+
+        await session.InitializeAsync();
+        await session.TestNetworkProxyConnectionCommand.ExecuteAsync(null);
+
+        tester.Calls.Should().Be(1);
+        session.NetworkProxyConnectionTestStatus.Should().Contain("Proxy");
+        session.NetworkProxyConnectionTestStatus.Should().Contain("proxy refused connection");
     }
 
     [Fact]
@@ -621,6 +848,30 @@ public sealed class WorkspaceSessionResolutionTests
     }
 
     [Fact]
+    public async Task WorkspaceSessionPromotesCourseEditorTimeZoneToRecentCommonOrder()
+    {
+        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            preferencesRepository,
+            new DynamicWorkspacePreviewService());
+
+        await session.InitializeAsync();
+
+        var occurrence = session.CurrentOccurrences.Single();
+        session.OpenCourseEditor(occurrence);
+        session.CourseEditor.SelectedTimeZoneOption = session.CourseEditor.TimeZoneOptions.Single(
+            option => option.TimeZoneId == "America/New_York");
+        await session.CourseEditor.SaveCommand.ExecuteAsync(null);
+        await WaitForAsyncWorkAsync();
+
+        preferencesRepository.SavedPreferences.GoogleSettings.RecentCalendarTimeZoneIds.Should().StartWith("America/New_York");
+        session.FilteredGoogleTimeZoneOptions.Select(static option => option.TimeZoneId).Should().StartWith(
+            "America/New_York",
+            "Asia/Shanghai");
+    }
+
+    [Fact]
     public async Task WorkspaceSessionSavesSingleOccurrenceEditorChangesWithSourceOccurrenceDate()
     {
         var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
@@ -704,70 +955,6 @@ public sealed class WorkspaceSessionResolutionTests
         var savedOverride = preferencesRepository.SavedPreferences.TimetableResolution.CourseScheduleOverrides.Should().ContainSingle().Subject;
         savedOverride.StartDate.Should().Be(new DateOnly(2026, 3, 2));
         savedOverride.EndDate.Should().Be(new DateOnly(2026, 3, 16));
-    }
-
-    [Fact]
-    public async Task WorkspaceSessionDoesNotInferBiweeklyForSparseFourWeekCadence()
-    {
-        var preferencesRepository = new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create());
-        var sparseFingerprint = new SourceFingerprint("pdf", "signals-sparse-four-week");
-        var previewService = new DynamicWorkspacePreviewService(
-            request =>
-            {
-                var classSchedules = CreateClassSchedules();
-                var schoolWeeks = new[]
-                {
-                    new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8)),
-                    new SchoolWeek(5, new DateOnly(2026, 3, 30), new DateOnly(2026, 4, 5)),
-                    new SchoolWeek(9, new DateOnly(2026, 4, 27), new DateOnly(2026, 5, 3)),
-                };
-                var timeProfiles = CreateTimeProfiles();
-                var occurrences = new[]
-                {
-                    CreateOccurrence("Class A", "Signals", "main-campus", sparseFingerprint, new DateOnly(2026, 3, 2), schoolWeekNumber: 1),
-                    CreateOccurrence("Class A", "Signals", "main-campus", sparseFingerprint, new DateOnly(2026, 3, 30), schoolWeekNumber: 5),
-                    CreateOccurrence("Class A", "Signals", "main-campus", sparseFingerprint, new DateOnly(2026, 4, 27), schoolWeekNumber: 9),
-                };
-                var normalization = new CQEPC.TimetableSync.Application.Abstractions.Normalization.NormalizationResult(
-                    classSchedules.SelectMany(static schedule => schedule.CourseBlocks).ToArray(),
-                    occurrences,
-                    occurrences.Select(static occurrence => new ExportGroup(ExportGroupKind.SingleOccurrence, [occurrence])).ToArray(),
-                    Array.Empty<UnresolvedItem>());
-                var syncPlan = new SyncPlan(occurrences, Array.Empty<PlannedSyncChange>(), Array.Empty<UnresolvedItem>());
-
-                return new WorkspacePreviewResult(
-                    request.CatalogState,
-                    request.Preferences,
-                    PreviousSnapshot: null,
-                    ParsedClassSchedules: classSchedules,
-                    SchoolWeeks: schoolWeeks,
-                    TimeProfiles: timeProfiles,
-                    ParserWarnings: Array.Empty<CQEPC.TimetableSync.Application.Abstractions.Parsing.ParseWarning>(),
-                    ParserDiagnostics: Array.Empty<CQEPC.TimetableSync.Application.Abstractions.Parsing.ParseDiagnostic>(),
-                    ParserUnresolvedItems: Array.Empty<UnresolvedItem>(),
-                    EffectiveSelectedClassName: "Class A",
-                    DerivedFirstWeekStart: schoolWeeks[0].StartDate,
-                    EffectiveFirstWeekStart: schoolWeeks[0].StartDate,
-                    EffectiveFirstWeekSource: FirstWeekStartValueSource.AutoDerivedFromXls,
-                    EffectiveTimeProfileDefaultMode: TimeProfileDefaultMode.Automatic,
-                    EffectiveExplicitDefaultTimeProfileId: null,
-                    EffectiveSelectedTimeProfileId: "main-campus",
-                    AppliedTimeProfileOverrideCount: 0,
-                    TaskGenerationRules: Array.Empty<RuleBasedTaskGenerationRule>(),
-                    GeneratedTaskCount: 0,
-                    NormalizationResult: normalization,
-                    SyncPlan: syncPlan,
-                    Status: new WorkspacePreviewStatus(WorkspacePreviewStatusKind.UpToDate));
-            });
-        var session = CreateSession(CreateReadyCatalogState(), preferencesRepository, previewService);
-
-        await session.InitializeAsync();
-
-        session.OpenCourseEditor(session.CurrentOccurrences[0]);
-
-        session.CourseEditor.IsRepeatBiweeklySelected.Should().BeFalse();
-        session.CourseEditor.SelectedRepeatOption!.RepeatKind.Should().Be(CourseScheduleRepeatKind.Weekly);
-        session.CourseEditor.RepeatInterval.Should().Be(4);
     }
 
     [Fact]
@@ -1634,6 +1821,27 @@ public sealed class WorkspaceSessionResolutionTests
     }
 
     [Fact]
+    public async Task WorkspaceSessionCachesHomeRenderResultsPerCalendarMode()
+    {
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create()),
+            new DynamicWorkspacePreviewService());
+
+        await session.InitializeAsync();
+
+        var currentCalendarItems = session.HomeScheduleItems;
+        session.IsGoogleCalendarImportEnabled = false;
+        await WaitForAsyncWorkAsync();
+        var localOnlyItems = session.HomeScheduleItems;
+        session.IsGoogleCalendarImportEnabled = true;
+        await WaitForAsyncWorkAsync();
+
+        session.HomeScheduleItems.Should().BeSameAs(currentCalendarItems);
+        localOnlyItems.Should().NotBeSameAs(currentCalendarItems);
+    }
+
+    [Fact]
     public async Task WorkspaceSessionRefreshingGoogleCalendarsAlsoRefreshesHomePreview()
     {
         var previewService = new DynamicWorkspacePreviewService();
@@ -1706,7 +1914,10 @@ public sealed class WorkspaceSessionResolutionTests
         ILocalizationService? localizationService = null,
         IThemeService? themeService = null,
         ISyncProviderAdapter? googleProviderAdapter = null,
-        ISyncProviderAdapter? microsoftProviderAdapter = null) =>
+        ISyncProviderAdapter? microsoftProviderAdapter = null,
+        INetworkProxySecretStore? networkProxySecretStore = null,
+        INetworkProxyConnectionTester? networkProxyConnectionTester = null,
+        Action<NetworkProxySettings, string?>? networkProxySettingsChanged = null) =>
         new(
             new StaticOnboardingService(catalogState),
             new RecordingFilePickerService(),
@@ -1715,7 +1926,10 @@ public sealed class WorkspaceSessionResolutionTests
             googleProviderAdapter,
             microsoftProviderAdapter,
             localizationService: localizationService,
-            themeService: themeService);
+            themeService: themeService,
+            networkProxySecretStore: networkProxySecretStore,
+            networkProxyConnectionTester: networkProxyConnectionTester,
+            networkProxySettingsChanged: networkProxySettingsChanged);
 
     private static LocalSourceCatalogState CreateReadyCatalogState() =>
         new(
@@ -1791,31 +2005,6 @@ public sealed class WorkspaceSessionResolutionTests
                 location: $"{className}-101",
                 teacher: "Teacher A"),
             sourceFingerprint: new SourceFingerprint("pdf", $"{className}-{courseTitle}-20260302"),
-            courseType: "Theory");
-
-    private static ResolvedOccurrence CreateOccurrence(
-        string className,
-        string courseTitle,
-        string profileId,
-        SourceFingerprint sourceFingerprint,
-        DateOnly date,
-        int schoolWeekNumber) =>
-        new(
-            className,
-            schoolWeekNumber,
-            date,
-            new DateTimeOffset(date.ToDateTime(new TimeOnly(8, 0)), TimeSpan.FromHours(8)),
-            new DateTimeOffset(date.ToDateTime(new TimeOnly(9, 40)), TimeSpan.FromHours(8)),
-            profileId,
-            date.DayOfWeek,
-            new CourseMetadata(
-                courseTitle,
-                new WeekExpression("1,5,9"),
-                new PeriodRange(1, 2),
-                campus: "Main Campus",
-                location: $"{className}-101",
-                teacher: "Teacher A"),
-            sourceFingerprint,
             courseType: "Theory");
 
     private static WorkspacePreviewResult CreatePreviewWithOnePlannedChange(WorkspacePreviewRequest request)
@@ -2060,6 +2249,8 @@ public sealed class WorkspaceSessionResolutionTests
         private readonly Func<WorkspacePreviewRequest, WorkspacePreviewResult>? previewBuilder;
         private readonly Exception? applyException;
         private readonly List<WorkspacePreviewRequest> previewRequests = [];
+        private TaskCompletionSource? nextPreviewStarted;
+        private TaskCompletionSource? nextPreviewRelease;
 
         public DynamicWorkspacePreviewService(
             Func<WorkspacePreviewRequest, WorkspacePreviewResult>? previewBuilder = null,
@@ -2075,13 +2266,29 @@ public sealed class WorkspaceSessionResolutionTests
 
         public List<WorkspacePreviewRequest> PreviewRequests => previewRequests;
 
-        public Task<WorkspacePreviewResult> BuildPreviewAsync(WorkspacePreviewRequest request, CancellationToken cancellationToken)
+        public void BlockNextBuild(TaskCompletionSource previewStarted, TaskCompletionSource previewRelease)
+        {
+            nextPreviewStarted = previewStarted;
+            nextPreviewRelease = previewRelease;
+        }
+
+        public async Task<WorkspacePreviewResult> BuildPreviewAsync(WorkspacePreviewRequest request, CancellationToken cancellationToken)
         {
             BuildPreviewCallCount++;
             previewRequests.Add(request);
+            if (nextPreviewStarted is not null && nextPreviewRelease is not null)
+            {
+                var started = nextPreviewStarted;
+                var release = nextPreviewRelease;
+                nextPreviewStarted = null;
+                nextPreviewRelease = null;
+                started.TrySetResult();
+                await release.Task.WaitAsync(cancellationToken);
+            }
+
             if (previewBuilder is not null)
             {
-                return Task.FromResult(previewBuilder(request));
+                return previewBuilder(request);
             }
 
             var classSchedules = request.CatalogState.GetFile(LocalSourceFileKind.TimetablePdf).IsReady
@@ -2127,7 +2334,7 @@ public sealed class WorkspaceSessionResolutionTests
                 ? new WorkspacePreviewStatus(WorkspacePreviewStatusKind.UpToDate)
                 : new WorkspacePreviewStatus(WorkspacePreviewStatusKind.MissingRequiredFiles);
 
-            return Task.FromResult(new WorkspacePreviewResult(
+            return new WorkspacePreviewResult(
                 request.CatalogState,
                 request.Preferences,
                 PreviousSnapshot: null,
@@ -2149,7 +2356,7 @@ public sealed class WorkspaceSessionResolutionTests
                 GeneratedTaskCount: 0,
                 NormalizationResult: normalization,
                 SyncPlan: syncPlan,
-                Status: status));
+                Status: status);
         }
 
         public Task<WorkspaceApplyResult> ApplyAcceptedChangesAsync(
@@ -2356,6 +2563,8 @@ public sealed class WorkspaceSessionResolutionTests
                     ["LocalizationOptionFollowSystem"] = "Follow System",
                     ["LocalizationOptionZhCn"] = "Simplified Chinese (zh-CN)",
                     ["LocalizationOptionEnUs"] = "English",
+                    ["TimeZoneNameAsiaShanghai"] = "Shanghai, China",
+                    ["TimeZoneNameAfricaCairo"] = "Cairo, Egypt",
                 },
                 ["zh-CN"] = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
@@ -2364,6 +2573,8 @@ public sealed class WorkspaceSessionResolutionTests
                     ["LocalizationOptionFollowSystem"] = L001,
                     ["LocalizationOptionZhCn"] = L012,
                     ["LocalizationOptionEnUs"] = L013,
+                    ["TimeZoneNameAsiaShanghai"] = "\u4e2d\u56fd\u4e0a\u6d77",
+                    ["TimeZoneNameAfricaCairo"] = "\u57c3\u53ca\u5f00\u7f57",
                 },
             };
 
@@ -2391,6 +2602,7 @@ public sealed class WorkspaceSessionResolutionTests
                 ?? CultureInfo.GetCultureInfo("en-US");
             var changed = !string.Equals(nextCulture.Name, EffectiveCulture.Name, StringComparison.OrdinalIgnoreCase);
             EffectiveCulture = nextCulture;
+            CultureInfo.CurrentUICulture = nextCulture;
             if (changed)
             {
                 LanguageChanged?.Invoke(this, EventArgs.Empty);
@@ -2413,12 +2625,19 @@ public sealed class WorkspaceSessionResolutionTests
 
     private sealed class FakeThemeService : IThemeService
     {
+        public event EventHandler<ThemeChangingEventArgs>? ThemeChanging;
+
         public event EventHandler? ThemeChanged;
 
         public ThemeMode ActiveTheme { get; private set; } = ThemeMode.Light;
 
         public void ApplyTheme(ThemeMode themeMode)
         {
+            if (ActiveTheme != themeMode)
+            {
+                ThemeChanging?.Invoke(this, new ThemeChangingEventArgs(ActiveTheme, themeMode));
+            }
+
             ActiveTheme = themeMode;
             ThemeChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -2452,6 +2671,41 @@ public sealed class WorkspaceSessionResolutionTests
         {
             State = catalogState;
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingNetworkProxySecretStore : INetworkProxySecretStore
+    {
+        public string? SavedPassword { get; private set; }
+
+        public Task<string?> GetPasswordAsync(NetworkProxySettings settings, CancellationToken cancellationToken) =>
+            Task.FromResult(SavedPassword);
+
+        public Task SavePasswordAsync(NetworkProxySettings settings, string? password, CancellationToken cancellationToken)
+        {
+            SavedPassword = password;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingNetworkProxyConnectionTester : INetworkProxyConnectionTester
+    {
+        private readonly NetworkProxyConnectionTestResult result;
+
+        public RecordingNetworkProxyConnectionTester(NetworkProxyConnectionTestResult result)
+        {
+            this.result = result;
+        }
+
+        public int Calls { get; private set; }
+
+        public Task<NetworkProxyConnectionTestResult> TestGoogleApiAsync(
+            NetworkProxySettings settings,
+            string? customProxyPassword,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(result);
         }
     }
 

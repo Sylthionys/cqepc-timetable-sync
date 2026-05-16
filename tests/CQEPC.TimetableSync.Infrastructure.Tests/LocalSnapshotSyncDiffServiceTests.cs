@@ -1,4 +1,5 @@
 using CQEPC.TimetableSync.Application.Abstractions.Persistence;
+using CQEPC.TimetableSync.Application.UseCases.Workspace;
 using CQEPC.TimetableSync.Domain.Enums;
 using CQEPC.TimetableSync.Domain.Model;
 using CQEPC.TimetableSync.Domain.ValueObjects;
@@ -100,6 +101,101 @@ public sealed class LocalSnapshotSyncDiffServiceTests
     }
 
     [Fact]
+    public async Task CreatePreviewAsyncClassifiesSameOffsetTimeZoneIdChangeAsUpdate()
+    {
+        var previousOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            "Room 301",
+            calendarTimeZoneId: "Asia/Shanghai");
+        var repository = new InMemoryWorkspaceRepository
+        {
+            Snapshot = new ImportedScheduleSnapshot(
+                DateTimeOffset.UtcNow,
+                "Class A",
+                [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals")])],
+                Array.Empty<UnresolvedItem>(),
+                [new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8))],
+                [new TimeProfile("main-campus", "Main Campus", [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))])],
+                [previousOccurrence],
+                [new ExportGroup(ExportGroupKind.SingleOccurrence, [previousOccurrence])],
+                Array.Empty<RuleBasedTaskGenerationRule>()),
+        };
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var currentOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            "Room 301",
+            calendarTimeZoneId: "Etc/GMT-8");
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: Array.Empty<SyncMapping>(),
+            remoteDisplayEvents: Array.Empty<ProviderRemoteCalendarEvent>(),
+            calendarDestinationId: null,
+            deletionWindow: null,
+            CancellationToken.None);
+
+        var change = plan.PlannedChanges.Should().ContainSingle().Subject;
+        change.ChangeKind.Should().Be(SyncChangeKind.Updated);
+        change.Before!.CalendarTimeZoneId.Should().Be("Asia/Shanghai");
+        change.After!.CalendarTimeZoneId.Should().Be("Etc/GMT-8");
+    }
+
+    [Fact]
+    public async Task CreatePreviewAsyncIgnoresEquivalentRegionalTimeZoneOnlyLocalSnapshotDrift()
+    {
+        var previousOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            "Room 301",
+            calendarTimeZoneId: "Asia/Shanghai");
+        var repository = new InMemoryWorkspaceRepository
+        {
+            Snapshot = new ImportedScheduleSnapshot(
+                DateTimeOffset.UtcNow,
+                "Class A",
+                [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals")])],
+                Array.Empty<UnresolvedItem>(),
+                [new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8))],
+                [new TimeProfile("main-campus", "Main Campus", [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))])],
+                [previousOccurrence],
+                [new ExportGroup(ExportGroupKind.SingleOccurrence, [previousOccurrence])],
+                Array.Empty<RuleBasedTaskGenerationRule>()),
+        };
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var currentOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            "Room 301",
+            calendarTimeZoneId: "Asia/Hong_Kong");
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: Array.Empty<SyncMapping>(),
+            remoteDisplayEvents: Array.Empty<ProviderRemoteCalendarEvent>(),
+            calendarDestinationId: null,
+            deletionWindow: null,
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task CreatePreviewAsyncTreatsPdfTitleCorrectionAsUpdateInsteadOfDeleteAndAdd()
     {
         var previousOccurrence = CreateOccurrence(
@@ -146,72 +242,6 @@ public sealed class LocalSnapshotSyncDiffServiceTests
         plan.PlannedChanges[0].ChangeKind.Should().Be(SyncChangeKind.Updated);
         plan.PlannedChanges[0].Before!.Metadata.CourseTitle.Should().Be("Signals Old");
         plan.PlannedChanges[0].After!.Metadata.CourseTitle.Should().Be("Signals");
-    }
-
-    [Fact]
-    public async Task CreatePreviewAsyncKeepsDistinctPreviousOccurrencesWithDifferentSourceFingerprints()
-    {
-        var firstPreviousOccurrence = CreateOccurrence(
-            "Signals",
-            new DateOnly(2026, 3, 5),
-            new TimeOnly(8, 0),
-            new TimeOnly(9, 40),
-            "Room 301",
-            sourceHash: "pdf-block-a");
-        var secondPreviousOccurrence = CreateOccurrence(
-            "Signals",
-            new DateOnly(2026, 3, 5),
-            new TimeOnly(8, 0),
-            new TimeOnly(9, 40),
-            "Room 301",
-            sourceHash: "pdf-block-b");
-        var repository = new InMemoryWorkspaceRepository
-        {
-            Snapshot = new ImportedScheduleSnapshot(
-                DateTimeOffset.UtcNow,
-                "Class A",
-                [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals")])],
-                Array.Empty<UnresolvedItem>(),
-                [new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8))],
-                [new TimeProfile("main-campus", "Main Campus", [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))])],
-                [firstPreviousOccurrence, secondPreviousOccurrence],
-                [
-                    new ExportGroup(ExportGroupKind.SingleOccurrence, [firstPreviousOccurrence]),
-                    new ExportGroup(ExportGroupKind.SingleOccurrence, [secondPreviousOccurrence]),
-                ],
-                Array.Empty<RuleBasedTaskGenerationRule>()),
-        };
-        var service = new LocalSnapshotSyncDiffService(repository);
-        ResolvedOccurrence[] currentOccurrences =
-        [
-            CreateOccurrence(
-                "Signals",
-                new DateOnly(2026, 3, 5),
-                new TimeOnly(8, 0),
-                new TimeOnly(9, 40),
-                "Room 301",
-                sourceHash: "pdf-block-a"),
-            CreateOccurrence(
-                "Signals",
-                new DateOnly(2026, 3, 5),
-                new TimeOnly(8, 0),
-                new TimeOnly(9, 40),
-                "Room 301",
-                sourceHash: "pdf-block-b"),
-        ];
-
-        var plan = await service.CreatePreviewAsync(
-            ProviderKind.Microsoft,
-            currentOccurrences,
-            Array.Empty<UnresolvedItem>(),
-            previousSnapshot: null,
-            existingMappings: Array.Empty<SyncMapping>(),
-            remoteDisplayEvents: Array.Empty<ProviderRemoteCalendarEvent>(),
-            calendarDestinationId: null,
-            deletionWindow: null,
-            CancellationToken.None);
-
-        plan.PlannedChanges.Should().BeEmpty();
     }
 
     [Fact]
@@ -402,6 +432,263 @@ public sealed class LocalSnapshotSyncDiffServiceTests
     }
 
     [Fact]
+    public async Task CreatePreviewAsyncIgnoresEquivalentGoogleTimeZoneRegionDrift()
+    {
+        var repository = new InMemoryWorkspaceRepository();
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var currentOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 4, 9),
+            new TimeOnly(8, 30),
+            new TimeOnly(9, 50),
+            "Room 301",
+            calendarTimeZoneId: "Asia/Shanghai");
+        var remoteEvent = CreateRemoteEvent(
+            "Signals",
+            new DateOnly(2026, 4, 9),
+            new TimeOnly(8, 30),
+            new TimeOnly(9, 50),
+            isManagedByApp: true,
+            localSyncId: SyncIdentity.CreateOccurrenceId(currentOccurrence),
+            sourceHash: currentOccurrence.SourceFingerprint.Hash,
+            location: "Room 301",
+            calendarTimeZoneId: "Asia/Hong_Kong",
+            startTimeZoneId: "Asia/Hong_Kong",
+            endTimeZoneId: "Asia/Hong_Kong",
+            hasExplicitStartTimeZone: true,
+            hasExplicitEndTimeZone: true);
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: Array.Empty<SyncMapping>(),
+            remoteDisplayEvents: [remoteEvent],
+            calendarDestinationId: "google-cal",
+            deletionWindow: new PreviewDateWindow(
+                new DateTimeOffset(new DateTime(2026, 4, 1), TimeSpan.Zero),
+                new DateTimeOffset(new DateTime(2026, 4, 30), TimeSpan.Zero)),
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().BeEmpty();
+        plan.PlannedChanges.Should().NotContain(change => change.ChangeKind == SyncChangeKind.Updated);
+    }
+
+    [Fact]
+    public async Task CreatePreviewAsyncIgnoresMissingGoogleTimeZoneWhenInstantWallTimeAndOffsetAlreadyMatch()
+    {
+        var repository = new InMemoryWorkspaceRepository();
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var currentOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 4, 9),
+            new TimeOnly(8, 30),
+            new TimeOnly(9, 50),
+            "Room 301",
+            calendarTimeZoneId: "Asia/Shanghai");
+        var remoteEvent = CreateRemoteEvent(
+            "Signals",
+            new DateOnly(2026, 4, 9),
+            new TimeOnly(8, 30),
+            new TimeOnly(9, 50),
+            isManagedByApp: true,
+            localSyncId: SyncIdentity.CreateOccurrenceId(currentOccurrence),
+            sourceHash: currentOccurrence.SourceFingerprint.Hash,
+            location: "Room 301",
+            remoteOffset: TimeSpan.FromHours(8));
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: Array.Empty<SyncMapping>(),
+            remoteDisplayEvents: [remoteEvent],
+            calendarDestinationId: "google-cal",
+            deletionWindow: new PreviewDateWindow(
+                new DateTimeOffset(new DateTime(2026, 4, 1), TimeSpan.Zero),
+                new DateTimeOffset(new DateTime(2026, 4, 30), TimeSpan.Zero)),
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().BeEmpty();
+        plan.ExactMatchRemoteEventIds.Should().Contain(remoteEvent.RemoteItemId);
+        plan.ExactMatchOccurrenceIds.Should().Contain(SyncIdentity.CreateOccurrenceId(currentOccurrence));
+    }
+
+    [Fact]
+    public async Task CreatePreviewAsyncIgnoresDeclaredGoogleTimeZoneWhenStartAndEndZonesAreOmitted()
+    {
+        var repository = new InMemoryWorkspaceRepository();
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var currentOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 4, 9),
+            new TimeOnly(8, 30),
+            new TimeOnly(9, 50),
+            "Room 301",
+            calendarTimeZoneId: "Asia/Shanghai");
+        var remoteEvent = CreateRemoteEvent(
+            "Signals",
+            new DateOnly(2026, 4, 9),
+            new TimeOnly(8, 30),
+            new TimeOnly(9, 50),
+            isManagedByApp: true,
+            localSyncId: SyncIdentity.CreateOccurrenceId(currentOccurrence),
+            sourceHash: currentOccurrence.SourceFingerprint.Hash,
+            location: "Room 301",
+            calendarTimeZoneId: "Asia/Shanghai",
+            hasExplicitStartTimeZone: false,
+            hasExplicitEndTimeZone: false);
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: Array.Empty<SyncMapping>(),
+            remoteDisplayEvents: [remoteEvent],
+            calendarDestinationId: "google-cal",
+            deletionWindow: new PreviewDateWindow(
+                new DateTimeOffset(new DateTime(2026, 4, 1), TimeSpan.Zero),
+                new DateTimeOffset(new DateTime(2026, 4, 30), TimeSpan.Zero)),
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().BeEmpty();
+        plan.ExactMatchRemoteEventIds.Should().Contain(remoteEvent.RemoteItemId);
+        plan.ExactMatchOccurrenceIds.Should().Contain(SyncIdentity.CreateOccurrenceId(currentOccurrence));
+    }
+
+    [Fact]
+    public async Task CreatePreviewAsyncUsesOriginalStartTimeZoneForEquivalentRecurringInstanceDrift()
+    {
+        var repository = new InMemoryWorkspaceRepository();
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var currentOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 4, 9),
+            new TimeOnly(8, 30),
+            new TimeOnly(9, 50),
+            "Room 301",
+            calendarTimeZoneId: "Asia/Shanghai");
+        var remoteEvent = CreateRemoteEvent(
+            "Signals",
+            new DateOnly(2026, 4, 9),
+            new TimeOnly(8, 30),
+            new TimeOnly(9, 50),
+            isManagedByApp: true,
+            localSyncId: SyncIdentity.CreateOccurrenceId(currentOccurrence),
+            sourceHash: currentOccurrence.SourceFingerprint.Hash,
+            location: "Room 301",
+            remoteOffset: TimeSpan.FromHours(8),
+            originalStartTimeZoneId: "Asia/Hong_Kong",
+            hasExplicitOriginalStartTimeZone: true);
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: Array.Empty<SyncMapping>(),
+            remoteDisplayEvents: [remoteEvent],
+            calendarDestinationId: "google-cal",
+            deletionWindow: new PreviewDateWindow(
+                new DateTimeOffset(new DateTime(2026, 4, 1), TimeSpan.Zero),
+                new DateTimeOffset(new DateTime(2026, 4, 30), TimeSpan.Zero)),
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().BeEmpty();
+        plan.ExactMatchRemoteEventIds.Should().Contain(remoteEvent.RemoteItemId);
+        plan.ExactMatchOccurrenceIds.Should().Contain(SyncIdentity.CreateOccurrenceId(currentOccurrence));
+    }
+
+    [Fact]
+    public async Task CreatePreviewAsyncStillUpdatesManagedGoogleEventWhenTimeActuallyChanges()
+    {
+        var repository = new InMemoryWorkspaceRepository();
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var currentOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 4, 9),
+            new TimeOnly(8, 30),
+            new TimeOnly(9, 50),
+            "Room 301",
+            calendarTimeZoneId: "Asia/Shanghai");
+        var remoteEvent = CreateRemoteEvent(
+            "Signals",
+            new DateOnly(2026, 4, 9),
+            new TimeOnly(9, 30),
+            new TimeOnly(10, 50),
+            isManagedByApp: true,
+            localSyncId: SyncIdentity.CreateOccurrenceId(currentOccurrence),
+            sourceHash: currentOccurrence.SourceFingerprint.Hash,
+            location: "Room 301",
+            calendarTimeZoneId: "Asia/Hong_Kong",
+            startTimeZoneId: "Asia/Hong_Kong",
+            endTimeZoneId: "Asia/Hong_Kong",
+            hasExplicitStartTimeZone: true,
+            hasExplicitEndTimeZone: true);
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: Array.Empty<SyncMapping>(),
+            remoteDisplayEvents: [remoteEvent],
+            calendarDestinationId: "google-cal",
+            deletionWindow: new PreviewDateWindow(
+                new DateTimeOffset(new DateTime(2026, 4, 1), TimeSpan.Zero),
+                new DateTimeOffset(new DateTime(2026, 4, 30), TimeSpan.Zero)),
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().ContainSingle(change => change.ChangeKind == SyncChangeKind.Updated);
+    }
+
+    [Fact]
+    public async Task CreatePreviewAsyncStillUpdatesManagedGoogleEventWhenLocationActuallyChanges()
+    {
+        var repository = new InMemoryWorkspaceRepository();
+        var service = new LocalSnapshotSyncDiffService(repository);
+        var currentOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 4, 9),
+            new TimeOnly(8, 30),
+            new TimeOnly(9, 50),
+            "Room 301",
+            calendarTimeZoneId: "Asia/Shanghai");
+        var remoteEvent = CreateRemoteEvent(
+            "Signals",
+            new DateOnly(2026, 4, 9),
+            new TimeOnly(8, 30),
+            new TimeOnly(9, 50),
+            isManagedByApp: true,
+            localSyncId: SyncIdentity.CreateOccurrenceId(currentOccurrence),
+            sourceHash: currentOccurrence.SourceFingerprint.Hash,
+            location: "Room 999",
+            calendarTimeZoneId: "Asia/Hong_Kong",
+            startTimeZoneId: "Asia/Hong_Kong",
+            endTimeZoneId: "Asia/Hong_Kong",
+            hasExplicitStartTimeZone: true,
+            hasExplicitEndTimeZone: true);
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [currentOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: Array.Empty<SyncMapping>(),
+            remoteDisplayEvents: [remoteEvent],
+            calendarDestinationId: "google-cal",
+            deletionWindow: new PreviewDateWindow(
+                new DateTimeOffset(new DateTime(2026, 4, 1), TimeSpan.Zero),
+                new DateTimeOffset(new DateTime(2026, 4, 30), TimeSpan.Zero)),
+            CancellationToken.None);
+
+        plan.PlannedChanges.Should().ContainSingle(change => change.ChangeKind == SyncChangeKind.Updated);
+    }
+
+    [Fact]
     public async Task CreatePreviewAsyncIgnoresGoogleMappingsFromOtherSelectedCalendars()
     {
         var repository = new InMemoryWorkspaceRepository();
@@ -574,7 +861,7 @@ public sealed class LocalSnapshotSyncDiffServiceTests
     }
 
     [Fact]
-    public async Task CreatePreviewAsyncDeletesSurplusPreviousSnapshotOccurrencesWhenCurrentHasFewerComparableItems()
+    public async Task CreatePreviewAsyncIgnoresDuplicatePreviousSnapshotOccurrencesWhenOnlySourceFingerprintDiffers()
     {
         var previousOccurrenceA = CreateOccurrence(
             "Signals",
@@ -626,10 +913,7 @@ public sealed class LocalSnapshotSyncDiffServiceTests
             deletionWindow: null,
             CancellationToken.None);
 
-        plan.PlannedChanges.Should().ContainSingle(change =>
-            change.ChangeKind == SyncChangeKind.Deleted
-            && change.Before == previousOccurrenceB);
-        plan.PlannedChanges.Should().NotContain(change => change.ChangeKind == SyncChangeKind.Added);
+        plan.PlannedChanges.Should().BeEmpty();
     }
 
     [Fact]
@@ -1784,20 +2068,27 @@ public sealed class LocalSnapshotSyncDiffServiceTests
         string? sourceHash = null,
         string sourceKind = "pdf",
         string? notes = null,
-        string? googleCalendarColorId = null) =>
+        string? googleCalendarColorId = null,
+        string? calendarTimeZoneId = null) =>
         new(
             className,
             1,
             date,
-            new DateTimeOffset(date.ToDateTime(start), TimeSpan.Zero),
-            new DateTimeOffset(date.ToDateTime(end), TimeSpan.Zero),
+            CreateOccurrenceDateTime(date, start, calendarTimeZoneId),
+            CreateOccurrenceDateTime(date, end, calendarTimeZoneId),
             "main-campus",
             date.DayOfWeek,
             new CourseMetadata(courseTitle, new WeekExpression("1"), new PeriodRange(1, 2), notes: notes, location: location),
             new SourceFingerprint(sourceKind, sourceHash ?? $"{courseTitle}-{date:yyyyMMdd}"),
             SyncTargetKind.CalendarEvent,
             courseType: L041,
+            calendarTimeZoneId: calendarTimeZoneId,
             googleCalendarColorId: googleCalendarColorId);
+
+    private static DateTimeOffset CreateOccurrenceDateTime(DateOnly date, TimeOnly time, string? calendarTimeZoneId) =>
+        string.IsNullOrWhiteSpace(calendarTimeZoneId)
+            ? new DateTimeOffset(date.ToDateTime(time), TimeSpan.Zero)
+            : WorkspaceTimeZoneCatalog.ResolveLocalDateTime(date, time, calendarTimeZoneId);
 
     private static ProviderRemoteCalendarEvent CreateRemoteEvent(
         string title,
@@ -1813,7 +2104,15 @@ public sealed class LocalSnapshotSyncDiffServiceTests
         DateTimeOffset? originalStartTimeUtc = null,
         string? description = null,
         string? googleCalendarColorId = null,
-        string? className = null)
+        string? className = null,
+        string? calendarTimeZoneId = null,
+        string? startTimeZoneId = null,
+        string? endTimeZoneId = null,
+        string? originalStartTimeZoneId = null,
+        bool hasExplicitStartTimeZone = false,
+        bool hasExplicitEndTimeZone = false,
+        bool hasExplicitOriginalStartTimeZone = false,
+        TimeSpan? remoteOffset = null)
     {
         var resolvedSourceHash = isManagedByApp ? sourceHash ?? $"{title}-{date:yyyyMMdd}" : sourceHash;
         var resolvedDescription = description;
@@ -1835,8 +2134,8 @@ public sealed class LocalSnapshotSyncDiffServiceTests
             remoteItemId: remoteItemId ?? $"remote-{title}-{date:yyyyMMdd}-{start:HHmm}",
             calendarId: "google-cal",
             title: title,
-            start: new DateTimeOffset(date.ToDateTime(start), TimeSpan.Zero),
-            end: new DateTimeOffset(date.ToDateTime(end), TimeSpan.Zero),
+            start: CreateRemoteDateTime(date, start, calendarTimeZoneId ?? startTimeZoneId, remoteOffset),
+            end: CreateRemoteDateTime(date, end, calendarTimeZoneId ?? endTimeZoneId, remoteOffset),
             location: location,
             description: resolvedDescription,
             isManagedByApp: isManagedByApp,
@@ -1846,8 +2145,24 @@ public sealed class LocalSnapshotSyncDiffServiceTests
             parentRemoteItemId: parentRemoteItemId,
             originalStartTimeUtc: originalStartTimeUtc,
             googleCalendarColorId: googleCalendarColorId,
-            className: resolvedClassName);
+            className: resolvedClassName,
+            calendarTimeZoneId: calendarTimeZoneId,
+            startTimeZoneId: startTimeZoneId,
+            endTimeZoneId: endTimeZoneId,
+            originalStartTimeZoneId: originalStartTimeZoneId,
+            hasExplicitStartTimeZone: hasExplicitStartTimeZone,
+            hasExplicitEndTimeZone: hasExplicitEndTimeZone,
+            hasExplicitOriginalStartTimeZone: hasExplicitOriginalStartTimeZone);
     }
+
+    private static DateTimeOffset CreateRemoteDateTime(
+        DateOnly date,
+        TimeOnly time,
+        string? calendarTimeZoneId,
+        TimeSpan? remoteOffset) =>
+        !string.IsNullOrWhiteSpace(calendarTimeZoneId)
+            ? WorkspaceTimeZoneCatalog.ResolveLocalDateTime(date, time, calendarTimeZoneId)
+            : new DateTimeOffset(date.ToDateTime(time), remoteOffset ?? TimeSpan.Zero);
 
     private sealed class InMemoryWorkspaceRepository : IWorkspaceRepository
     {

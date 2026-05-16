@@ -63,7 +63,9 @@ public sealed class WorkspacePreviewServiceTests
                 selectedCalendarDisplayName: "Calendar 1",
                 writableCalendars: [new ProviderCalendarDescriptor("calendar-1", "Calendar 1", true)],
                 taskRules: Array.Empty<ProviderTaskRuleSetting>(),
-                importCalendarIntoHomePreviewEnabled: true));
+                importCalendarIntoHomePreviewEnabled: true,
+                preferredCalendarTimeZoneId: "UTC",
+                remoteReadFallbackTimeZoneId: "UTC"));
         var service = new WorkspacePreviewService(
             new FakeTimetableParser(
             [
@@ -110,7 +112,9 @@ public sealed class WorkspacePreviewServiceTests
                 selectedCalendarDisplayName: "Calendar 1",
                 writableCalendars: [new ProviderCalendarDescriptor("calendar-1", "Calendar 1", true)],
                 taskRules: Array.Empty<ProviderTaskRuleSetting>(),
-                importCalendarIntoHomePreviewEnabled: true));
+                importCalendarIntoHomePreviewEnabled: true,
+                preferredCalendarTimeZoneId: "UTC",
+                remoteReadFallbackTimeZoneId: "UTC"));
         var providerAdapter = new PreviewTrackingProviderAdapter();
         var service = new WorkspacePreviewService(
             new FakeTimetableParser(
@@ -161,7 +165,9 @@ public sealed class WorkspacePreviewServiceTests
                 selectedCalendarDisplayName: "Calendar 1",
                 writableCalendars: [new ProviderCalendarDescriptor("calendar-1", "Calendar 1", true)],
                 taskRules: Array.Empty<ProviderTaskRuleSetting>(),
-                importCalendarIntoHomePreviewEnabled: true));
+                importCalendarIntoHomePreviewEnabled: true,
+                preferredCalendarTimeZoneId: "UTC",
+                remoteReadFallbackTimeZoneId: "UTC"));
         var diffService = new FakeDiffService();
         var mappingRepository = new FixedSyncMappingRepository(
         [
@@ -242,7 +248,9 @@ public sealed class WorkspacePreviewServiceTests
                 selectedCalendarDisplayName: "Calendar 1",
                 writableCalendars: [new ProviderCalendarDescriptor("calendar-1", "Calendar 1", true)],
                 taskRules: Array.Empty<ProviderTaskRuleSetting>(),
-                importCalendarIntoHomePreviewEnabled: true));
+                importCalendarIntoHomePreviewEnabled: true,
+                preferredCalendarTimeZoneId: "UTC",
+                remoteReadFallbackTimeZoneId: "UTC"));
         var mappingRepository = new TrackingSyncMappingRepository();
         var providerAdapter = new PreviewTrackingProviderAdapter(
         [
@@ -429,7 +437,9 @@ public sealed class WorkspacePreviewServiceTests
                 selectedCalendarDisplayName: "Calendar 1",
                 writableCalendars: [new ProviderCalendarDescriptor("calendar-1", "Calendar 1", true)],
                 taskRules: Array.Empty<ProviderTaskRuleSetting>(),
-                importCalendarIntoHomePreviewEnabled: true));
+                importCalendarIntoHomePreviewEnabled: true,
+                preferredCalendarTimeZoneId: "UTC",
+                remoteReadFallbackTimeZoneId: "UTC"));
         var mappingRepository = new SeededTrackingSyncMappingRepository(
         [
             new SyncMapping(
@@ -826,6 +836,98 @@ public sealed class WorkspacePreviewServiceTests
         result.NormalizationResult.Occurrences.Should().OnlyContain(occurrence => occurrence.Metadata.Location == "Room 502");
         result.NormalizationResult.Occurrences.Select(static occurrence => occurrence.OccurrenceDate)
             .Should().Equal(new DateOnly(2026, 3, 7), new DateOnly(2026, 3, 14), new DateOnly(2026, 3, 21));
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsyncProjectsGoogleDefaultTimeZoneOntoParsedCalendarOccurrences()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: null,
+                connectedAccountSummary: null,
+                selectedCalendarId: null,
+                selectedCalendarDisplayName: null,
+                preferredCalendarTimeZoneId: "America/New_York",
+                remoteReadFallbackTimeZoneId: "America/New_York"));
+        var occurrence = CreateOccurrence("Class A", "Signals", new DateOnly(2026, 3, 19), new TimeOnly(8, 0), new TimeOnly(9, 40));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals", occurrence.SourceFingerprint)]),
+                ]),
+            new FakeAcademicCalendarParser(
+                [
+                    new SchoolWeek(1, new DateOnly(2026, 3, 16), new DateOnly(2026, 3, 22)),
+                ]),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))]),
+                ]),
+            new FakeNormalizer([occurrence]),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository());
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        var projected = result.NormalizationResult!.Occurrences.Should().ContainSingle().Subject;
+        projected.CalendarTimeZoneId.Should().Be("America/New_York");
+        TimeOnly.FromDateTime(projected.Start.DateTime).Should().Be(new TimeOnly(8, 0));
+        projected.Start.Offset.Should().Be(TimeSpan.FromHours(-4));
+        result.NormalizationResult.ExportGroups.Should().ContainSingle();
+        result.NormalizationResult.ExportGroups[0].Occurrences[0].CalendarTimeZoneId.Should().Be("America/New_York");
+        result.PreviewWindow!.Start.Offset.Should().Be(TimeSpan.FromHours(-4));
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsyncKeepsExplicitCourseTimeZoneWhenGoogleDefaultChanges()
+    {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithGoogleSettings(new GoogleProviderSettings(
+                oauthClientConfigurationPath: null,
+                connectedAccountSummary: null,
+                selectedCalendarId: null,
+                selectedCalendarDisplayName: null,
+                preferredCalendarTimeZoneId: "America/New_York",
+                remoteReadFallbackTimeZoneId: "America/New_York"));
+        var occurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            new DateOnly(2026, 3, 19),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            calendarTimeZoneId: "Asia/Tokyo");
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals", occurrence.SourceFingerprint)]),
+                ]),
+            new FakeAcademicCalendarParser(
+                [
+                    new SchoolWeek(1, new DateOnly(2026, 3, 16), new DateOnly(2026, 3, 22)),
+                ]),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))]),
+                ]),
+            new FakeNormalizer([occurrence]),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository());
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        var projected = result.NormalizationResult!.Occurrences.Should().ContainSingle().Subject;
+        projected.CalendarTimeZoneId.Should().Be("Asia/Tokyo");
+        projected.Start.Offset.Should().Be(TimeSpan.FromHours(9));
     }
 
     [Fact]
@@ -3319,13 +3421,14 @@ public sealed class WorkspacePreviewServiceTests
         DateOnly date,
         TimeOnly start,
         TimeOnly end,
-        SourceFingerprint? sourceFingerprint = null) =>
+        SourceFingerprint? sourceFingerprint = null,
+        string? calendarTimeZoneId = null) =>
         new(
             className,
             schoolWeekNumber: 1,
             occurrenceDate: date,
-            start: new DateTimeOffset(date.ToDateTime(start), TimeSpan.Zero),
-            end: new DateTimeOffset(date.ToDateTime(end), TimeSpan.Zero),
+            start: CreateOccurrenceDateTime(date, start, calendarTimeZoneId),
+            end: CreateOccurrenceDateTime(date, end, calendarTimeZoneId),
             timeProfileId: "main-campus",
             weekday: date.DayOfWeek,
             metadata: new CourseMetadata(
@@ -3336,7 +3439,13 @@ public sealed class WorkspacePreviewServiceTests
                 location: "Room 301",
                 teacher: "Teacher A"),
             sourceFingerprint: sourceFingerprint ?? new SourceFingerprint("pdf", $"{className}-{courseTitle}-{date:yyyyMMdd}"),
-            courseType: L001);
+            courseType: L001,
+            calendarTimeZoneId: calendarTimeZoneId);
+
+    private static DateTimeOffset CreateOccurrenceDateTime(DateOnly date, TimeOnly time, string? calendarTimeZoneId) =>
+        string.IsNullOrWhiteSpace(calendarTimeZoneId)
+            ? new DateTimeOffset(date.ToDateTime(time), TimeSpan.Zero)
+            : WorkspaceTimeZoneCatalog.ResolveLocalDateTime(date, time, calendarTimeZoneId);
 
     private static WorkspacePreviewResult CreatePendingPreviewWithSingleAddedChange(
         ResolvedOccurrence occurrence,

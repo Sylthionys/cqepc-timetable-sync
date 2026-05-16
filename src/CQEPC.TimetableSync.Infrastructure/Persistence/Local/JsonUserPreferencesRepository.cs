@@ -302,7 +302,8 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
             settings.TaskRules,
             settings.ImportCalendarIntoHomePreviewEnabled,
             settings.PreferredCalendarTimeZoneId,
-            settings.RemoteReadFallbackTimeZoneId);
+            settings.RemoteReadFallbackTimeZoneId,
+            settings.RecentCalendarTimeZoneIds);
 
     private static MicrosoftProviderSettings Normalize(MicrosoftProviderSettings settings) =>
         new(
@@ -348,13 +349,45 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
             ? WorkspacePreferenceDefaults.CreateProgramBehaviorSettings()
             : new ProgramBehaviorSettings(
                 settings.SyncGoogleCalendarOnStartup,
-                settings.ShowStatusNotifications);
+                settings.ShowStatusNotifications,
+                settings.StatusNotificationDurationSeconds,
+                settings.LoadCloudCalendarDuringStartup,
+                settings.CacheHomeScheduleRendering,
+                settings.RestoreHomeScheduleRenderingOnStartup,
+                Normalize(settings.NetworkProxy));
 
     private static SerializedProgramBehaviorSettings Normalize(ProgramBehaviorSettings settings) =>
         new()
         {
             SyncGoogleCalendarOnStartup = settings.SyncGoogleCalendarOnStartup,
             ShowStatusNotifications = settings.ShowStatusNotifications,
+            StatusNotificationDurationSeconds = settings.StatusNotificationDurationSeconds,
+            LoadCloudCalendarDuringStartup = settings.LoadCloudCalendarDuringStartup,
+            CacheHomeScheduleRendering = settings.CacheHomeScheduleRendering,
+            RestoreHomeScheduleRenderingOnStartup = settings.RestoreHomeScheduleRenderingOnStartup,
+            NetworkProxy = Normalize(settings.NetworkProxy),
+        };
+
+    private static NetworkProxySettings Normalize(SerializedNetworkProxySettings? settings) =>
+        settings is null
+            ? WorkspacePreferenceDefaults.CreateNetworkProxySettings()
+            : new NetworkProxySettings(
+                settings.Mode,
+                settings.CustomProxyUri,
+                settings.CustomProxyUsername,
+                settings.CustomProxyHasPassword,
+                settings.BypassLocal,
+                settings.BypassList);
+
+    private static SerializedNetworkProxySettings Normalize(NetworkProxySettings settings) =>
+        new()
+        {
+            Mode = settings.Mode,
+            CustomProxyUri = settings.CustomProxyUri,
+            CustomProxyUsername = settings.CustomProxyUsername,
+            CustomProxyHasPassword = settings.CustomProxyHasPassword,
+            BypassLocal = settings.BypassLocal,
+            BypassList = settings.BypassList.ToArray(),
         };
 
     private sealed class SerializedUserPreferences
@@ -410,6 +443,31 @@ public sealed class JsonUserPreferencesRepository : IUserPreferencesRepository
         public bool SyncGoogleCalendarOnStartup { get; set; } = true;
 
         public bool ShowStatusNotifications { get; set; } = true;
+
+        public int StatusNotificationDurationSeconds { get; set; } = 3;
+
+        public bool LoadCloudCalendarDuringStartup { get; set; } = true;
+
+        public bool CacheHomeScheduleRendering { get; set; } = true;
+
+        public bool RestoreHomeScheduleRenderingOnStartup { get; set; } = true;
+
+        public SerializedNetworkProxySettings? NetworkProxy { get; set; }
+    }
+
+    private sealed class SerializedNetworkProxySettings
+    {
+        public NetworkProxyMode Mode { get; set; } = NetworkProxyMode.System;
+
+        public string? CustomProxyUri { get; set; }
+
+        public string? CustomProxyUsername { get; set; }
+
+        public bool CustomProxyHasPassword { get; set; }
+
+        public bool BypassLocal { get; set; } = true;
+
+        public IReadOnlyList<string>? BypassList { get; set; }
     }
 
     private sealed class SerializedTimetableResolutionSettings

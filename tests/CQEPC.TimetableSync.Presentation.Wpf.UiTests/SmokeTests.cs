@@ -34,7 +34,6 @@ public sealed class SmokeTests
             {
                 current.WaitForElement("Home.PageRoot");
                 current.WaitForButton("Home.PrimaryAction.ApplySelected");
-                current.WaitForButton("Home.Action.SyncCalendar");
                 return Task.CompletedTask;
             });
     }
@@ -72,7 +71,7 @@ public sealed class SmokeTests
             current =>
             {
                 current.WaitForElement("Home.PageRoot");
-                current.ClickButton("Home.Action.SyncCalendar");
+                current.ClickButton("Home.PrimaryAction.ApplySelected");
                 current.WaitForElement("Settings.PageRoot");
                 return Task.CompletedTask;
             });
@@ -206,6 +205,10 @@ public sealed class SmokeTests
                 var occurrenceToggleAutomationId = firstOccurrence.GetProperty("toggleAutomationId").GetString();
                 occurrenceToggleAutomationId.Should().NotBeNullOrWhiteSpace();
                 current.InvokeFirstElementByAutomationIdPrefix("Import.ChangeCourse.Expand.");
+
+                using var selectedCourseState = JsonDocument.Parse(await current.GetPlannedChangeStateAsync() ?? "{}");
+                selectedCourseState.RootElement.GetProperty("selectedCourseRuleGroupCount").GetInt32().Should().BeGreaterThan(0);
+
                 current.InvokeFirstElementByAutomationIdPrefix("Import.ChangeRule.Expand.");
                 current.WaitForElement(occurrenceToggleAutomationId!);
             });
@@ -262,6 +265,25 @@ public sealed class SmokeTests
     }
 
     [StaFact]
+    public async Task SettingsSecondarySidebarOnlyAppearsOnSettingsPage()
+    {
+        await using var session = await UiAppSession.LaunchAsync(nameof(SettingsSecondarySidebarOnlyAppearsOnSettingsPage));
+        await session.RunAsync(
+            current =>
+            {
+                current.NavigateTo("Shell.Nav.Home", "Home.PageRoot");
+                current.MainWindow.FindFirstDescendant(cf => cf.ByAutomationId("Settings.SectionPicker")).Should().BeNull();
+
+                current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
+                current.MainWindow.FindFirstDescendant(cf => cf.ByAutomationId("Settings.SectionPicker")).Should().BeNull();
+
+                current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+                current.WaitForButton("Settings.SectionPicker.Program").IsEnabled.Should().BeTrue();
+                return Task.CompletedTask;
+            });
+    }
+
+    [StaFact]
     public async Task SettingsPageExposesAboutEntryPointAndProviderSectionsInAutomationMode()
     {
         await using var session = await UiAppSession.LaunchAsync(nameof(SettingsPageExposesAboutEntryPointAndProviderSectionsInAutomationMode));
@@ -269,29 +291,28 @@ public sealed class SmokeTests
             current =>
             {
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
-                current.WaitForButton("Settings.ProgramSettingsButton").IsEnabled.Should().BeTrue();
+                current.WaitForButton("Settings.SectionPicker.Program").IsEnabled.Should().BeTrue();
                 return Task.CompletedTask;
             });
     }
 
     [StaFact]
-    public async Task ProgramSettingsOverlayCanOpenAndAboutReplacesItInBackgroundAutomationMode()
+    public async Task ProgramSettingsSectionCanOpenAboutInBackgroundAutomationMode()
     {
-        await using var session = await UiAppSession.LaunchAsync(nameof(ProgramSettingsOverlayCanOpenAndAboutReplacesItInBackgroundAutomationMode));
+        await using var session = await UiAppSession.LaunchAsync(nameof(ProgramSettingsSectionCanOpenAboutInBackgroundAutomationMode));
         await session.RunAsync(
             async current =>
             {
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
-                current.ClickButton("Settings.ProgramSettingsButton", "ProgramSettingsOverlay.Root");
+                current.ClickButton("Settings.SectionPicker.Program", "ProgramSettings.WeekStartCombo");
                 current.WaitForElement("ProgramSettings.LocalizationCombo");
                 current.WaitForElement("ProgramSettings.GoogleTimeZoneCombo");
                 current.GetComboBoxSelectionText("ProgramSettings.LocalizationCombo").Should().NotBeNullOrWhiteSpace();
                 current.ClickButton("ProgramSettings.AboutButton", "AboutOverlay.Root");
                 current.WaitForElement("AboutOverlay.Root");
-                current.WaitForElementToDisappear("ProgramSettingsOverlay.Root");
                 await current.CloseAboutOverlayAsync();
                 current.WaitForElementToDisappear("AboutOverlay.Root");
-                current.WaitForElement("ProgramSettingsOverlay.Root");
+                current.WaitForElement("ProgramSettings.WeekStartCombo");
             });
     }
 
@@ -303,7 +324,7 @@ public sealed class SmokeTests
             async current =>
             {
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
-                current.ClickButton("Settings.ProgramSettingsButton", "ProgramSettingsOverlay.Root");
+                current.ClickButton("Settings.SectionPicker.Program", "ProgramSettings.WeekStartCombo");
                 current.SelectComboBoxItemByIndexViaBridge("ProgramSettings.LocalizationCombo", 1).GetAwaiter().GetResult();
                 using var localizationState = JsonDocument.Parse(await current.GetLocalizationStateAsync() ?? "{}");
                 localizationState.RootElement.GetProperty("selectedPreferredCultureName").GetString().Should().Be("zh-CN");
@@ -339,20 +360,22 @@ public sealed class SmokeTests
             current =>
             {
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
-                current.ScrollToVerticalPercent("Settings.PageRoot", 50);
 
+                current.ClickButton("Settings.SectionPicker.Connections", "Settings.ProviderCombo");
                 current.WaitForElement("Settings.ProviderCombo");
                 current.WaitForElement("Settings.DefaultCalendarCombo");
                 current.WaitForElement("Settings.DefaultTaskListCombo");
                 current.WaitForElement("Settings.DefaultCalendarColorCombo");
 
+                current.ClickButton("Settings.SectionPicker.Timetable", "Settings.TimeProfileModeCombo");
                 current.WaitForElement("Settings.TimeProfileModeCombo");
                 current.WaitForElement("Settings.ExplicitTimeProfileCombo");
 
-                current.ClickButton("Settings.ProgramSettingsButton", "ProgramSettingsOverlay.Root");
+                current.ClickButton("Settings.SectionPicker.Program", "ProgramSettings.WeekStartCombo");
                 current.WaitForElement("ProgramSettings.WeekStartCombo");
                 current.WaitForElement("ProgramSettings.LocalizationCombo");
                 current.WaitForElement("ProgramSettings.GoogleTimeZoneCombo");
+                current.WaitForElement("ProgramSettings.NetworkProxyCombo");
                 current.WaitForElement("ProgramSettings.SyncGoogleOnStartupToggle");
                 current.WaitForElement("ProgramSettings.StatusNotificationsToggle");
 
@@ -368,7 +391,7 @@ public sealed class SmokeTests
             async current =>
             {
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
-                current.ScrollToVerticalPercent("Settings.PageRoot", 50);
+                current.ClickButton("Settings.SectionPicker.Connections", "Settings.ProviderCombo");
                 current.WaitForElement("Settings.DefaultCalendarColorCombo");
 
                 current.SelectComboBoxItem("Settings.DefaultCalendarColorCombo", "薰衣草色");
@@ -396,11 +419,10 @@ public sealed class SmokeTests
                 current.WaitForElement("Import.Detail.CourseRuleGroups");
                 current.WaitForElementToDisappear("Import.Detail.ChangeSummary", TimeSpan.FromSeconds(1));
                 current.WaitForElementToDisappear("Import.Detail.SharedDetails", TimeSpan.FromSeconds(1));
-                current.GetComboBoxItemCount("Import.CourseSettings.TimeZoneCombo").Should().BeGreaterThan(1);
                 current.GetComboBoxItemCount("Import.CourseSettings.ColorCombo").Should().BeGreaterThan(1);
-                current.SelectComboBoxItemByIndex("Import.CourseSettings.TimeZoneCombo", 1);
+                await current.SelectComboBoxItemByIndexViaBridge("Import.CourseSettings.TimeZoneCombo", 1);
                 current.SelectComboBoxItemByIndex("Import.CourseSettings.ColorCombo", 1);
-                current.GetComboBoxSelectionText("Import.CourseSettings.TimeZoneCombo").Should().NotBeNullOrWhiteSpace();
+                (await current.GetTimeZoneSelectionAsync("Import.CourseSettings.TimeZoneCombo")).Should().NotBeNullOrWhiteSpace();
                 current.GetComboBoxSelectionText("Import.CourseSettings.ColorCombo").Should().NotBeNullOrWhiteSpace();
                 current.WaitForButton("Import.CourseSettings.Save").IsEnabled.Should().BeTrue();
                 current.WaitForElementToDisappear("CoursePresentationEditorOverlay.Root");
@@ -414,7 +436,7 @@ public sealed class SmokeTests
     {
         await using var session = await UiAppSession.LaunchAsync(nameof(ImportEditSelectedShowsInlineCourseEditorInsteadOfPopup));
         await session.RunAsync(
-            current =>
+            async current =>
             {
                 current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
                 current.InvokeFirstElementByAutomationIdPrefix("Import.ChangeCourse.Expand.");
@@ -422,10 +444,9 @@ public sealed class SmokeTests
                 current.WaitForButton("Import.Detail.EditSelected").IsEnabled.Should().BeTrue();
                 current.ClickButton("Import.Detail.EditSelected", "Import.CourseEditor.Title");
                 current.WaitForElementToDisappear("CourseEditorOverlay.Root", TimeSpan.FromSeconds(2));
-                current.GetComboBoxSelectionText("Import.CourseEditor.TimeZoneCombo").Should().Be("UTC+8");
+                (await current.GetTimeZoneSelectionAsync("Import.CourseEditor.TimeZoneCombo")).Should().Contain("Asia/Shanghai (UTC+08:00)");
                 current.SetText("Import.CourseEditor.Title", "Signals Inline Edit");
                 current.WaitForButton("Import.CourseEditor.Save").IsEnabled.Should().BeTrue();
-                return Task.CompletedTask;
             });
     }
 
@@ -490,6 +511,7 @@ public sealed class SmokeTests
             async current =>
             {
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+                current.ClickButton("Settings.SectionPicker.Timetable", "Settings.ParsedClassCombo");
                 current.WaitForElement("Settings.ParsedClassCombo");
 
                 current.GetComboBoxItemCount("Settings.ParsedClassCombo").Should().BeGreaterThan(1);
@@ -514,7 +536,7 @@ public sealed class SmokeTests
             async current =>
             {
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
-                current.ScrollToVerticalPercent("Settings.PageRoot", 24);
+                current.ClickButton("Settings.SectionPicker.Timetable", "Settings.FirstWeekStartDatePicker");
                 current.WaitForElement("Settings.ParsedClassDisplayText");
                 current.WaitForText(SyntheticChineseSamples.PowerClass25101);
 
@@ -531,7 +553,7 @@ public sealed class SmokeTests
             async current =>
             {
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
-                current.ScrollToVerticalPercent("Settings.PageRoot", 40);
+                current.ClickButton("Settings.SectionPicker.Timetable", "Settings.TimeProfileModeCombo");
                 current.WaitForElement("Settings.TimeProfileModeCombo");
                 current.WaitForElement("Settings.ExplicitTimeProfileCombo").IsEnabled.Should().BeFalse();
 
@@ -555,7 +577,16 @@ public sealed class SmokeTests
             async current =>
             {
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
-                current.ScrollToVerticalPercent("Settings.PageRoot", 24);
+                current.ClickButton("Settings.SectionPicker.Timetable", "Settings.FirstWeekStartDatePicker");
+
+                await current.OpenDatePickerDropdownAsync("Settings.FirstWeekStartDatePicker");
+                await Task.Delay(250);
+                using var calendarThemeState = JsonDocument.Parse(
+                    await current.GetDatePickerCalendarThemeStateAsync("Settings.FirstWeekStartDatePicker"));
+                calendarThemeState.RootElement.GetProperty("contrastRatio").GetDouble()
+                    .Should()
+                    .BeGreaterThan(4.5);
+                File.Exists(current.CaptureWindowScreenshotAsyncCompatible()).Should().BeTrue();
 
                 await current.SetFirstWeekStartOverrideAsync(new DateOnly(2026, 3, 15));
                 session.Application.HasExited.Should().BeFalse();
@@ -574,13 +605,18 @@ public sealed class SmokeTests
             current =>
             {
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
-                current.WaitForButton("Settings.ProgramSettingsButton").IsEnabled.Should().BeTrue();
-                current.ClickButton("Settings.ProgramSettingsButton", "ProgramSettingsOverlay.Root");
+                current.WaitForButton("Settings.SectionPicker.Program").IsEnabled.Should().BeTrue();
+                current.ClickButton("Settings.SectionPicker.Program", "ProgramSettings.WeekStartCombo");
                 current.WaitForElement("ProgramSettings.LocalizationCombo");
                 current.WaitForElement("ProgramSettings.ThemeToggle");
                 current.WaitForElement("ProgramSettings.GoogleTimeZoneCombo");
                 current.WaitForButton("ProgramSettings.AboutButton").IsEnabled.Should().BeTrue();
                 current.GetComboBoxItemCount("ProgramSettings.LocalizationCombo").Should().Be(3);
+
+                current.SelectComboBoxItemByIndexViaBridge("ProgramSettings.LocalizationCombo", 1).GetAwaiter().GetResult();
+                current.ClickButton("Settings.SectionPicker.Connections", "Settings.ProviderCombo");
+                current.GetElementName("Settings.DefaultTaskListLabel").Should().Be("\u76ee\u6807\u4efb\u52a1\u5217\u8868");
+                current.ClickButton("Settings.SectionPicker.Program", "ProgramSettings.LocalizationCombo");
 
                 current.SelectComboBoxItemByIndexViaBridge("ProgramSettings.LocalizationCombo", 2).GetAwaiter().GetResult();
                 using var localizationState = JsonDocument.Parse(current.GetLocalizationStateAsync().GetAwaiter().GetResult() ?? "{}");
@@ -588,25 +624,55 @@ public sealed class SmokeTests
                 localizationState.RootElement.GetProperty("selectedLocalizationOptionKey").GetString().Should().Be("en-US");
                 localizationState.RootElement.GetProperty("programSettingsTitle").GetString().Should().Be("Program Settings");
                 localizationState.RootElement.GetProperty("closeButton").GetString().Should().Be("Close");
+                current.GetElementName("Settings.SectionPicker.LocalFiles").Should().Be("Sources");
+                current.GetElementName("Settings.SectionPicker.Timetable").Should().Be("Timetable");
+                current.GetElementName("Settings.SectionPicker.Connections").Should().Be("Sync");
+                current.GetElementName("Settings.SectionPicker.Program").Should().Be("Program");
                 current.GetComboBoxItemCount("ProgramSettings.LocalizationCombo").Should().Be(3);
                 current.GetComboBoxItemTexts("ProgramSettings.LocalizationCombo").Should().OnlyHaveUniqueItems();
 
-                current.ScrollToVerticalPercent("Settings.PageRoot", 0);
-                current.WaitForButton("Settings.BrowseLocalFiles").IsEnabled.Should().BeTrue();
+                current.ClickButton("Settings.SectionPicker.LocalFiles", "Settings.SourceFileCards");
+                current.WaitForElement("Settings.SourceFileCards").Should().NotBeNull();
                 return Task.CompletedTask;
             });
     }
 
     [StaFact]
-    public async Task ProgramSettingsOverlayCanBeCapturedInLightAndDarkThemes()
+    public async Task SettingsPageAdaptsAtMinimumWindowWidth()
     {
-        await using var session = await UiAppSession.LaunchAsync(nameof(ProgramSettingsOverlayCanBeCapturedInLightAndDarkThemes));
+        await using var session = await UiAppSession.LaunchAsync(nameof(SettingsPageAdaptsAtMinimumWindowWidth), 1104, 720);
         await session.RunAsync(
             async current =>
             {
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
-                current.ClickButton("Settings.ProgramSettingsButton", "ProgramSettingsOverlay.Root");
+                current.WaitForButton("Settings.SectionPicker.Program").IsEnabled.Should().BeTrue();
+                current.ClickButton("Settings.SectionPicker.Timetable", "Settings.TimeProfileModeCombo");
+                current.WaitForElement("Settings.ExplicitTimeProfileCombo");
+                current.ClickButton("Settings.SectionPicker.Connections", "Settings.DefaultCalendarCombo");
+                current.WaitForElement("Settings.DefaultCalendarColorCombo");
+                current.ClickButton("Settings.SectionPicker.Program", "ProgramSettings.WeekStartCombo");
+                current.WaitForElement("ProgramSettings.StatusNotificationsToggle");
+
+                var screenshotPath = await current.CaptureCurrentPageScreenshotAsync();
+                File.Exists(screenshotPath).Should().BeTrue();
+                new FileInfo(screenshotPath).Length.Should().BeGreaterThan(0);
+            });
+    }
+
+    [StaFact]
+    public async Task ProgramSettingsSectionCanBeCapturedInLightAndDarkThemes()
+    {
+        await using var session = await UiAppSession.LaunchAsync(nameof(ProgramSettingsSectionCanBeCapturedInLightAndDarkThemes));
+        await session.RunAsync(
+            async current =>
+            {
+                current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
+                current.ClickButton("Settings.SectionPicker.Program", "ProgramSettings.WeekStartCombo");
                 current.WaitForElement("ProgramSettings.ThemeToggle");
+                current.SelectComboBoxItemByIndexViaBridge("ProgramSettings.NetworkProxyCombo", 2).GetAwaiter().GetResult();
+                current.WaitForElement("ProgramSettings.CustomNetworkProxyUri");
+                current.WaitForElement("ProgramSettings.CustomNetworkProxyPassword");
+                current.WaitForElement("ProgramSettings.CustomNetworkProxyBypassList");
                 current.WaitForButton("ProgramSettings.AboutButton").IsEnabled.Should().BeTrue();
 
                 var lightScreenshotPath = await current.CaptureCurrentPageScreenshotAsync();
@@ -637,12 +703,10 @@ public sealed class SmokeTests
                 new FileInfo(lightScreenshotPath).Length.Should().BeGreaterThan(0);
 
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
-                current.ClickButton("Settings.ProgramSettingsButton", "ProgramSettingsOverlay.Root");
+                current.ClickButton("Settings.SectionPicker.Program", "ProgramSettings.WeekStartCombo");
                 current.WaitForElement("ProgramSettings.ThemeToggle");
                 current.ToggleElement("ProgramSettings.ThemeToggle", ToggleState.On);
                 current.GetToggleState("ProgramSettings.ThemeToggle").Should().Be(ToggleState.On);
-                current.ClickButton("ProgramSettingsOverlay.Close");
-                current.WaitForElementToDisappear("ProgramSettingsOverlay.Root");
 
                 current.NavigateTo("Shell.Nav.Import", "Import.PageRoot");
                 current.WaitForElement("Import.ChangeGroups");
@@ -661,7 +725,7 @@ public sealed class SmokeTests
             async current =>
             {
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
-                current.ClickButton("Settings.ProgramSettingsButton", "ProgramSettingsOverlay.Root");
+                current.ClickButton("Settings.SectionPicker.Program", "ProgramSettings.WeekStartCombo");
                 current.WaitForElement("ProgramSettings.ThemeToggle");
 
                 current.ToggleElement("ProgramSettings.ThemeToggle", ToggleState.Off);
@@ -688,7 +752,7 @@ public sealed class SmokeTests
             async current =>
             {
                 current.NavigateTo("Shell.Nav.Settings", "Settings.PageRoot");
-                current.ClickButton("Settings.ProgramSettingsButton", "ProgramSettingsOverlay.Root");
+                current.ClickButton("Settings.SectionPicker.Program", "ProgramSettings.WeekStartCombo");
                 current.WaitForElement("ProgramSettings.SyncGoogleOnStartupToggle");
                 current.WaitForElement("ProgramSettings.StatusNotificationsToggle");
 

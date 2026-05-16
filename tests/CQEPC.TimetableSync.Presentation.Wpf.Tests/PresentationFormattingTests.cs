@@ -71,6 +71,56 @@ public sealed class PresentationFormattingTests
     }
 
     [Fact]
+    public void ImportCourseGroupSummaryCountsMetadataOnlyChanges()
+    {
+        var before = CreateOccurrence("Signals", SyncTargetKind.CalendarEvent, new DateOnly(2026, 3, 19), "Room 301");
+        var after = CreateOccurrence(
+            "Signals",
+            SyncTargetKind.CalendarEvent,
+            new DateOnly(2026, 3, 19),
+            "Room 301",
+            googleCalendarColorId: "9");
+        var changeItem = new DiffChangeItemViewModel(new PlannedSyncChange(
+            SyncChangeKind.MetadataOnly,
+            SyncTargetKind.CalendarEvent,
+            "change-1",
+            before: before,
+            after: after));
+        var occurrenceItem = new ImportChangeOccurrenceItemViewModel(
+            changeItem,
+            "Signals",
+            [UiText.ImportFieldColor],
+            sharedDetails: null,
+            beforeDetails: null,
+            afterDetails: null);
+        var ruleGroup = new ImportChangeRuleGroupViewModel(
+            SyncChangeKind.MetadataOnly,
+            "Signals",
+            beforeRuleSummary: null,
+            afterRuleSummary: null,
+            singleRuleSummary: null,
+            ruleRangeSummary: null,
+            [changeItem],
+            [occurrenceItem]);
+        var courseGroup = new ImportChangeCourseGroupViewModel(
+            "Signals",
+            "1 change",
+            beforeRuleSummary: null,
+            afterRuleSummary: null,
+            singleRuleSummary: null,
+            [ruleGroup]);
+
+        courseGroup.MetadataOnlyCount.Should().Be(1);
+        courseGroup.MetadataOnlyCountText.Should().Be($"{UiText.ImportMetadataOnlyTitle} 1");
+        courseGroup.HasAddedCount.Should().BeFalse();
+        courseGroup.HasUpdatedCount.Should().BeFalse();
+        courseGroup.HasMetadataOnlyCount.Should().BeTrue();
+        courseGroup.HasDeletedCount.Should().BeFalse();
+        courseGroup.HasConflictCount.Should().BeFalse();
+        courseGroup.CompactSummary.Should().Be($"{UiText.ImportMetadataOnlyTitle} 1");
+    }
+
+    [Fact]
     public async Task WorkspaceSessionFormatsStructuredPreviewStatusAndActivities()
     {
         var catalogState = new LocalSourceCatalogState(
@@ -278,7 +328,8 @@ public sealed class PresentationFormattingTests
         string courseTitle,
         SyncTargetKind targetKind,
         DateOnly date,
-        string? location) =>
+        string? location,
+        string? googleCalendarColorId = null) =>
         new(
             "Class A",
             1,
@@ -295,7 +346,8 @@ public sealed class PresentationFormattingTests
                 teacher: "Teacher A"),
             new SourceFingerprint("pdf", $"{courseTitle}-{date:yyyyMMdd}"),
             targetKind,
-            courseType: L010);
+            courseType: L010,
+            googleCalendarColorId: googleCalendarColorId);
 
     private sealed class StubOnboardingService : ILocalSourceOnboardingService
     {

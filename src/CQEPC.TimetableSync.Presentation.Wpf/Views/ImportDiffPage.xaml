@@ -4,6 +4,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:controls="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Controls"
+             xmlns:primitives="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework"
              xmlns:resources="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Resources"
              xmlns:views="clr-namespace:CQEPC.TimetableSync.Presentation.Wpf.Views"
              AutomationProperties.AutomationId="Import.PageRoot"
@@ -33,11 +34,6 @@
             <Setter Property="FontSize" Value="13" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
-
-        <DataTemplate x:Key="ImportTimeZoneOptionTemplate">
-            <TextBlock VerticalAlignment="Center"
-                       Text="{Binding DisplayName}" />
-        </DataTemplate>
 
         <DataTemplate x:Key="ImportCalendarColorOptionTemplate">
             <StackPanel Orientation="Horizontal">
@@ -646,7 +642,8 @@
                                        VerticalAlignment="Center">
                                 <Border Margin="0,0,8,0"
                                         Style="{StaticResource ImportChipStyle}"
-                                        Background="{Binding PrimaryStatusBackground}">
+                                        Background="{Binding PrimaryStatusBackground}"
+                                        Visibility="{Binding HasPrimaryStatusBadge, Converter={StaticResource BooleanToVisibilityConverter}}">
                                     <TextBlock FontSize="11"
                                                Foreground="{Binding PrimaryStatusForeground}"
                                                Text="{Binding PrimaryStatusText}" />
@@ -683,6 +680,7 @@
     <Grid x:Name="ImportLayoutRoot"
           AutomationProperties.AutomationId="Import.PageRoot"
           Background="{StaticResource ImportPageBackgroundBrush}"
+          PreviewMouseWheel="HandlePanelPreviewMouseWheel"
           Tag="{Binding ElementName=ImportLayoutRoot, Path=ActualWidth, Converter={StaticResource AdaptiveWindowModeConverter}, ConverterParameter='1180|1520'}">
         <Grid Margin="18">
             <Grid.RowDefinitions>
@@ -705,7 +703,6 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0"
@@ -721,25 +718,6 @@
                                        Text="{Binding SelectedProviderSummary}"
                                        TextTrimming="CharacterEllipsis" />
                         </Border>
-                        <TextBlock Grid.Column="2"
-                                   Margin="0,0,12,0"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource ImportBodyTextStyle}"
-                                   Text="{Binding HeaderContextSummary}"
-                                   Visibility="{Binding ElementName=ImportLayoutRoot, Path=Tag, Converter={StaticResource AdaptiveModeVisibilityConverter}, ConverterParameter=Expanded}" />
-                        <TextBlock Grid.Column="2"
-                                   Margin="0,0,12,0"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource ImportBodyTextStyle}"
-                                   Text="{Binding SelectionSummary}"
-                                   Visibility="{Binding ElementName=ImportLayoutRoot, Path=Tag, Converter={StaticResource AdaptiveModeVisibilityConverter}, ConverterParameter=Medium}" />
-                        <WrapPanel Grid.Column="3"
-                                   VerticalAlignment="Center"
-                                   Visibility="{Binding ElementName=ImportLayoutRoot, Path=Tag, Converter={StaticResource AdaptiveModeVisibilityConverter}, ConverterParameter=Expanded}">
-                            <TextBlock Margin="0,0,14,0" Style="{StaticResource ImportBodyTextStyle}" Text="{Binding FooterRangeSummary}" />
-                            <TextBlock Margin="0,0,14,0" Style="{StaticResource ImportBodyTextStyle}" Text="{Binding FooterSelectionSummary}" />
-                            <TextBlock Style="{StaticResource ImportBodyTextStyle}" Text="{Binding FooterCrossPageSelectionSummary}" />
-                        </WrapPanel>
                     </Grid>
 
                     <StackPanel Grid.Column="1"
@@ -760,17 +738,13 @@
                                     Visibility="{Binding ShowCourseEditorPendingActions, Converter={StaticResource BooleanToVisibilityConverter}}" />
                             <Button Margin="0,0,8,0"
                                     Style="{StaticResource ImportGhostButtonCompactStyle}"
-                                    Command="{Binding SyncCurrentCalendarCommand}"
-                                    Content="{Binding HeaderSecondaryActionText}" />
-                            <Button Margin="0,0,8,0"
-                                    Style="{StaticResource ImportGhostButtonCompactStyle}"
                                     Command="{Binding SelectAllCommand}"
                                     Content="{x:Static resources:UiText.ImportSelectAllButton}" />
                             <Button Margin="0,0,8,0"
                                     Style="{StaticResource ImportGhostButtonCompactStyle}"
                                     Command="{Binding ClearAllCommand}"
                                     Content="{x:Static resources:UiText.ImportClearAllButton}" />
-                            <Button AutomationProperties.AutomationId="Import.ApplySelected"
+                            <Button AutomationProperties.AutomationId="{Binding ElementName=ImportLayoutRoot, Path=Tag, Converter={StaticResource AdaptiveModeAutomationIdConverter}, ConverterParameter='Compact;Import.ApplySelected;Import.ApplySelected.Compact'}"
                                     Style="{StaticResource ImportPrimaryButtonCompactStyle}"
                                     Command="{Binding ApplySelectedCommand}"
                                     Content="{Binding ApplySelectedLabel}" />
@@ -791,17 +765,13 @@
                                     Visibility="{Binding ShowCourseEditorPendingActions, Converter={StaticResource BooleanToVisibilityConverter}}" />
                             <Button Margin="0,0,8,0"
                                     Style="{StaticResource ImportGhostButtonStyle}"
-                                    Command="{Binding SyncCurrentCalendarCommand}"
-                                    Content="{Binding HeaderSecondaryActionText}" />
-                            <Button Margin="0,0,8,0"
-                                    Style="{StaticResource ImportGhostButtonStyle}"
                                     Command="{Binding SelectAllCommand}"
                                     Content="{x:Static resources:UiText.ImportSelectAllButton}" />
                             <Button Margin="0,0,8,0"
                                     Style="{StaticResource ImportGhostButtonStyle}"
                                     Command="{Binding ClearAllCommand}"
                                     Content="{x:Static resources:UiText.ImportClearAllButton}" />
-                            <Button AutomationProperties.AutomationId="Import.ApplySelected"
+                            <Button AutomationProperties.AutomationId="{Binding ElementName=ImportLayoutRoot, Path=Tag, Converter={StaticResource AdaptiveModeAutomationIdConverter}, ConverterParameter='Medium;Import.ApplySelected;Import.ApplySelected.Medium'}"
                                     Style="{StaticResource ImportPrimaryButtonStyle}"
                                     Command="{Binding ApplySelectedCommand}"
                                     Content="{Binding ApplySelectedLabel}" />
@@ -822,17 +792,13 @@
                                     Visibility="{Binding ShowCourseEditorPendingActions, Converter={StaticResource BooleanToVisibilityConverter}}" />
                             <Button Margin="0,0,8,0"
                                     Style="{StaticResource ImportGhostButtonStyle}"
-                                    Command="{Binding SyncCurrentCalendarCommand}"
-                                    Content="{Binding HeaderSecondaryActionText}" />
-                            <Button Margin="0,0,8,0"
-                                    Style="{StaticResource ImportGhostButtonStyle}"
                                     Command="{Binding SelectAllCommand}"
                                     Content="{x:Static resources:UiText.ImportSelectAllButton}" />
                             <Button Margin="0,0,8,0"
                                     Style="{StaticResource ImportGhostButtonStyle}"
                                     Command="{Binding ClearAllCommand}"
                                     Content="{x:Static resources:UiText.ImportClearAllButton}" />
-                            <Button AutomationProperties.AutomationId="Import.ApplySelected"
+                            <Button AutomationProperties.AutomationId="{Binding ElementName=ImportLayoutRoot, Path=Tag, Converter={StaticResource AdaptiveModeAutomationIdConverter}, ConverterParameter='Expanded;Import.ApplySelected;Import.ApplySelected.Expanded'}"
                                     Style="{StaticResource ImportPrimaryButtonStyle}"
                                     Command="{Binding ApplySelectedCommand}"
                                     Content="{Binding ApplySelectedLabel}" />
@@ -1048,14 +1014,16 @@
                 </UniformGrid>
             </StackPanel>
 
-            <Grid Grid.Row="2">
+            <Grid Grid.Row="2"
+                  MinHeight="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="{Binding ElementName=ImportLayoutRoot, Path=Tag, Converter={StaticResource AdaptiveModeGridLengthConverter}, ConverterParameter='Compact=1.05*;Medium=1.02*;Expanded=1.08*'}" />
                     <ColumnDefinition Width="{Binding ElementName=ImportLayoutRoot, Path=Tag, Converter={StaticResource AdaptiveModeGridLengthConverter}, ConverterParameter='Compact=12;Medium=12;Expanded=14'}" />
                     <ColumnDefinition Width="{Binding ElementName=ImportLayoutRoot, Path=Tag, Converter={StaticResource AdaptiveModeGridLengthConverter}, ConverterParameter='Compact=0.95*;Medium=0.98*;Expanded=0.92*'}" />
                 </Grid.ColumnDefinitions>
 
-                <Grid Grid.Column="0">
+                <Grid Grid.Column="0"
+                      MinHeight="0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
@@ -1104,13 +1072,87 @@
                         </StackPanel>
                     </Border>
 
-                    <ScrollViewer Grid.Row="1"
+                    <ScrollViewer x:Name="ReviewScrollViewer"
+                                  Grid.Row="1"
                                   Margin="0,12,0,0"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled"
                                   CanContentScroll="False"
                                   PreviewMouseWheel="HandlePanelPreviewMouseWheel">
-                        <StackPanel>
+                        <ScrollViewer.Resources>
+                            <Style x:Key="ImportReviewScrollBarThumbStyle" TargetType="{x:Type primitives:Thumb}">
+                                <Setter Property="MinHeight" Value="36" />
+                                <Setter Property="MinWidth" Value="36" />
+                                <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                                <Setter Property="Opacity" Value="0.62" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="{x:Type primitives:Thumb}">
+                                            <Border x:Name="ThumbRoot"
+                                                    Width="6"
+                                                    MinHeight="24"
+                                                    HorizontalAlignment="Center"
+                                                    Background="{TemplateBinding Background}"
+                                                    CornerRadius="3"
+                                                    SnapsToDevicePixels="True" />
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="ThumbRoot" Property="Opacity" Value="0.9" />
+                                                </Trigger>
+                                                <Trigger Property="IsDragging" Value="True">
+                                                    <Setter TargetName="ThumbRoot" Property="Opacity" Value="1" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                            <Style TargetType="{x:Type ScrollBar}">
+                                <Setter Property="Width" Value="10" />
+                                <Setter Property="MinWidth" Value="10" />
+                                <Setter Property="Margin" Value="0" />
+                                <Setter Property="Background" Value="{StaticResource ImportPageTrackBrush}" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="{x:Type ScrollBar}">
+                                            <Grid x:Name="Root"
+                                                  Width="{TemplateBinding Width}"
+                                                  Background="{TemplateBinding Background}"
+                                                  Opacity="0.84">
+                                                <Track x:Name="PART_Track"
+                                                       IsDirectionReversed="True">
+                                                    <Track.DecreaseRepeatButton>
+                                                        <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}"
+                                                                      Style="{StaticResource AppScrollBarPageButtonStyle}" />
+                                                    </Track.DecreaseRepeatButton>
+                                                    <Track.Thumb>
+                                                        <primitives:Thumb Style="{StaticResource ImportReviewScrollBarThumbStyle}" />
+                                                    </Track.Thumb>
+                                                    <Track.IncreaseRepeatButton>
+                                                        <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}"
+                                                                      Style="{StaticResource AppScrollBarPageButtonStyle}" />
+                                                    </Track.IncreaseRepeatButton>
+                                                </Track>
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="Orientation" Value="Horizontal">
+                                                    <Setter TargetName="Root" Property="Width" Value="Auto" />
+                                                    <Setter TargetName="Root" Property="Height" Value="10" />
+                                                    <Setter Property="Height" Value="10" />
+                                                    <Setter Property="MinHeight" Value="10" />
+                                                </Trigger>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Root" Property="Opacity" Value="1" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ScrollViewer.Resources>
+                        <StackPanel x:Name="ReviewScrollContent"
+                                    Margin="0,0,8,18"
+                                    SizeChanged="HandleReviewScrollContentSizeChanged">
                             <Border Margin="0,0,0,12"
                                     Padding="12"
                                     AutomationProperties.AutomationId="Import.TimeProfileFallbacks"
@@ -1195,11 +1237,7 @@
                                                                     <Button Margin="0,0,0,8"
                                                                             Style="{StaticResource ImportFlatActionButtonStyle}"
                                                                             Command="{Binding OpenEditorCommand}">
-                                                                        <Border Padding="10"
-                                                                                Background="{StaticResource ImportPageTrackBrush}"
-                                                                                BorderBrush="{StaticResource ImportPageBorderBrush}"
-                                                                                BorderThickness="1"
-                                                                                CornerRadius="10">
+                                                                        <Border Style="{StaticResource ImportOccurrenceCardBorderStyle}">
                                                                             <StackPanel>
                                                                                 <TextBlock Style="{StaticResource ImportTitleTextStyle}"
                                                                                            Text="{Binding Summary}" />
@@ -1255,11 +1293,7 @@
                                                                     <Button Margin="0,0,0,8"
                                                                             Style="{StaticResource ImportFlatActionButtonStyle}"
                                                                             Command="{Binding OpenEditorCommand}">
-                                                                        <Border Padding="10"
-                                                                                Background="{StaticResource ImportPageTrackBrush}"
-                                                                                BorderBrush="{StaticResource ImportPageBorderBrush}"
-                                                                                BorderThickness="1"
-                                                                                CornerRadius="10">
+                                                                        <Border Style="{StaticResource ImportOccurrenceCardBorderStyle}">
                                                                             <StackPanel>
                                                                                 <TextBlock Style="{StaticResource ImportTitleTextStyle}"
                                                                                            Text="{Binding Summary}" />
@@ -1327,7 +1361,7 @@
                                                                     Background="{StaticResource ImportConflictSurfaceBrush}">
                                                                 <TextBlock FontSize="11"
                                                                            Foreground="{StaticResource ImportConflictBrush}"
-                                                                           Text="{Binding CourseTypeLabel}" />
+                                                                           Text="{x:Static resources:UiText.ImportRequiredCourseType}" />
                                                             </Border>
                                                         </Grid>
 
@@ -1344,16 +1378,33 @@
                                                         </WrapPanel>
 
                                                         <WrapPanel Margin="0,8,0,0">
-                                                            <Border Margin="0,0,8,0" Style="{StaticResource ImportChipStyle}" Background="{StaticResource ImportAddSurfaceBrush}">
+                                                            <Border Margin="0,0,8,0"
+                                                                    Style="{StaticResource ImportChipStyle}"
+                                                                    Background="{StaticResource ImportAddSurfaceBrush}"
+                                                                    Visibility="{Binding HasAddedCount, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                                 <TextBlock FontSize="11" Foreground="{StaticResource ImportAddBrush}" Text="{Binding AddedCountText}" />
                                                             </Border>
-                                                            <Border Margin="0,0,8,0" Style="{StaticResource ImportChipStyle}" Background="{StaticResource ImportUpdateSurfaceBrush}">
+                                                            <Border Margin="0,0,8,0"
+                                                                    Style="{StaticResource ImportChipStyle}"
+                                                                    Background="{StaticResource ImportUpdateSurfaceBrush}"
+                                                                    Visibility="{Binding HasUpdatedCount, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                                 <TextBlock FontSize="11" Foreground="{StaticResource ImportUpdateBrush}" Text="{Binding UpdatedCountText}" />
                                                             </Border>
-                                                            <Border Margin="0,0,8,0" Style="{StaticResource ImportChipStyle}" Background="{StaticResource ImportDeleteSurfaceBrush}">
+                                                            <Border Margin="0,0,8,0"
+                                                                    Style="{StaticResource ImportChipStyle}"
+                                                                    Background="{StaticResource ImportNeutralSurfaceBrush}"
+                                                                    Visibility="{Binding HasMetadataOnlyCount, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                                <TextBlock FontSize="11" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding MetadataOnlyCountText}" />
+                                                            </Border>
+                                                            <Border Margin="0,0,8,0"
+                                                                    Style="{StaticResource ImportChipStyle}"
+                                                                    Background="{StaticResource ImportDeleteSurfaceBrush}"
+                                                                    Visibility="{Binding HasDeletedCount, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                                 <TextBlock FontSize="11" Foreground="{StaticResource ImportDeleteBrush}" Text="{Binding DeletedCountText}" />
                                                             </Border>
-                                                            <Border Style="{StaticResource ImportChipStyle}" Background="{StaticResource ImportConflictSurfaceBrush}">
+                                                            <Border Style="{StaticResource ImportChipStyle}"
+                                                                    Background="{StaticResource ImportConflictSurfaceBrush}"
+                                                                    Visibility="{Binding HasConflictCount, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                                 <TextBlock FontSize="11" Foreground="{StaticResource ImportConflictBrush}" Text="{Binding ConflictCountText}" />
                                                             </Border>
                                                         </WrapPanel>
@@ -1361,7 +1412,7 @@
                                                     <WrapPanel Grid.Column="1"
                                                                VerticalAlignment="Top">
                                                         <Button Margin="0,0,10,0"
-                                                                AutomationProperties.AutomationId="{Binding HeaderActionAutomationId}"
+                                                                AutomationProperties.AutomationId="Import.ParsedCourseGroup.InfoButton"
                                                                 Style="{StaticResource ImportInfoButtonStyle}"
                                                                 Command="{Binding OpenPresentationEditorCommand}"
                                                                 HorizontalAlignment="Right"
@@ -1483,7 +1534,10 @@
                                                                                         <TextBlock Margin="14,0,0,0" Style="{StaticResource ImportBodyTextStyle}" Text="{Binding LocationText}" />
                                                                                     </WrapPanel>
                                                                                     <WrapPanel Margin="0,8,0,0">
-                                                                                        <Border Margin="0,0,8,0" Style="{StaticResource ImportChipStyle}" Background="{Binding PrimaryStatusBackground}">
+                                                                                        <Border Margin="0,0,8,0"
+                                                                                                Style="{StaticResource ImportChipStyle}"
+                                                                                                Background="{Binding PrimaryStatusBackground}"
+                                                                                                Visibility="{Binding HasPrimaryStatusBadge, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                                                             <TextBlock FontSize="11" Foreground="{Binding PrimaryStatusForeground}" Text="{Binding PrimaryStatusText}" />
                                                                                         </Border>
                                                                                         <ItemsControl ItemsSource="{Binding ChangeBadges}">
@@ -1520,6 +1574,84 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                             </ItemsControl>
+
+                            <Border Margin="0,0,0,12"
+                                    Padding="12"
+                                    Style="{StaticResource ImportSectionBorderStyle}"
+                                    AutomationProperties.AutomationId="Import.ParsedCoursesSection"
+                                    Visibility="{Binding ShowParsedCoursesSection, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <StackPanel>
+                                    <DockPanel LastChildFill="False">
+                                        <TextBlock Style="{StaticResource ImportTitleTextStyle}"
+                                                   Text="{x:Static resources:UiText.ImportParsedCoursesTitle}" />
+                                        <WrapPanel DockPanel.Dock="Right"
+                                                   VerticalAlignment="Top">
+                                            <ToggleButton AutomationProperties.AutomationId="Import.ParsedCourses.Mode.RepeatRules"
+                                                          Style="{StaticResource ImportModeToggleButtonStyle}"
+                                                          Command="{Binding ShowParsedCourseRepeatRulesCommand}"
+                                                          IsChecked="{Binding IsParsedCourseDisplayModeRepeatRules, Mode=OneWay}"
+                                                          Content="{x:Static resources:UiText.ImportParsedCoursesModeRepeatRules}" />
+                                            <ToggleButton AutomationProperties.AutomationId="Import.ParsedCourses.Mode.AllTimes"
+                                                          Style="{StaticResource ImportModeToggleButtonStyle}"
+                                                          Command="{Binding ShowParsedCourseAllTimesCommand}"
+                                                          IsChecked="{Binding IsParsedCourseDisplayModeAllTimes, Mode=OneWay}"
+                                                          Content="{x:Static resources:UiText.ImportParsedCoursesModeAllTimes}" />
+                                        </WrapPanel>
+                                    </DockPanel>
+
+                                    <ItemsControl x:Name="ParsedCourseGroupsControl"
+                                                  Margin="0,12,0,0"
+                                                  AutomationProperties.AutomationId="Import.ParsedCourseGroups"
+                                                  ItemsSource="{Binding ParsedCourseGroups}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Margin="0,0,0,10"
+                                                        Padding="12"
+                                                        Style="{StaticResource ImportSubtleBorderStyle}">
+                                                    <StackPanel>
+                                                        <DockPanel LastChildFill="False">
+                                                            <Button DockPanel.Dock="Right"
+                                                                    Margin="8,0,0,0"
+                                                                    AutomationProperties.AutomationId="{Binding HeaderActionAutomationId}"
+                                                                    Style="{StaticResource ImportInfoButtonStyle}"
+                                                                    Command="{Binding HeaderActionCommand}"
+                                                                    HorizontalAlignment="Right"
+                                                                    Visibility="{Binding HasHeaderAction, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                            <TextBlock Style="{StaticResource ImportTitleTextStyle}"
+                                                                       Text="{Binding Title}"
+                                                                       TextWrapping="NoWrap"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                        </DockPanel>
+                                                        <TextBlock Margin="0,6,0,0"
+                                                                   Style="{StaticResource ImportBodyTextStyle}"
+                                                                   Text="{Binding Summary}" />
+                                                        <ItemsControl Margin="0,12,0,0"
+                                                                      ItemsSource="{Binding TimeItems}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <Button Margin="0,0,0,8"
+                                                                            Style="{StaticResource ImportFlatActionButtonStyle}"
+                                                                            Command="{Binding OpenEditorCommand}">
+                                                                        <Border Style="{StaticResource ImportOccurrenceCardBorderStyle}">
+                                                                            <StackPanel>
+                                                                                <TextBlock Style="{StaticResource ImportTitleTextStyle}"
+                                                                                           Text="{Binding Summary}" />
+                                                                                <TextBlock Margin="0,5,0,0"
+                                                                                           Style="{StaticResource ImportBodyTextStyle}"
+                                                                                           Text="{Binding Details}" />
+                                                                            </StackPanel>
+                                                                        </Border>
+                                                                    </Button>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </ScrollViewer>
 
@@ -1543,7 +1675,10 @@
                                     <TextBlock Margin="0,0,12,0" Style="{StaticResource ImportBodyTextStyle}" Text="{Binding SelectedOccurrenceLocation}" />
                                     <TextBlock Style="{StaticResource ImportBodyTextStyle}" Text="{Binding SelectedOccurrenceTeacher}" />
                                 </WrapPanel>
-                                <Border Margin="0,14,0,0" Padding="12" Style="{StaticResource ImportSubtleBorderStyle}">
+                                <Border Margin="0,14,0,0"
+                                        Padding="12"
+                                        Style="{StaticResource ImportSubtleBorderStyle}"
+                                        Visibility="{Binding ShowSelectedOccurrenceChangeSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
                                     <StackPanel>
                                         <TextBlock Style="{StaticResource ImportTitleTextStyle}" Text="{x:Static resources:UiText.ImportChangeSummaryTitle}" />
                                         <ItemsControl Margin="0,10,0,0" ItemsSource="{Binding SelectedOccurrenceDetailBadges}">
@@ -1582,6 +1717,20 @@
                                                       Visibility="{Binding HasSelectedOccurrenceManagedNoteDiffLines, Converter={StaticResource BooleanToVisibilityConverter}}" />
                                     </StackPanel>
                                 </Border>
+                                <Border Margin="0,14,0,0" Padding="12" Style="{StaticResource ImportSubtleBorderStyle}" Visibility="{Binding ShowSelectedGoogleNotesEditor, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource ImportTitleTextStyle}" Text="{x:Static resources:UiText.CourseEditorNotesLabel}" />
+                                        <TextBox Margin="0,10,0,0"
+                                                 AutomationProperties.AutomationId="Import.Detail.GoogleNotesEditor"
+                                                 MinHeight="72"
+                                                 MaxHeight="140"
+                                                 Padding="10,8"
+                                                 AcceptsReturn="True"
+                                                 TextWrapping="Wrap"
+                                                 VerticalScrollBarVisibility="Auto"
+                                                 Text="{Binding SelectedGoogleNotesText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </StackPanel>
+                                </Border>
                                 <Border Margin="0,14,0,0" Padding="12" Style="{StaticResource ImportSubtleBorderStyle}" Visibility="{Binding ShowSelectedOccurrenceSharedSection, Converter={StaticResource BooleanToVisibilityConverter}}">
                                     <StackPanel>
                                         <TextBlock Style="{StaticResource ImportTitleTextStyle}" Text="{x:Static resources:UiText.ImportSharedDetailsTitle}" />
@@ -1594,6 +1743,7 @@
                 </Grid>
 
                 <Border Grid.Column="2"
+                        MinHeight="0"
                         Padding="16"
                         Style="{StaticResource ImportSectionBorderStyle}"
                         AutomationProperties.AutomationId="Import.DetailPanel"
@@ -1673,12 +1823,17 @@
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0">
                                             <TextBlock Style="{StaticResource ImportBodyTextStyle}" Text="{DynamicResource CourseEditorTimeZoneLabel}" />
-                                            <ComboBox Margin="0,6,0,0"
-                                                      AutomationProperties.AutomationId="Import.CourseSettings.TimeZoneCombo"
-                                                      Style="{StaticResource ImportToolbarComboStyle}"
-                                                      ItemsSource="{Binding CourseSettingsTimeZoneOptions}"
-                                                      SelectedItem="{Binding SelectedCourseSettingsTimeZoneOption, Mode=TwoWay}"
-                                                      ItemTemplate="{StaticResource ImportTimeZoneOptionTemplate}" />
+                                            <controls:TimeZonePicker Margin="0,6,0,0"
+                                                                     AutomationProperties.AutomationId="Import.CourseSettings.TimeZoneCombo"
+                                                                     ItemsSource="{Binding CourseSettingsTimeZoneOptions}"
+                                                                     RecentTimeZoneIds="{Binding CourseSettingsRecentTimeZoneIds}"
+                                                                     SelectedItem="{Binding SelectedCourseSettingsTimeZoneOption, Mode=TwoWay}"
+                                                                     SearchAutomationId="Import.CourseSettings.TimeZoneSearchBox"
+                                                                     CategoryAutomationId="Import.CourseSettings.TimeZoneCategoryList"
+                                                                     ResultAutomationId="Import.CourseSettings.TimeZoneResultList"
+                                                                     PopupMinWidth="360"
+                                                                     PopupMaxWidth="560"
+                                                                     PopupMaxHeight="320" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="2">
                                             <TextBlock Style="{StaticResource ImportBodyTextStyle}" Text="{DynamicResource CourseEditorColorLabel}" />
@@ -1790,12 +1945,17 @@
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0">
                                             <TextBlock Style="{StaticResource ImportBodyTextStyle}" Text="{DynamicResource CourseEditorTimeZoneLabel}" />
-                                            <ComboBox Margin="0,6,0,0"
-                                                      AutomationProperties.AutomationId="Import.CourseEditor.TimeZoneCombo"
-                                                      Style="{StaticResource ImportToolbarComboStyle}"
-                                                      ItemsSource="{Binding TimeZoneOptions}"
-                                                      SelectedItem="{Binding SelectedTimeZoneOption, Mode=TwoWay}"
-                                                      ItemTemplate="{StaticResource ImportTimeZoneOptionTemplate}" />
+                                            <controls:TimeZonePicker Margin="0,6,0,0"
+                                                                     AutomationProperties.AutomationId="Import.CourseEditor.TimeZoneCombo"
+                                                                     ItemsSource="{Binding TimeZoneOptions}"
+                                                                     RecentTimeZoneIds="{Binding RecentTimeZoneIds}"
+                                                                     SelectedItem="{Binding SelectedTimeZoneOption, Mode=TwoWay}"
+                                                                     SearchAutomationId="Import.CourseEditor.TimeZoneSearchBox"
+                                                                     CategoryAutomationId="Import.CourseEditor.TimeZoneCategoryList"
+                                                                     ResultAutomationId="Import.CourseEditor.TimeZoneResultList"
+                                                                     PopupMinWidth="360"
+                                                                     PopupMaxWidth="560"
+                                                                     PopupMaxHeight="320" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="2">
                                             <TextBlock Style="{StaticResource ImportBodyTextStyle}" Text="{DynamicResource CourseEditorColorLabel}" />
@@ -2061,6 +2221,20 @@
                                                   Visibility="{Binding HasSelectedOccurrenceManagedNoteDiffLines, Converter={StaticResource BooleanToVisibilityConverter}}" />
                                 </StackPanel>
                             </Border>
+                            <Border Margin="0,14,0,0" Padding="12" Style="{StaticResource ImportSubtleBorderStyle}" Visibility="{Binding ShowSelectedGoogleNotesEditor, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource ImportTitleTextStyle}" Text="{x:Static resources:UiText.CourseEditorNotesLabel}" />
+                                    <TextBox Margin="0,10,0,0"
+                                             AutomationProperties.AutomationId="Import.Detail.GoogleNotesEditor"
+                                             MinHeight="72"
+                                             MaxHeight="140"
+                                             Padding="10,8"
+                                             AcceptsReturn="True"
+                                             TextWrapping="Wrap"
+                                             VerticalScrollBarVisibility="Auto"
+                                             Text="{Binding SelectedGoogleNotesText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                            </Border>
                             <Border Margin="0,14,0,0"
                                     Padding="12"
                                     AutomationProperties.AutomationId="Import.Detail.SharedDetails"
@@ -2077,93 +2251,8 @@
             </Grid>
 
             <StackPanel Grid.Row="3"
-                        Margin="0,14,0,0">
-                <Border Margin="0,0,0,14"
-                        Padding="16"
-                        Style="{StaticResource ImportSectionBorderStyle}"
-                        AutomationProperties.AutomationId="Import.ParsedCoursesSection"
-                        Visibility="{Binding ShowParsedCoursesSection, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <StackPanel>
-                        <DockPanel LastChildFill="False">
-                            <StackPanel>
-                                <TextBlock Style="{StaticResource ImportTitleTextStyle}"
-                                           Text="{x:Static resources:UiText.ImportParsedCoursesTitle}" />
-                                <TextBlock Margin="0,6,0,0"
-                                           Style="{StaticResource ImportBodyTextStyle}"
-                                           Text="{Binding ParsedCoursesHint}" />
-                            </StackPanel>
-                            <WrapPanel DockPanel.Dock="Right"
-                                       VerticalAlignment="Top">
-                                <ToggleButton AutomationProperties.AutomationId="Import.ParsedCourses.Mode.RepeatRules"
-                                              Style="{StaticResource ImportModeToggleButtonStyle}"
-                                              Command="{Binding ShowParsedCourseRepeatRulesCommand}"
-                                              IsChecked="{Binding IsParsedCourseDisplayModeRepeatRules, Mode=OneWay}"
-                                              Content="{x:Static resources:UiText.ImportParsedCoursesModeRepeatRules}" />
-                                <ToggleButton AutomationProperties.AutomationId="Import.ParsedCourses.Mode.AllTimes"
-                                              Style="{StaticResource ImportModeToggleButtonStyle}"
-                                              Command="{Binding ShowParsedCourseAllTimesCommand}"
-                                              IsChecked="{Binding IsParsedCourseDisplayModeAllTimes, Mode=OneWay}"
-                                              Content="{x:Static resources:UiText.ImportParsedCoursesModeAllTimes}" />
-                            </WrapPanel>
-                        </DockPanel>
-
-                        <ItemsControl Margin="0,16,0,0"
-                                      AutomationProperties.AutomationId="Import.ParsedCourseGroups"
-                                      ItemsSource="{Binding ParsedCourseGroups}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Margin="0,0,0,12"
-                                            Padding="14"
-                                            Style="{StaticResource ImportSubtleBorderStyle}">
-                                        <StackPanel>
-                                            <DockPanel LastChildFill="False">
-                                                <Button DockPanel.Dock="Right"
-                                                        Margin="8,0,0,0"
-                                                        AutomationProperties.AutomationId="{Binding HeaderActionAutomationId}"
-                                                        Style="{StaticResource ImportInfoButtonStyle}"
-                                                        Command="{Binding HeaderActionCommand}"
-                                                        HorizontalAlignment="Right"
-                                                        Visibility="{Binding HasHeaderAction, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                                <TextBlock Style="{StaticResource ImportTitleTextStyle}"
-                                                           Text="{Binding Title}"
-                                                           TextWrapping="NoWrap"
-                                                           TextTrimming="CharacterEllipsis" />
-                                            </DockPanel>
-                                            <TextBlock Margin="0,8,0,0"
-                                                       Style="{StaticResource ImportBodyTextStyle}"
-                                                       Text="{Binding Summary}" />
-                                            <ItemsControl Margin="0,14,0,0"
-                                                          ItemsSource="{Binding TimeItems}">
-                                                <ItemsControl.ItemTemplate>
-                                                    <DataTemplate>
-                                                        <Button Margin="0,0,0,10"
-                                                                Style="{StaticResource ImportFlatActionButtonStyle}"
-                                                                Command="{Binding OpenEditorCommand}">
-                                                            <Border Padding="12"
-                                                                    Background="{StaticResource ImportPageTrackBrush}"
-                                                                    BorderBrush="{StaticResource ImportPageBorderBrush}"
-                                                                    BorderThickness="1"
-                                                                    CornerRadius="12">
-                                                                <StackPanel>
-                                                                    <TextBlock Style="{StaticResource ImportTitleTextStyle}"
-                                                                               Text="{Binding Summary}" />
-                                                                    <TextBlock Margin="0,6,0,0"
-                                                                               Style="{StaticResource ImportBodyTextStyle}"
-                                                                               Text="{Binding Details}" />
-                                                                </StackPanel>
-                                                            </Border>
-                                                        </Button>
-                                                    </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                            </ItemsControl>
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </Border>
-
+                        Margin="0"
+                        Visibility="Collapsed">
                 <Border Padding="12"
                         Style="{StaticResource ImportSectionBorderStyle}"
                         Visibility="Collapsed">

@@ -22,6 +22,10 @@ public sealed class JsonUserPreferencesRepositoryTests
         preferences.SelectedTimeProfileId.Should().BeNull();
         preferences.GoogleSettings.PreferredCalendarTimeZoneId.Should().Be("Asia/Shanghai");
         preferences.GoogleSettings.RemoteReadFallbackTimeZoneId.Should().Be("Asia/Shanghai");
+        preferences.ProgramBehavior.NetworkProxy.Mode.Should().Be(NetworkProxyMode.System);
+        preferences.ProgramBehavior.NetworkProxy.CustomProxyUri.Should().BeNull();
+        preferences.GetEnabledTaskGenerationRules(ProviderKind.Google).Should().BeEmpty();
+        preferences.GetEnabledTaskGenerationRules(ProviderKind.Microsoft).Should().BeEmpty();
     }
 
     [Fact]
@@ -53,6 +57,7 @@ public sealed class JsonUserPreferencesRepositoryTests
         loaded.MicrosoftDefaults.CourseTypeAppearances.Should().Contain(item => item.CourseTypeKey == CourseTypeKeys.Other);
         loaded.ProgramBehavior.SyncGoogleCalendarOnStartup.Should().BeTrue();
         loaded.ProgramBehavior.ShowStatusNotifications.Should().BeTrue();
+        loaded.ProgramBehavior.StatusNotificationDurationSeconds.Should().Be(3);
     }
 
     [Fact]
@@ -211,12 +216,84 @@ public sealed class JsonUserPreferencesRepositoryTests
         var preferences = WorkspacePreferenceDefaults.Create()
             .WithProgramBehavior(new ProgramBehaviorSettings(
                 syncGoogleCalendarOnStartup: false,
-                showStatusNotifications: false));
+                showStatusNotifications: false,
+                statusNotificationDurationSeconds: 6,
+                loadCloudCalendarDuringStartup: false,
+                cacheHomeScheduleRendering: false,
+                restoreHomeScheduleRenderingOnStartup: false,
+                networkProxy: new NetworkProxySettings(NetworkProxyMode.Custom, "127.0.0.1:7890")));
 
         await repository.SaveAsync(preferences, CancellationToken.None);
         var loaded = await repository.LoadAsync(CancellationToken.None);
 
         loaded.ProgramBehavior.SyncGoogleCalendarOnStartup.Should().BeFalse();
         loaded.ProgramBehavior.ShowStatusNotifications.Should().BeFalse();
+        loaded.ProgramBehavior.StatusNotificationDurationSeconds.Should().Be(6);
+        loaded.ProgramBehavior.LoadCloudCalendarDuringStartup.Should().BeFalse();
+        loaded.ProgramBehavior.CacheHomeScheduleRendering.Should().BeFalse();
+        loaded.ProgramBehavior.RestoreHomeScheduleRenderingOnStartup.Should().BeFalse();
+        loaded.ProgramBehavior.NetworkProxy.Mode.Should().Be(NetworkProxyMode.Custom);
+        loaded.ProgramBehavior.NetworkProxy.CustomProxyUri.Should().Be("127.0.0.1:7890");
+        loaded.ProgramBehavior.NetworkProxy.BypassLocal.Should().BeTrue();
+        loaded.ProgramBehavior.NetworkProxy.BypassList.Should().Contain(["localhost", "127.0.0.1", "::1"]);
+    }
+
+    [Fact]
+    public async Task SaveAsyncDoesNotPersistCustomProxyPassword()
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        var repository = new JsonUserPreferencesRepository(new LocalStoragePaths(tempDirectory.DirectoryPath));
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithProgramBehavior(new ProgramBehaviorSettings(
+                syncGoogleCalendarOnStartup: true,
+                showStatusNotifications: true,
+                networkProxy: new NetworkProxySettings(
+                    NetworkProxyMode.Custom,
+                    "http://127.0.0.1:7890",
+                    customProxyUsername: "student",
+                    customProxyHasPassword: true)));
+
+        await repository.SaveAsync(preferences, CancellationToken.None);
+
+        var json = await File.ReadAllTextAsync(
+            new LocalStoragePaths(tempDirectory.DirectoryPath).WorkspacePreferencesFilePath,
+            CancellationToken.None);
+        json.Should().Contain("CustomProxyHasPassword");
+        json.Should().Contain("student");
+        json.Should().NotContain("secret");
+        json.Should().NotContain("Password\": \"");
+    }
+
+    [Fact]
+    public async Task LoadAsyncMigratesCustomProxyWithoutPasswordFlag()
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        var paths = new LocalStoragePaths(tempDirectory.DirectoryPath);
+        Directory.CreateDirectory(paths.RootDirectory);
+        await File.WriteAllTextAsync(
+            paths.WorkspacePreferencesFilePath,
+            """
+            {
+              "WeekStartPreference": "Monday",
+              "DefaultProvider": "Google",
+              "ProgramBehavior": {
+                "SyncGoogleCalendarOnStartup": true,
+                "ShowStatusNotifications": true,
+                "NetworkProxy": {
+                  "Mode": "Custom",
+                  "CustomProxyUri": "http://127.0.0.1:7890",
+                  "CustomProxyUsername": "student"
+                }
+              }
+            }
+            """,
+            CancellationToken.None);
+        var repository = new JsonUserPreferencesRepository(paths);
+
+        var loaded = await repository.LoadAsync(CancellationToken.None);
+
+        loaded.ProgramBehavior.NetworkProxy.Mode.Should().Be(NetworkProxyMode.Custom);
+        loaded.ProgramBehavior.NetworkProxy.CustomProxyUsername.Should().Be("student");
+        loaded.ProgramBehavior.NetworkProxy.CustomProxyHasPassword.Should().BeFalse();
     }
 }

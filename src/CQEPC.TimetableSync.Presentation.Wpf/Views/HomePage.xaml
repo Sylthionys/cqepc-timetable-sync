@@ -188,34 +188,44 @@
                                                TextWrapping="NoWrap"
                                                Visibility="{Binding HasCalendarContextSummary, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
-                                    <WrapPanel Grid.Row="1"
-                                               Grid.ColumnSpan="3"
-                                               Margin="0,10,0,0"
-                                               HorizontalAlignment="Left">
-                                        <ToggleButton AutomationProperties.AutomationId="Home.Toggle.ExistingCalendar"
-                                                      IsChecked="{Binding IsGoogleCalendarImportEnabled, Mode=TwoWay}"
-                                                      Style="{StaticResource HomeToggleChipStyle}"
-                                                      Visibility="{Binding ShowGoogleHomePreviewToggle, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                                      Content="{DynamicResource HomeExistingCalendarToggle}" />
-                                        <Button AutomationProperties.AutomationId="Home.Action.SyncCalendar"
-                                                Command="{Binding SyncCalendarCommand}"
-                                                Style="{StaticResource HomeToolbarButtonStyle}"
-                                                Visibility="{Binding ShowGoogleHomePreviewToggle, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                                Content="{DynamicResource HomeSyncCalendarButton}" />
-                                        <Button AutomationProperties.AutomationId="Home.PrimaryAction.ApplySelected"
-                                                Command="{Binding ApplySchedulesCommand}"
-                                                Style="{StaticResource HomeToolbarPrimaryButtonStyle}"
-                                                Content="{DynamicResource HomeImportScheduleButton}" />
-                                        <Button Style="{StaticResource HomeToolbarButtonStyle}"
-                                                Command="{Binding TodayCommand}"
-                                                Content="{DynamicResource HomeTodayButton}" />
-                                        <Button Style="{StaticResource HomeToolbarButtonStyle}"
-                                                Command="{Binding PreviousMonthCommand}"
-                                                Content="{DynamicResource HomePreviousMonthButton}" />
-                                        <Button Style="{StaticResource HomeToolbarButtonStyle}"
-                                                Command="{Binding NextMonthCommand}"
-                                                Content="{DynamicResource HomeNextMonthButton}" />
-                                    </WrapPanel>
+                                    <Grid Grid.Row="1"
+                                          Grid.ColumnSpan="3"
+                                          Margin="0,10,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <WrapPanel HorizontalAlignment="Left">
+                                            <ToggleButton AutomationProperties.AutomationId="Home.Toggle.ExistingCalendar"
+                                                          IsChecked="{Binding IsGoogleCalendarImportEnabled, Mode=TwoWay}"
+                                                          Style="{StaticResource HomeToggleChipStyle}"
+                                                          Visibility="{Binding ShowGoogleHomePreviewToggle, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                          Content="{DynamicResource HomeExistingCalendarToggle}" />
+                                            <Button AutomationProperties.AutomationId="Home.PrimaryAction.ApplySelected"
+                                                    Command="{Binding ApplySchedulesCommand}"
+                                                    Style="{StaticResource HomeToolbarPrimaryButtonStyle}"
+                                                    Content="{DynamicResource HomeImportScheduleButton}" />
+                                        </WrapPanel>
+                                        <StackPanel Grid.Column="1"
+                                                    Orientation="Horizontal"
+                                                    HorizontalAlignment="Right">
+                                            <Button Style="{StaticResource HomeToolbarButtonStyle}"
+                                                    Command="{Binding TodayCommand}"
+                                                    Content="{DynamicResource HomeTodayButton}" />
+                                            <Button Width="40"
+                                                    MinWidth="40"
+                                                    FontSize="18"
+                                                    Style="{StaticResource HomeToolbarButtonStyle}"
+                                                    Command="{Binding PreviousMonthCommand}"
+                                                    Content="&#x2039;" />
+                                            <Button Width="40"
+                                                    MinWidth="40"
+                                                    FontSize="18"
+                                                    Style="{StaticResource HomeToolbarButtonStyle}"
+                                                    Command="{Binding NextMonthCommand}"
+                                                    Content="&#x203A;" />
+                                        </StackPanel>
+                                    </Grid>
                                 </Grid>
 
                                 <ItemsControl Grid.Row="1"
@@ -465,27 +475,38 @@
                                                                   ItemsSource="{Binding HomeUnresolvedItems}">
                                                         <ItemsControl.ItemTemplate>
                                                             <DataTemplate>
-                                                                <Border Margin="0,0,0,10"
-                                                                        Padding="12"
-                                                                        Background="{DynamicResource SurfaceBrush}"
-                                                                        BorderBrush="{DynamicResource WarningBorderBrush}"
-                                                                        BorderThickness="1"
-                                                                        CornerRadius="14">
-                                                                    <StackPanel>
-                                                                        <TextBlock Style="{StaticResource CardTitleTextStyle}"
-                                                                                   FontSize="15"
-                                                                                   Text="{Binding Summary}"
-                                                                                   TextWrapping="Wrap" />
-                                                                        <TextBlock Margin="0,8,0,0"
-                                                                                   Style="{StaticResource HomeMutedStyle}"
-                                                                                   Text="{Binding Reason}"
-                                                                                   TextWrapping="Wrap" />
-                                                                        <TextBlock Margin="0,8,0,0"
-                                                                                   Style="{StaticResource HomeMetaStyle}"
-                                                                                   Foreground="{DynamicResource SubtleTextBrush}"
-                                                                                   Text="{Binding ClassName}" />
-                                                                    </StackPanel>
-                                                                </Border>
+                                                                <Button Margin="0,0,0,10"
+                                                                        Padding="0"
+                                                                        Background="Transparent"
+                                                                        BorderThickness="0"
+                                                                        Command="{Binding OpenEditorCommand}"
+                                                                        Style="{StaticResource HomeDayButtonStyle}">
+                                                                    <Border Padding="12"
+                                                                            Background="{DynamicResource SurfaceBrush}"
+                                                                            BorderBrush="{DynamicResource WarningBorderBrush}"
+                                                                            BorderThickness="1"
+                                                                            CornerRadius="14">
+                                                                        <StackPanel>
+                                                                            <TextBlock Style="{StaticResource CardTitleTextStyle}"
+                                                                                       FontSize="15"
+                                                                                       Text="{Binding DisplayName}"
+                                                                                       TextWrapping="Wrap" />
+                                                                            <TextBlock Margin="0,6,0,0"
+                                                                                       Style="{StaticResource HomeMetaStyle}"
+                                                                                       Foreground="{DynamicResource TextBrush}"
+                                                                                       Text="{Binding TimeSummary}"
+                                                                                       TextWrapping="Wrap" />
+                                                                            <TextBlock Margin="0,8,0,0"
+                                                                                       Style="{StaticResource HomeMutedStyle}"
+                                                                                       Text="{Binding Reason}"
+                                                                                       TextWrapping="Wrap" />
+                                                                            <TextBlock Margin="0,8,0,0"
+                                                                                       Style="{StaticResource HomeMetaStyle}"
+                                                                                       Foreground="{DynamicResource SubtleTextBrush}"
+                                                                                       Text="{Binding ClassName}" />
+                                                                        </StackPanel>
+                                                                    </Border>
+                                                                </Button>
                                                             </DataTemplate>
                                                         </ItemsControl.ItemTemplate>
                                                     </ItemsControl>

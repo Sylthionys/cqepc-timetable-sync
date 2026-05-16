@@ -1,5 +1,6 @@
 using Google.Apis.Calendar.v3.Data;
 using GoogleTask = Google.Apis.Tasks.v1.Data.Task;
+using CQEPC.TimetableSync.Application.UseCases.Workspace;
 using CQEPC.TimetableSync.Domain.Model;
 using System.Globalization;
 
@@ -57,7 +58,10 @@ internal static class GooglePayloadBuilders
         string? preferredTimeZoneId,
         string? defaultCalendarColorId)
     {
-        var timeZoneId = ResolveGoogleTimeZoneId(occurrence.CalendarTimeZoneId ?? preferredTimeZoneId);
+        var requestedTimeZoneId = occurrence.CalendarTimeZoneId ?? preferredTimeZoneId;
+        var timeZoneId = ResolveGoogleTimeZoneId(requestedTimeZoneId);
+        var start = ResolvePayloadDateTime(occurrence.Start, requestedTimeZoneId, timeZoneId);
+        var end = ResolvePayloadDateTime(occurrence.End, requestedTimeZoneId, timeZoneId);
         var privateProperties = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [GoogleSyncConstants.ManagedByKey] = GoogleSyncConstants.ManagedByValue,
@@ -72,6 +76,7 @@ internal static class GooglePayloadBuilders
         AddIfValue(privateProperties, GoogleSyncConstants.CourseTypeKey, occurrence.CourseType);
         AddIfValue(privateProperties, GoogleSyncConstants.CampusKey, occurrence.Metadata.Campus);
         AddIfValue(privateProperties, GoogleSyncConstants.TeacherKey, occurrence.Metadata.Teacher);
+        AddIfValue(privateProperties, GoogleSyncConstants.TimeZoneIdKey, timeZoneId);
 
         return new Event
         {
@@ -80,12 +85,12 @@ internal static class GooglePayloadBuilders
             Location = occurrence.Metadata.Location,
             Start = new EventDateTime
             {
-                DateTimeDateTimeOffset = occurrence.Start,
+                DateTimeDateTimeOffset = start,
                 TimeZone = timeZoneId,
             },
             End = new EventDateTime
             {
-                DateTimeDateTimeOffset = occurrence.End,
+                DateTimeDateTimeOffset = end,
                 TimeZone = timeZoneId,
             },
             ExtendedProperties = new Event.ExtendedPropertiesData
@@ -101,6 +106,14 @@ internal static class GooglePayloadBuilders
 
     internal static string? NormalizeGoogleCalendarColorId(string? colorId) =>
         string.IsNullOrWhiteSpace(colorId) ? null : colorId.Trim();
+
+    private static DateTimeOffset ResolvePayloadDateTime(
+        DateTimeOffset value,
+        string? requestedTimeZoneId,
+        string resolvedTimeZoneId) =>
+        string.IsNullOrWhiteSpace(requestedTimeZoneId)
+            ? value
+            : WorkspaceTimeZoneCatalog.ResolveLocalDateTime(value.DateTime, resolvedTimeZoneId);
 
     private static void AddIfValue(Dictionary<string, string> dictionary, string key, string? value)
     {
@@ -165,4 +178,5 @@ internal static class GoogleSyncConstants
     public const string CampusKey = "campus";
     public const string TeacherKey = "teacher";
     public const string TargetKindKey = "targetKind";
+    public const string TimeZoneIdKey = "timeZoneId";
 }

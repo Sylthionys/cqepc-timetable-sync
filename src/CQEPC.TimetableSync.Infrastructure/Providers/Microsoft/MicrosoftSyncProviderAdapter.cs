@@ -4,6 +4,7 @@ using CQEPC.TimetableSync.Application.Abstractions.Sync;
 using CQEPC.TimetableSync.Application.UseCases.Workspace;
 using CQEPC.TimetableSync.Domain.Enums;
 using CQEPC.TimetableSync.Domain.Model;
+using CQEPC.TimetableSync.Infrastructure.Networking;
 using CQEPC.TimetableSync.Infrastructure.Persistence.Local;
 
 namespace CQEPC.TimetableSync.Infrastructure.Providers.Microsoft;
@@ -13,12 +14,27 @@ public sealed class MicrosoftSyncProviderAdapter : ISyncProviderAdapter, IDispos
 {
     private readonly MicrosoftAuthService authService;
     private readonly MicrosoftGraphClient graphClient;
+    private readonly NetworkProxyHttpClientFactory? httpClientFactory;
     private readonly string timeZoneId;
 
-    public MicrosoftSyncProviderAdapter(LocalStoragePaths storagePaths, HttpClient? httpClient = null, string? timeZoneId = null)
+    public MicrosoftSyncProviderAdapter(
+        LocalStoragePaths storagePaths,
+        HttpClient? httpClient = null,
+        string? timeZoneId = null,
+        Func<NetworkProxySettings>? networkProxySettingsProvider = null,
+        Func<string?>? networkProxyPasswordProvider = null)
     {
-        authService = new MicrosoftAuthService(storagePaths ?? throw new ArgumentNullException(nameof(storagePaths)));
-        graphClient = new MicrosoftGraphClient(httpClient);
+        authService = new MicrosoftAuthService(
+            storagePaths ?? throw new ArgumentNullException(nameof(storagePaths)),
+            networkProxySettingsProvider,
+            networkProxyPasswordProvider);
+        httpClientFactory = httpClient is null && networkProxySettingsProvider is not null
+            ? new NetworkProxyHttpClientFactory(networkProxySettingsProvider, networkProxyPasswordProvider)
+            : null;
+        Func<HttpClient>? graphHttpClientProvider = httpClientFactory is null
+            ? null
+            : httpClientFactory.GetCurrentClient;
+        graphClient = new MicrosoftGraphClient(httpClient, graphHttpClientProvider);
         this.timeZoneId = string.IsNullOrWhiteSpace(timeZoneId) ? TimeZoneInfo.Local.Id : timeZoneId.Trim();
     }
 
@@ -589,6 +605,7 @@ public sealed class MicrosoftSyncProviderAdapter : ISyncProviderAdapter, IDispos
 
     public void Dispose()
     {
+        httpClientFactory?.Dispose();
         authService.Dispose();
     }
 }
