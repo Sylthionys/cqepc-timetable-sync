@@ -76,12 +76,6 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
         var managedRemoteEventIndex = provider == ProviderKind.Google
             ? RemoteEventIndex.Create(managedRemoteEvents)
             : RemoteEventIndex.Empty;
-        var unmanagedRemoteEvents = provider == ProviderKind.Google
-            ? remoteDisplayEvents.Where(static item => !item.IsManagedByApp).ToArray()
-            : Array.Empty<ProviderRemoteCalendarEvent>();
-        var deletionScopedRemoteEvents = provider == ProviderKind.Google
-            ? remoteDisplayEvents.Where(item => IsWithinDeletionWindow(item, deletionWindow)).ToArray()
-            : Array.Empty<ProviderRemoteCalendarEvent>();
         var currentCalendarOccurrences = currentOccurrences
             .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
             .ToArray();
