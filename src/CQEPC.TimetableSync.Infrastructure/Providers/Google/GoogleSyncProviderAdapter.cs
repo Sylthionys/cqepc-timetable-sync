@@ -207,8 +207,7 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
 
                 var privateProperties = item.ExtendedProperties?.Private__;
                 var descriptionMetadata = ParseDescriptionMetadata(item.Description);
-                var managedBy = GetPrivateProperty(privateProperties, GoogleSyncConstants.ManagedByKey)
-                    ?? descriptionMetadata.ManagedBy;
+                var managedBy = GetPrivateProperty(privateProperties, GoogleSyncConstants.ManagedByKey);
                 var isManaged = string.Equals(managedBy, GoogleSyncConstants.ManagedByValue, StringComparison.Ordinal);
                 var declaredTimeZoneId = ResolveDeclaredEventTimeZoneId(
                     privateProperties,
@@ -226,9 +225,9 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
                     item.Location,
                     item.Description,
                     isManaged,
-                    GetPrivateProperty(privateProperties, GoogleSyncConstants.LocalSyncIdKey) ?? descriptionMetadata.LocalSyncId,
-                    GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceFingerprintKey) ?? descriptionMetadata.SourceFingerprint,
-                    GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceKindKey) ?? descriptionMetadata.SourceKind,
+                    GetPrivateProperty(privateProperties, GoogleSyncConstants.LocalSyncIdKey),
+                    GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceFingerprintKey),
+                    GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceKindKey),
                     item.RecurringEventId,
                     TryResolveEventDateTimeOffset(item.OriginalStartTime, fallbackTimeZoneId)?.ToUniversalTime(),
                     GooglePayloadBuilders.NormalizeGoogleCalendarColorId(item.ColorId),
@@ -924,8 +923,7 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
 
         var privateProperties = item.ExtendedProperties?.Private__;
         var descriptionMetadata = ParseDescriptionMetadata(item.Description);
-        var managedBy = GetPrivateProperty(privateProperties, GoogleSyncConstants.ManagedByKey)
-            ?? descriptionMetadata.ManagedBy;
+        var managedBy = GetPrivateProperty(privateProperties, GoogleSyncConstants.ManagedByKey);
         var isManaged = string.Equals(managedBy, GoogleSyncConstants.ManagedByValue, StringComparison.Ordinal);
         var declaredTimeZoneId = ResolveDeclaredEventTimeZoneId(
             privateProperties,
@@ -943,9 +941,9 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
             item.Location,
             item.Description,
             isManaged,
-            GetPrivateProperty(privateProperties, GoogleSyncConstants.LocalSyncIdKey) ?? descriptionMetadata.LocalSyncId,
-            GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceFingerprintKey) ?? descriptionMetadata.SourceFingerprint,
-            GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceKindKey) ?? descriptionMetadata.SourceKind,
+            GetPrivateProperty(privateProperties, GoogleSyncConstants.LocalSyncIdKey),
+            GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceFingerprintKey),
+            GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceKindKey),
             item.RecurringEventId,
             TryResolveEventDateTimeOffset(item.OriginalStartTime, fallbackTimeZoneId)?.ToUniversalTime(),
             GooglePayloadBuilders.NormalizeGoogleCalendarColorId(item.ColorId),
