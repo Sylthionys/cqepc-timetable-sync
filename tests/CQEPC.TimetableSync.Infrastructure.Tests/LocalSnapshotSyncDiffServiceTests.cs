@@ -861,7 +861,7 @@ public sealed class LocalSnapshotSyncDiffServiceTests
     }
 
     [Fact]
-    public async Task CreatePreviewAsyncIgnoresDuplicatePreviousSnapshotOccurrencesWhenOnlySourceFingerprintDiffers()
+    public async Task CreatePreviewAsyncRetainsPreviousSnapshotOccurrencesWhenSourceFingerprintDiffers()
     {
         var previousOccurrenceA = CreateOccurrence(
             "Signals",
@@ -913,7 +913,9 @@ public sealed class LocalSnapshotSyncDiffServiceTests
             deletionWindow: null,
             CancellationToken.None);
 
-        plan.PlannedChanges.Should().BeEmpty();
+        var change = plan.PlannedChanges.Should().ContainSingle().Subject;
+        change.ChangeKind.Should().Be(SyncChangeKind.Deleted);
+        change.Before!.SourceFingerprint.Hash.Should().Be("signals-b");
     }
 
     [Fact]
@@ -2048,6 +2050,57 @@ public sealed class LocalSnapshotSyncDiffServiceTests
         plan.PlannedChanges.Should().ContainSingle(change =>
             change.ChangeKind == SyncChangeKind.Deleted
             && change.Before!.OccurrenceDate == new DateOnly(2026, 3, 12));
+    }
+
+    [Fact]
+    public async Task CreatePreviewAsyncDoesNotCollapsePreviousOccurrencesWithDifferentSourceFingerprints()
+    {
+        var retainedOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            "Room 301",
+            sourceHash: "signals-a");
+        var deletedOccurrence = CreateOccurrence(
+            "Signals",
+            new DateOnly(2026, 3, 5),
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            "Room 301",
+            sourceHash: "signals-b");
+        var repository = new InMemoryWorkspaceRepository
+        {
+            Snapshot = new ImportedScheduleSnapshot(
+                DateTimeOffset.UtcNow,
+                "Class A",
+                [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals")])],
+                Array.Empty<UnresolvedItem>(),
+                [new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8))],
+                [new TimeProfile("main-campus", "Main Campus", [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))])],
+                [retainedOccurrence, deletedOccurrence],
+                [
+                    new ExportGroup(ExportGroupKind.SingleOccurrence, [retainedOccurrence]),
+                    new ExportGroup(ExportGroupKind.SingleOccurrence, [deletedOccurrence]),
+                ],
+                Array.Empty<RuleBasedTaskGenerationRule>()),
+        };
+        var service = new LocalSnapshotSyncDiffService(repository);
+
+        var plan = await service.CreatePreviewAsync(
+            ProviderKind.Google,
+            [retainedOccurrence],
+            Array.Empty<UnresolvedItem>(),
+            previousSnapshot: null,
+            existingMappings: Array.Empty<SyncMapping>(),
+            remoteDisplayEvents: Array.Empty<ProviderRemoteCalendarEvent>(),
+            calendarDestinationId: "google-cal",
+            deletionWindow: null,
+            CancellationToken.None);
+
+        var change = plan.PlannedChanges.Should().ContainSingle().Subject;
+        change.ChangeKind.Should().Be(SyncChangeKind.Deleted);
+        change.Before!.SourceFingerprint.Hash.Should().Be("signals-b");
     }
 
     private static CourseBlock CreateCourseBlock(string className, string courseTitle) =>

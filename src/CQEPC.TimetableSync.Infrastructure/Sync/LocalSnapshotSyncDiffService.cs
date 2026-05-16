@@ -842,7 +842,9 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
             occurrence.Metadata.CourseTitle,
             occurrence.Metadata.Location ?? string.Empty,
             occurrence.Metadata.Teacher ?? string.Empty,
-            occurrence.TimeProfileId);
+            occurrence.TimeProfileId,
+            occurrence.SourceFingerprint.SourceKind,
+            occurrence.SourceFingerprint.Hash);
 
     private static ResolvedOccurrence[] ResolveComparablePreviousOccurrences(
         ImportedScheduleSnapshot? previousSnapshot,

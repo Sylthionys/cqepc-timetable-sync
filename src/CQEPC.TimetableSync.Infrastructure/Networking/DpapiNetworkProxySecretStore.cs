@@ -26,8 +26,15 @@ public sealed class DpapiNetworkProxySecretStore : INetworkProxySecretStore
         }
 
         var protectedBytes = await File.ReadAllBytesAsync(GetFilePath(), cancellationToken).ConfigureAwait(false);
-        var bytes = ProtectedData.Unprotect(protectedBytes, Entropy, DataProtectionScope.CurrentUser);
-        return Encoding.UTF8.GetString(bytes);
+        try
+        {
+            var bytes = ProtectedData.Unprotect(protectedBytes, Entropy, DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(bytes);
+        }
+        catch (CryptographicException)
+        {
+            return null;
+        }
     }
 
     public async Task SavePasswordAsync(NetworkProxySettings settings, string? password, CancellationToken cancellationToken)
