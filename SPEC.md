@@ -117,7 +117,7 @@ The current codebase does not yet include:
 - While interactive startup initialization is still running, the shell should surface a bottom-right task center before Home preview is ready so the user can inspect which startup steps are still in progress.
 - The first startup Home preview must be allowed to complete from local sources alone. When startup cloud loading is enabled, a Google-backed preview may run in parallel with the local preview; if it finishes first, Home may adopt the merged result directly, otherwise Home should show the local result first and then adopt the merged provider result.
 - Startup task messaging must keep those phases separate: the local parse/render task should not masquerade as Google sync work, and the Google refresh should clearly indicate that it is reading remote calendar state and merging it into the Home board.
-- Program Settings must expose switches for startup cloud loading, Home render caching, and restoring the last Home render on startup. Restored Home renders are display hints only; the normal local/provider preview must still refresh and replace stale cached content.
+- Program Settings must expose switches for startup cloud loading, Home render caching, and restoring the last Home render on startup. Home render caching and startup restore are opt-in, any persisted render cache must be protected at rest with user-local DPAPI, and stale plaintext cache files from older builds must be removed. Restored Home renders are display hints only; the normal local/provider preview must still refresh and replace stale cached content.
 - Changing the selected theme must refresh the visible shell and page chrome immediately without requiring an app restart.
 - Theme switching applies immediately without restart.
 - Theme switching must repaint the active page immediately without requiring navigation to another shell section.
@@ -129,7 +129,7 @@ The current codebase does not yet include:
 - Time-zone dropdowns are the exception to centered generic combo text: regional IANA options should remain left-aligned and use the Program Settings time-zone selection theme so long city/country labels stay readable.
 - Settings text and password inputs must use theme resources, show the I-beam cursor on hover, and keep placeholder overlays offset so an empty focused input places the caret before the hint instead of on top of it.
 - Settings timetable-resolution controls must keep the default time-profile mode selector compact and place it beside the explicit profile selector when width allows, while stacking cleanly on narrow windows.
-- Program Settings should show `Week Start`, `Language`, regional IANA time zone, startup Google sync, status notifications, startup cloud loading, Home render caching, restore-last-Home-render, numeric status-tip duration, theme, and About inline in the selected Settings section.
+- Program Settings should show `Week Start`, `Language`, regional IANA time zone, startup Google sync, status notifications, startup cloud loading, opt-in Home render caching, opt-in restore-last-Home-render, numeric status-tip duration, theme, and About inline in the selected Settings section.
 - Program Settings should split those controls into two content cards: display/language/time-zone settings and program behavior.
 - Startup Google sync and status notifications should use long switch controls, not checkbox glyphs.
 - Theme and About should render as compact centered actions below the Program Settings cards. The About entry point should be a circular `i` icon button.
