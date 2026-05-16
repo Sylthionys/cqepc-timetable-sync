@@ -198,48 +198,11 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
                     continue;
                 }
 
-                var start = TryResolveEventDateTimeOffset(item.Start, fallbackTimeZoneId);
-                var end = TryResolveEventDateTimeOffset(item.End, fallbackTimeZoneId);
-                if (!start.HasValue || !end.HasValue || end <= start)
+                var remoteEvent = TryMapRemoteEvent(item, calendarId, fallbackTimeZoneId);
+                if (remoteEvent is not null)
                 {
-                    continue;
+                    results.Add(remoteEvent);
                 }
-
-                var privateProperties = item.ExtendedProperties?.Private__;
-                var descriptionMetadata = ParseDescriptionMetadata(item.Description);
-                var managedBy = GetPrivateProperty(privateProperties, GoogleSyncConstants.ManagedByKey)
-                    ?? descriptionMetadata.ManagedBy;
-                var isManaged = string.Equals(managedBy, GoogleSyncConstants.ManagedByValue, StringComparison.Ordinal);
-                var declaredTimeZoneId = ResolveDeclaredEventTimeZoneId(
-                    privateProperties,
-                    descriptionMetadata,
-                    item.Start,
-                    item.End,
-                    item.OriginalStartTime);
-
-                results.Add(new ProviderRemoteCalendarEvent(
-                    item.Id,
-                    calendarId,
-                    item.Summary,
-                    start.Value,
-                    end.Value,
-                    item.Location,
-                    item.Description,
-                    isManaged,
-                    GetPrivateProperty(privateProperties, GoogleSyncConstants.LocalSyncIdKey) ?? descriptionMetadata.LocalSyncId,
-                    GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceFingerprintKey) ?? descriptionMetadata.SourceFingerprint,
-                    GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceKindKey) ?? descriptionMetadata.SourceKind,
-                    item.RecurringEventId,
-                    TryResolveEventDateTimeOffset(item.OriginalStartTime, fallbackTimeZoneId)?.ToUniversalTime(),
-                    GooglePayloadBuilders.NormalizeGoogleCalendarColorId(item.ColorId),
-                    GetPrivateProperty(privateProperties, GoogleSyncConstants.ClassNameKey) ?? descriptionMetadata.ClassName,
-                    declaredTimeZoneId,
-                    ResolveExplicitEventTimeZoneId(item.Start),
-                    ResolveExplicitEventTimeZoneId(item.End),
-                    ResolveExplicitEventTimeZoneId(item.OriginalStartTime),
-                    HasExplicitEventTimeZone(item.Start),
-                    HasExplicitEventTimeZone(item.End),
-                    HasExplicitEventTimeZone(item.OriginalStartTime)));
             }
 
             pageToken = response.NextPageToken;
@@ -898,6 +861,12 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
             ? value.Trim()
             : null;
 
+    private static bool HasTrustedManagedMarker(IDictionary<string, string>? privateProperties) =>
+        string.Equals(
+            GetPrivateProperty(privateProperties, GoogleSyncConstants.ManagedByKey),
+            GoogleSyncConstants.ManagedByValue,
+            StringComparison.Ordinal);
+
     private string? ResolvePreferredWriteTimeZoneId(ProviderConnectionContext connectionContext) =>
         string.IsNullOrWhiteSpace(connectionContext.PreferredCalendarTimeZoneId)
             ? preferredWriteTimeZoneId
@@ -915,21 +884,39 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
             throw new InvalidOperationException("Google did not return a usable calendar event.");
         }
 
+        return TryMapRemoteEvent(item, calendarId, fallbackTimeZoneId)
+            ?? throw new InvalidOperationException("Google returned a calendar event without a valid timed range.");
+    }
+
+    private static ProviderRemoteCalendarEvent? TryMapRemoteEvent(Event? item, string calendarId, string? fallbackTimeZoneId)
+    {
+        if (item is null || string.IsNullOrWhiteSpace(item.Id) || string.IsNullOrWhiteSpace(item.Summary))
+        {
+            return null;
+        }
+
         var start = TryResolveEventDateTimeOffset(item.Start, fallbackTimeZoneId);
         var end = TryResolveEventDateTimeOffset(item.End, fallbackTimeZoneId);
         if (!start.HasValue || !end.HasValue || end <= start)
         {
-            throw new InvalidOperationException("Google returned a calendar event without a valid timed range.");
+            return null;
         }
 
+        return CreateRemoteCalendarEvent(item, calendarId, fallbackTimeZoneId, start.Value, end.Value);
+    }
+
+    private static ProviderRemoteCalendarEvent CreateRemoteCalendarEvent(
+        Event item,
+        string calendarId,
+        string? fallbackTimeZoneId,
+        DateTimeOffset start,
+        DateTimeOffset end)
+    {
         var privateProperties = item.ExtendedProperties?.Private__;
-        var descriptionMetadata = ParseDescriptionMetadata(item.Description);
-        var managedBy = GetPrivateProperty(privateProperties, GoogleSyncConstants.ManagedByKey)
-            ?? descriptionMetadata.ManagedBy;
-        var isManaged = string.Equals(managedBy, GoogleSyncConstants.ManagedByValue, StringComparison.Ordinal);
+        var isManaged = HasTrustedManagedMarker(privateProperties);
+        var trustedPrivateProperties = isManaged ? privateProperties : null;
         var declaredTimeZoneId = ResolveDeclaredEventTimeZoneId(
-            privateProperties,
-            descriptionMetadata,
+            trustedPrivateProperties,
             item.Start,
             item.End,
             item.OriginalStartTime);
@@ -938,18 +925,18 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
             item.Id,
             calendarId,
             item.Summary,
-            start.Value,
-            end.Value,
+            start,
+            end,
             item.Location,
             item.Description,
             isManaged,
-            GetPrivateProperty(privateProperties, GoogleSyncConstants.LocalSyncIdKey) ?? descriptionMetadata.LocalSyncId,
-            GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceFingerprintKey) ?? descriptionMetadata.SourceFingerprint,
-            GetPrivateProperty(privateProperties, GoogleSyncConstants.SourceKindKey) ?? descriptionMetadata.SourceKind,
+            GetPrivateProperty(trustedPrivateProperties, GoogleSyncConstants.LocalSyncIdKey),
+            GetPrivateProperty(trustedPrivateProperties, GoogleSyncConstants.SourceFingerprintKey),
+            GetPrivateProperty(trustedPrivateProperties, GoogleSyncConstants.SourceKindKey),
             item.RecurringEventId,
             TryResolveEventDateTimeOffset(item.OriginalStartTime, fallbackTimeZoneId)?.ToUniversalTime(),
             GooglePayloadBuilders.NormalizeGoogleCalendarColorId(item.ColorId),
-            GetPrivateProperty(privateProperties, GoogleSyncConstants.ClassNameKey) ?? descriptionMetadata.ClassName,
+            GetPrivateProperty(trustedPrivateProperties, GoogleSyncConstants.ClassNameKey),
             declaredTimeZoneId,
             ResolveExplicitEventTimeZoneId(item.Start),
             ResolveExplicitEventTimeZoneId(item.End),
@@ -964,12 +951,10 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
 
     private static string? ResolveDeclaredEventTimeZoneId(
         IDictionary<string, string>? privateProperties,
-        GoogleDescriptionMetadata descriptionMetadata,
         EventDateTime? start,
         EventDateTime? end,
         EventDateTime? originalStart) =>
         WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(GetPrivateProperty(privateProperties, GoogleSyncConstants.TimeZoneIdKey))
-        ?? WorkspaceTimeZoneCatalog.ResolveKnownTimeZoneId(descriptionMetadata.TimeZoneId)
         ?? ResolveExplicitEventTimeZoneId(start)
         ?? ResolveExplicitEventTimeZoneId(end)
         ?? ResolveExplicitEventTimeZoneId(originalStart);
@@ -980,99 +965,9 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
     private static bool HasExplicitEventTimeZone(EventDateTime? eventDateTime) =>
         !string.IsNullOrWhiteSpace(eventDateTime?.TimeZone);
 
-    internal static GoogleDescriptionMetadata ParseDescriptionMetadata(string? description)
-    {
-        if (string.IsNullOrWhiteSpace(description))
-        {
-            return GoogleDescriptionMetadata.Empty;
-        }
-
-        string? managedBy = null;
-        string? className = null;
-        string? localSyncId = null;
-        string? sourceFingerprint = null;
-        string? sourceKind = null;
-        string? timeZoneId = null;
-        var lines = description.Split(["\r\n", "\n"], StringSplitOptions.None);
-        foreach (var rawLine in lines)
-        {
-            if (string.IsNullOrWhiteSpace(rawLine))
-            {
-                continue;
-            }
-
-            var separatorIndex = rawLine.IndexOf(':');
-            if (separatorIndex <= 0 || separatorIndex == rawLine.Length - 1)
-            {
-                continue;
-            }
-
-            var key = rawLine[..separatorIndex].Trim();
-            var value = rawLine[(separatorIndex + 1)..].Trim();
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                continue;
-            }
-
-            if (managedBy is null
-                && string.Equals(key, GoogleSyncConstants.ManagedByKey, StringComparison.OrdinalIgnoreCase))
-            {
-                managedBy = value;
-                continue;
-            }
-
-            if (className is null
-                && string.Equals(key, "Class", StringComparison.OrdinalIgnoreCase))
-            {
-                className = value;
-                continue;
-            }
-
-            if (localSyncId is null
-                && string.Equals(key, GoogleSyncConstants.LocalSyncIdKey, StringComparison.OrdinalIgnoreCase))
-            {
-                localSyncId = value;
-                continue;
-            }
-
-            if (sourceFingerprint is null
-                && string.Equals(key, GoogleSyncConstants.SourceFingerprintKey, StringComparison.OrdinalIgnoreCase))
-            {
-                sourceFingerprint = value;
-                continue;
-            }
-
-            if (sourceKind is null
-                && string.Equals(key, GoogleSyncConstants.SourceKindKey, StringComparison.OrdinalIgnoreCase))
-            {
-                sourceKind = value;
-                continue;
-            }
-
-            if (timeZoneId is null
-                && string.Equals(key, GoogleSyncConstants.TimeZoneIdKey, StringComparison.OrdinalIgnoreCase))
-            {
-                timeZoneId = value;
-            }
-        }
-
-        return new GoogleDescriptionMetadata(managedBy, className, localSyncId, sourceFingerprint, sourceKind, timeZoneId);
-    }
-
     private sealed record CachedGoogleServices(
         string CacheKey,
         UserCredential Credential,
         CalendarService CalendarService,
         TasksService TasksService);
-
-    internal sealed record GoogleDescriptionMetadata(
-        string? ManagedBy,
-        string? ClassName,
-        string? LocalSyncId,
-        string? SourceFingerprint,
-        string? SourceKind,
-        string? TimeZoneId)
-    {
-        public static GoogleDescriptionMetadata Empty { get; } = new(null, null, null, null, null, null);
-    }
 }

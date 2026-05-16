@@ -642,6 +642,11 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                 value,
                 CurrentPreferences.ProgramBehavior.RestoreHomeScheduleRenderingOnStartup,
                 CurrentPreferences.ProgramBehavior.NetworkProxy)));
+            if (!value)
+            {
+                _ = ClearHomeScheduleRenderingCacheAsync(CancellationToken.None);
+            }
+
             _ = PersistPreferencesAsync(refreshPreview: false);
         }
     }
@@ -5658,8 +5663,18 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     private async Task LoadRestoredHomeScheduleRenderingAsync(CancellationToken cancellationToken)
     {
-        if (homeScheduleRenderCacheStore is null
-            || !CurrentPreferences.ProgramBehavior.RestoreHomeScheduleRenderingOnStartup)
+        if (homeScheduleRenderCacheStore is null)
+        {
+            return;
+        }
+
+        if (!CurrentPreferences.ProgramBehavior.CacheHomeScheduleRendering)
+        {
+            await ClearHomeScheduleRenderingCacheAsync(cancellationToken);
+            return;
+        }
+
+        if (!CurrentPreferences.ProgramBehavior.RestoreHomeScheduleRenderingOnStartup)
         {
             return;
         }
@@ -5691,9 +5706,18 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     private async Task SaveHomeScheduleRenderingAsync(CancellationToken cancellationToken)
     {
-        if (homeScheduleRenderCacheStore is null
-            || !CurrentPreferences.ProgramBehavior.CacheHomeScheduleRendering
-            || !HasReadyPreview)
+        if (homeScheduleRenderCacheStore is null)
+        {
+            return;
+        }
+
+        if (!CurrentPreferences.ProgramBehavior.CacheHomeScheduleRendering)
+        {
+            await ClearHomeScheduleRenderingCacheAsync(cancellationToken);
+            return;
+        }
+
+        if (!HasReadyPreview)
         {
             return;
         }
@@ -5717,6 +5741,23 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         catch
         {
             // Rendering cache is only a startup hint; shutdown should not fail because it could not be written.
+        }
+    }
+
+    private async Task ClearHomeScheduleRenderingCacheAsync(CancellationToken cancellationToken)
+    {
+        if (homeScheduleRenderCacheStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await homeScheduleRenderCacheStore.ClearAsync(cancellationToken);
+        }
+        catch
+        {
+            // Rendering cache is optional local acceleration; cleanup failures should not block startup or shutdown.
         }
     }
 
@@ -6438,9 +6479,13 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                 change.ChangeKind == SyncChangeKind.Deleted
                 && change.ChangeSource == SyncChangeSource.RemoteManaged
                 && change.RemoteEvent is not null)
-            .ToArray();
+            .GroupBy(static change => change.RemoteEvent!.RemoteItemId, StringComparer.Ordinal)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group.Select(static change => change.LocalStableId).ToArray(),
+                StringComparer.Ordinal);
 
-        return syncPlan.RemotePreviewEvents
+        var duplicateRemoteItemIds = syncPlan.RemotePreviewEvents
             .Where(static remoteEvent => remoteEvent.IsManagedByApp)
             .Where(remoteEvent => deletionWindow is null || OverlapsGoogleDuplicateWindow(deletionWindow, remoteEvent.Start, remoteEvent.End))
             .GroupBy(
@@ -6457,11 +6502,14 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                     CurrentCount = currentCalendarCountsByKey.TryGetValue(group.Key, out var count) ? count : 0,
                 })
             .Where(group => group.RemoteEvents.Length > group.CurrentCount && group.CurrentCount > 0)
-            .SelectMany(group =>
-                deleteChanges.Where(change =>
-                    group.RemoteEvents.Any(remoteEvent =>
-                        string.Equals(remoteEvent.RemoteItemId, change.RemoteEvent!.RemoteItemId, StringComparison.Ordinal))))
-            .Select(static change => change.LocalStableId)
+            .SelectMany(static group => group.RemoteEvents.Select(static remoteEvent => remoteEvent.RemoteItemId))
+            .ToHashSet(StringComparer.Ordinal);
+
+        return duplicateRemoteItemIds
+            .SelectMany(remoteItemId =>
+                deleteChanges.TryGetValue(remoteItemId, out var localStableIds)
+                    ? localStableIds
+                    : Array.Empty<string>())
             .Distinct(StringComparer.Ordinal)
             .ToArray();
     }
@@ -6532,8 +6580,10 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             ?? effectivePlannedChanges
                 .Select(static change => change.LocalStableId)
                 .ToHashSet(StringComparer.Ordinal);
-        var effective = preview.PreviousSnapshot?.Occurrences.ToList()
-            ?? preview.SyncPlan.Occurrences.ToList();
+        var effective = (preview.PreviousSnapshot?.Occurrences ?? preview.SyncPlan.Occurrences)
+            .Cast<ResolvedOccurrence?>()
+            .ToList();
+        var effectiveIndex = BuildEffectiveOccurrenceIndex(effective);
 
         foreach (var plannedChange in effectivePlannedChanges)
         {
@@ -6541,28 +6591,28 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             switch (plannedChange.ChangeKind)
             {
                 case SyncChangeKind.Added when isSelected && plannedChange.After is not null:
-                    effective.Add(plannedChange.After);
+                    AddEffectiveOccurrence(effective, effectiveIndex, plannedChange.After);
                     break;
                 case SyncChangeKind.Updated:
                 case SyncChangeKind.MetadataOnly:
                     if (plannedChange.Before is not null)
                     {
-                        _ = effective.Remove(plannedChange.Before);
+                        RemoveEffectiveOccurrence(effective, effectiveIndex, plannedChange.Before);
                     }
 
                     if ((isSelected ? plannedChange.After : plannedChange.Before) is { } replacement)
                     {
-                        effective.Add(replacement);
+                        AddEffectiveOccurrence(effective, effectiveIndex, replacement);
                     }
 
                     break;
                 case SyncChangeKind.Deleted:
                     if (plannedChange.Before is not null)
                     {
-                        _ = effective.Remove(plannedChange.Before);
+                        RemoveEffectiveOccurrence(effective, effectiveIndex, plannedChange.Before);
                         if (!isSelected)
                         {
-                            effective.Add(plannedChange.Before);
+                            AddEffectiveOccurrence(effective, effectiveIndex, plannedChange.Before);
                         }
                     }
 
@@ -6571,10 +6621,101 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         }
 
         return effective
+            .Where(static occurrence => occurrence is not null)
+            .Select(static occurrence => occurrence!)
             .OrderBy(static occurrence => occurrence.Start)
             .ThenBy(static occurrence => occurrence.Metadata.CourseTitle, StringComparer.CurrentCulture)
             .ToArray();
     }
+
+    private static Dictionary<string, Queue<int>> BuildEffectiveOccurrenceIndex(List<ResolvedOccurrence?> occurrences)
+    {
+        var index = new Dictionary<string, Queue<int>>(StringComparer.Ordinal);
+        for (var occurrenceIndex = 0; occurrenceIndex < occurrences.Count; occurrenceIndex++)
+        {
+            if (occurrences[occurrenceIndex] is { } occurrence)
+            {
+                AddEffectiveOccurrenceIndex(index, CreateEffectiveOccurrenceKey(occurrence), occurrenceIndex);
+            }
+        }
+
+        return index;
+    }
+
+    private static void AddEffectiveOccurrence(
+        List<ResolvedOccurrence?> occurrences,
+        Dictionary<string, Queue<int>> index,
+        ResolvedOccurrence occurrence)
+    {
+        occurrences.Add(occurrence);
+        AddEffectiveOccurrenceIndex(index, CreateEffectiveOccurrenceKey(occurrence), occurrences.Count - 1);
+    }
+
+    private static void RemoveEffectiveOccurrence(
+        List<ResolvedOccurrence?> occurrences,
+        Dictionary<string, Queue<int>> index,
+        ResolvedOccurrence occurrence)
+    {
+        var key = CreateEffectiveOccurrenceKey(occurrence);
+        if (!index.TryGetValue(key, out var indexes))
+        {
+            return;
+        }
+
+        while (indexes.Count > 0 && occurrences[indexes.Peek()] is null)
+        {
+            _ = indexes.Dequeue();
+        }
+
+        if (indexes.Count == 0)
+        {
+            index.Remove(key);
+            return;
+        }
+
+        occurrences[indexes.Dequeue()] = null;
+        if (indexes.Count == 0)
+        {
+            index.Remove(key);
+        }
+    }
+
+    private static void AddEffectiveOccurrenceIndex(Dictionary<string, Queue<int>> index, string key, int occurrenceIndex)
+    {
+        if (!index.TryGetValue(key, out var indexes))
+        {
+            indexes = new Queue<int>();
+            index.Add(key, indexes);
+        }
+
+        indexes.Enqueue(occurrenceIndex);
+    }
+
+    private static string CreateEffectiveOccurrenceKey(ResolvedOccurrence occurrence) =>
+        string.Join(
+            "|",
+            SyncIdentity.CreateOccurrenceId(occurrence),
+            occurrence.SchoolWeekNumber.ToString(CultureInfo.InvariantCulture),
+            occurrence.OccurrenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            occurrence.Start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            occurrence.End.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            occurrence.TimeProfileId,
+            occurrence.Weekday,
+            occurrence.Metadata.CourseTitle,
+            occurrence.Metadata.WeekExpression.RawText,
+            occurrence.Metadata.PeriodRange.StartPeriod.ToString(CultureInfo.InvariantCulture),
+            occurrence.Metadata.PeriodRange.EndPeriod.ToString(CultureInfo.InvariantCulture),
+            occurrence.Metadata.Notes ?? string.Empty,
+            occurrence.Metadata.Campus ?? string.Empty,
+            occurrence.Metadata.Location ?? string.Empty,
+            occurrence.Metadata.Teacher ?? string.Empty,
+            occurrence.Metadata.TeachingClassComposition ?? string.Empty,
+            occurrence.SourceFingerprint.SourceKind,
+            occurrence.SourceFingerprint.Hash,
+            occurrence.TargetKind,
+            occurrence.CourseType ?? string.Empty,
+            occurrence.CalendarTimeZoneId ?? string.Empty,
+            occurrence.GoogleCalendarColorId ?? string.Empty);
 
     private AgendaOccurrenceViewModel[] GetHomeScheduleItems()
     {

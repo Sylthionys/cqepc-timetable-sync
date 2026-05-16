@@ -483,6 +483,14 @@ public static class UiText
     public static string DiffLocationTbd => GetString(nameof(DiffLocationTbd), "Location TBD");
     public static string DiffTaskDefaultListLocation => GetString(nameof(DiffTaskDefaultListLocation), "Task-list item");
     public static string DiffNoNotes => GetString(nameof(DiffNoNotes), "No notes");
+    public static string DiffChangedBlockLinesFormat => GetString(nameof(DiffChangedBlockLinesFormat), "Changed block ({0} line(s))");
+    public static string DiffUnchangedLinesOmittedFormat => GetString(nameof(DiffUnchangedLinesOmittedFormat), "Omitted {0} unchanged line(s)");
+    public static string FormatDiffChangedBlockLines(int count) =>
+        Format(DiffChangedBlockLinesFormat, count);
+
+    public static string FormatDiffUnchangedLinesOmitted(int count) =>
+        Format(DiffUnchangedLinesOmittedFormat, count);
+
     public static string DiffSourceLocalSnapshot => GetString(nameof(DiffSourceLocalSnapshot), "Local snapshot");
     public static string DiffSourceRemoteManaged => GetString(nameof(DiffSourceRemoteManaged), "Managed remote event");
     public static string DiffSourceRemoteTitleConflict => GetString(nameof(DiffSourceRemoteTitleConflict), "Remote title conflict");

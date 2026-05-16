@@ -14,6 +14,10 @@ namespace CQEPC.TimetableSync.Presentation.Wpf.ViewModels;
 
 public sealed class ImportDiffPageViewModel : ObservableObject
 {
+    private const int MaxDetailedNoteDiffCells = 20_000;
+    private const int MaxDetailedNoteDiffLines = 300;
+    private const int MaxBoundedDiffContextLines = 3;
+
     private readonly WorkspaceSessionViewModel workspace;
     private readonly object rebuildSync = new();
     private string summary = string.Empty;
@@ -2638,6 +2642,12 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
     private static ImportTextDiffLineViewModel[] BuildLineDiff(string[] beforeLines, string[] afterLines)
     {
+        if ((long)beforeLines.Length * afterLines.Length > MaxDetailedNoteDiffCells
+            || beforeLines.Length + afterLines.Length > MaxDetailedNoteDiffLines)
+        {
+            return BuildBoundedLineDiff(beforeLines, afterLines);
+        }
+
         var lengths = new int[beforeLines.Length + 1, afterLines.Length + 1];
         for (var i = beforeLines.Length - 1; i >= 0; i--)
         {
@@ -2684,6 +2694,76 @@ public sealed class ImportDiffPageViewModel : ObservableObject
 
         return rows.ToArray();
     }
+
+    private static ImportTextDiffLineViewModel[] BuildBoundedLineDiff(string[] beforeLines, string[] afterLines)
+    {
+        var commonPrefix = 0;
+        while (commonPrefix < beforeLines.Length
+               && commonPrefix < afterLines.Length
+               && string.Equals(beforeLines[commonPrefix], afterLines[commonPrefix], StringComparison.Ordinal))
+        {
+            commonPrefix++;
+        }
+
+        var commonSuffix = 0;
+        while (commonSuffix < beforeLines.Length - commonPrefix
+               && commonSuffix < afterLines.Length - commonPrefix
+               && string.Equals(
+                   beforeLines[beforeLines.Length - commonSuffix - 1],
+                   afterLines[afterLines.Length - commonSuffix - 1],
+                   StringComparison.Ordinal))
+        {
+            commonSuffix++;
+        }
+
+        var rows = new List<ImportTextDiffLineViewModel>();
+        var prefixToShow = Math.Min(commonPrefix, MaxBoundedDiffContextLines);
+        for (var index = 0; index < prefixToShow; index++)
+        {
+            rows.Add(new ImportTextDiffLineViewModel(beforeLines[index], afterLines[index], isBeforeChanged: false, isAfterChanged: false));
+        }
+
+        if (commonPrefix > prefixToShow)
+        {
+            var omitted = FormatOmittedUnchangedLines(commonPrefix - prefixToShow);
+            rows.Add(new ImportTextDiffLineViewModel(omitted, omitted, isBeforeChanged: false, isAfterChanged: false));
+        }
+
+        var beforeChangedCount = beforeLines.Length - commonPrefix - commonSuffix;
+        var afterChangedCount = afterLines.Length - commonPrefix - commonSuffix;
+        if (beforeChangedCount > 0 || afterChangedCount > 0)
+        {
+            rows.Add(new ImportTextDiffLineViewModel(
+                beforeChangedCount > 0 ? FormatChangedBlockLines(beforeChangedCount) : string.Empty,
+                afterChangedCount > 0 ? FormatChangedBlockLines(afterChangedCount) : string.Empty,
+                isBeforeChanged: beforeChangedCount > 0,
+                isAfterChanged: afterChangedCount > 0));
+        }
+
+        var suffixToShow = Math.Min(commonSuffix, MaxBoundedDiffContextLines);
+        if (commonSuffix > suffixToShow)
+        {
+            var omitted = FormatOmittedUnchangedLines(commonSuffix - suffixToShow);
+            rows.Add(new ImportTextDiffLineViewModel(omitted, omitted, isBeforeChanged: false, isAfterChanged: false));
+        }
+
+        for (var offset = suffixToShow; offset > 0; offset--)
+        {
+            rows.Add(new ImportTextDiffLineViewModel(
+                beforeLines[beforeLines.Length - offset],
+                afterLines[afterLines.Length - offset],
+                isBeforeChanged: false,
+                isAfterChanged: false));
+        }
+
+        return rows.ToArray();
+    }
+
+    private static string FormatChangedBlockLines(int count) =>
+        UiText.FormatDiffChangedBlockLines(count);
+
+    private static string FormatOmittedUnchangedLines(int count) =>
+        UiText.FormatDiffUnchangedLinesOmitted(count);
 
     private static ImportDetailFieldViewModel[] BuildSharedDetailLines(IEnumerable<OccurrenceComparisonField> fields, DiffChangeItemViewModel item)
     {

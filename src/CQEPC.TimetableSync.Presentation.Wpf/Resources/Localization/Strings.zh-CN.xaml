@@ -290,6 +290,8 @@
     <sys:String x:Key="DiffLocationTbd">&#x5730;&#x70b9;&#x5f85;&#x5b9a;</sys:String>
     <sys:String x:Key="DiffTaskDefaultListLocation">&#x4efb;&#x52a1;&#x5217;&#x8868;&#x9879;</sys:String>
     <sys:String x:Key="DiffNoNotes">&#x65e0;&#x5907;&#x6ce8;</sys:String>
+    <sys:String x:Key="DiffChangedBlockLinesFormat">&#x5df2;&#x6298;&#x53e0;&#x53d8;&#x66f4;&#x5757;&#xff08;{0} &#x884c;&#xff09;</sys:String>
+    <sys:String x:Key="DiffUnchangedLinesOmittedFormat">&#x5df2;&#x7701;&#x7565; {0} &#x884c;&#x672a;&#x53d8;&#x5316;&#x5185;&#x5bb9;</sys:String>
     <sys:String x:Key="DiffSourceLocalSnapshot">&#x672c;&#x5730;&#x5feb;&#x7167;</sys:String>
     <sys:String x:Key="DiffSourceRemoteManaged">&#x5df2;&#x7ba1;&#x7406;&#x8fdc;&#x7a0b;&#x65e5;&#x7a0b;</sys:String>
     <sys:String x:Key="DiffSourceRemoteTitleConflict">&#x8fdc;&#x7a0b;&#x6807;&#x9898;&#x51b2;&#x7a81;</sys:String>
