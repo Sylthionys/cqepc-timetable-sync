@@ -1823,9 +1823,14 @@ public sealed class WorkspaceSessionResolutionTests
     [Fact]
     public async Task WorkspaceSessionCachesHomeRenderResultsPerCalendarMode()
     {
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithProgramBehavior(new ProgramBehaviorSettings(
+                syncGoogleCalendarOnStartup: true,
+                showStatusNotifications: true,
+                cacheHomeScheduleRendering: true));
         var session = CreateSession(
             CreateReadyCatalogState(),
-            new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create()),
+            new RecordingUserPreferencesRepository(preferences),
             new DynamicWorkspacePreviewService());
 
         await session.InitializeAsync();

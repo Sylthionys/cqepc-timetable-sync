@@ -642,6 +642,11 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                 value,
                 CurrentPreferences.ProgramBehavior.RestoreHomeScheduleRenderingOnStartup,
                 CurrentPreferences.ProgramBehavior.NetworkProxy)));
+            if (!value)
+            {
+                _ = ClearHomeScheduleRenderingCacheAsync(CancellationToken.None);
+            }
+
             _ = PersistPreferencesAsync(refreshPreview: false);
         }
     }
@@ -5658,8 +5663,18 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     private async Task LoadRestoredHomeScheduleRenderingAsync(CancellationToken cancellationToken)
     {
-        if (homeScheduleRenderCacheStore is null
-            || !CurrentPreferences.ProgramBehavior.RestoreHomeScheduleRenderingOnStartup)
+        if (homeScheduleRenderCacheStore is null)
+        {
+            return;
+        }
+
+        if (!CurrentPreferences.ProgramBehavior.CacheHomeScheduleRendering)
+        {
+            await ClearHomeScheduleRenderingCacheAsync(cancellationToken);
+            return;
+        }
+
+        if (!CurrentPreferences.ProgramBehavior.RestoreHomeScheduleRenderingOnStartup)
         {
             return;
         }
@@ -5691,9 +5706,18 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     private async Task SaveHomeScheduleRenderingAsync(CancellationToken cancellationToken)
     {
-        if (homeScheduleRenderCacheStore is null
-            || !CurrentPreferences.ProgramBehavior.CacheHomeScheduleRendering
-            || !HasReadyPreview)
+        if (homeScheduleRenderCacheStore is null)
+        {
+            return;
+        }
+
+        if (!CurrentPreferences.ProgramBehavior.CacheHomeScheduleRendering)
+        {
+            await ClearHomeScheduleRenderingCacheAsync(cancellationToken);
+            return;
+        }
+
+        if (!HasReadyPreview)
         {
             return;
         }
@@ -5717,6 +5741,23 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         catch
         {
             // Rendering cache is only a startup hint; shutdown should not fail because it could not be written.
+        }
+    }
+
+    private async Task ClearHomeScheduleRenderingCacheAsync(CancellationToken cancellationToken)
+    {
+        if (homeScheduleRenderCacheStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await homeScheduleRenderCacheStore.ClearAsync(cancellationToken);
+        }
+        catch
+        {
+            // Rendering cache is optional local acceleration; cleanup failures should not block startup or shutdown.
         }
     }
 

@@ -24,6 +24,8 @@ public sealed class JsonUserPreferencesRepositoryTests
         preferences.GoogleSettings.RemoteReadFallbackTimeZoneId.Should().Be("Asia/Shanghai");
         preferences.ProgramBehavior.NetworkProxy.Mode.Should().Be(NetworkProxyMode.System);
         preferences.ProgramBehavior.NetworkProxy.CustomProxyUri.Should().BeNull();
+        preferences.ProgramBehavior.CacheHomeScheduleRendering.Should().BeFalse();
+        preferences.ProgramBehavior.RestoreHomeScheduleRenderingOnStartup.Should().BeFalse();
         preferences.GetEnabledTaskGenerationRules(ProviderKind.Google).Should().BeEmpty();
         preferences.GetEnabledTaskGenerationRules(ProviderKind.Microsoft).Should().BeEmpty();
     }
@@ -58,6 +60,8 @@ public sealed class JsonUserPreferencesRepositoryTests
         loaded.ProgramBehavior.SyncGoogleCalendarOnStartup.Should().BeTrue();
         loaded.ProgramBehavior.ShowStatusNotifications.Should().BeTrue();
         loaded.ProgramBehavior.StatusNotificationDurationSeconds.Should().Be(3);
+        loaded.ProgramBehavior.CacheHomeScheduleRendering.Should().BeFalse();
+        loaded.ProgramBehavior.RestoreHomeScheduleRenderingOnStartup.Should().BeFalse();
     }
 
     [Fact]
@@ -219,8 +223,8 @@ public sealed class JsonUserPreferencesRepositoryTests
                 showStatusNotifications: false,
                 statusNotificationDurationSeconds: 6,
                 loadCloudCalendarDuringStartup: false,
-                cacheHomeScheduleRendering: false,
-                restoreHomeScheduleRenderingOnStartup: false,
+                cacheHomeScheduleRendering: true,
+                restoreHomeScheduleRenderingOnStartup: true,
                 networkProxy: new NetworkProxySettings(NetworkProxyMode.Custom, "127.0.0.1:7890")));
 
         await repository.SaveAsync(preferences, CancellationToken.None);
@@ -230,8 +234,8 @@ public sealed class JsonUserPreferencesRepositoryTests
         loaded.ProgramBehavior.ShowStatusNotifications.Should().BeFalse();
         loaded.ProgramBehavior.StatusNotificationDurationSeconds.Should().Be(6);
         loaded.ProgramBehavior.LoadCloudCalendarDuringStartup.Should().BeFalse();
-        loaded.ProgramBehavior.CacheHomeScheduleRendering.Should().BeFalse();
-        loaded.ProgramBehavior.RestoreHomeScheduleRenderingOnStartup.Should().BeFalse();
+        loaded.ProgramBehavior.CacheHomeScheduleRendering.Should().BeTrue();
+        loaded.ProgramBehavior.RestoreHomeScheduleRenderingOnStartup.Should().BeTrue();
         loaded.ProgramBehavior.NetworkProxy.Mode.Should().Be(NetworkProxyMode.Custom);
         loaded.ProgramBehavior.NetworkProxy.CustomProxyUri.Should().Be("127.0.0.1:7890");
         loaded.ProgramBehavior.NetworkProxy.BypassLocal.Should().BeTrue();
