@@ -1206,10 +1206,12 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
                 .Select(item => CreateCourseScheduleOverrideBindingKey(item.ClassName!, item.SourceFingerprint, null)))
             .ToHashSet(StringComparer.Ordinal);
         var activeScheduleOverrides = timetableResolution.CourseScheduleOverrides
-            .Where(scheduleOverride => activeOverrideBindings.Contains(CreateCourseScheduleOverrideBindingKey(
-                scheduleOverride.ClassName,
-                scheduleOverride.SourceFingerprint,
-                scheduleOverride.SourceOccurrenceDate)))
+            .Where(scheduleOverride =>
+                scheduleOverride.RetainsDeletedOccurrence
+                || activeOverrideBindings.Contains(CreateCourseScheduleOverrideBindingKey(
+                    scheduleOverride.ClassName,
+                    scheduleOverride.SourceFingerprint,
+                    scheduleOverride.SourceOccurrenceDate)))
             .ToArray();
         if (activeScheduleOverrides.Length == 0)
         {

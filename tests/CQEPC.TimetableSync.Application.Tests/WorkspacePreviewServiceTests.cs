@@ -1639,7 +1639,7 @@ public sealed class WorkspacePreviewServiceTests
     }
 
     [Fact]
-    public async Task BuildPreviewAsyncDoesNotRetainCanceledDeletedSingleOccurrenceOverrideWhenSourceBindingIsMissing()
+    public async Task BuildPreviewAsyncRetainsCanceledDeletedSingleOccurrenceOverrideWhenSourceBindingIsMissing()
     {
         var deletedFingerprint = new SourceFingerprint("pdf", "deleted-signals-retained");
         var deletedDate = new DateOnly(2026, 3, 5);
@@ -1690,7 +1690,7 @@ public sealed class WorkspacePreviewServiceTests
             CancellationToken.None);
 
         result.NormalizationResult.Should().NotBeNull();
-        result.NormalizationResult!.Occurrences.Should().NotContain(occurrence =>
+        result.NormalizationResult!.Occurrences.Should().Contain(occurrence =>
             occurrence.SourceFingerprint == deletedFingerprint
             && occurrence.OccurrenceDate == deletedDate);
     }
