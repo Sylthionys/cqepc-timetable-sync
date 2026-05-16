@@ -730,6 +730,7 @@ public sealed class LocalSnapshotSyncDiffService : ISyncDiffService
             var change = changes[index];
             if (change.ChangeSource != SyncChangeSource.LocalSnapshot
                 || change.TargetKind != SyncTargetKind.CalendarEvent
+                || change.ChangeKind != SyncChangeKind.Deleted
                 || change.Before is null
                 || change.RemoteEvent is not null)
             {

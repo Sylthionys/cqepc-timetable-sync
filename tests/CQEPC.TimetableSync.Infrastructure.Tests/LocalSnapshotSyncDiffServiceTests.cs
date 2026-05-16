@@ -1788,7 +1788,7 @@ public sealed class LocalSnapshotSyncDiffServiceTests
     }
 
     [Fact]
-    public async Task CreatePreviewAsyncTreatsSameClassManagedPayloadMatchWithStaleMetadataAsUpdateInsteadOfAdd()
+    public async Task CreatePreviewAsyncTreatsSameClassManagedPayloadMatchWithStaleMetadataAsAddAndRemoteDelete()
     {
         var repository = new InMemoryWorkspaceRepository();
         var service = new LocalSnapshotSyncDiffService(repository);
@@ -1826,18 +1826,16 @@ public sealed class LocalSnapshotSyncDiffServiceTests
             CancellationToken.None);
 
         plan.PlannedChanges.Should().ContainSingle(change =>
-            change.ChangeKind == SyncChangeKind.Updated
-            && change.ChangeSource == SyncChangeSource.RemoteManaged
-            && change.LocalStableId == SyncIdentity.CreateOccurrenceId(currentOccurrence)
-            && change.RemoteEvent!.RemoteItemId == staleMetadataRemoteEvent.RemoteItemId);
-        plan.PlannedChanges.Should().NotContain(change => change.ChangeKind == SyncChangeKind.Added);
-        plan.PlannedChanges.Should().NotContain(change =>
+            change.ChangeKind == SyncChangeKind.Added
+            && change.LocalStableId == SyncIdentity.CreateOccurrenceId(currentOccurrence));
+        plan.PlannedChanges.Should().ContainSingle(change =>
             change.ChangeKind == SyncChangeKind.Deleted
+            && change.ChangeSource == SyncChangeSource.RemoteManaged
             && change.RemoteEvent!.RemoteItemId == staleMetadataRemoteEvent.RemoteItemId);
     }
 
     [Fact]
-    public async Task CreatePreviewAsyncTreatsLegacyManagedPayloadMatchWithoutClassMetadataAsUpdateInsteadOfAdd()
+    public async Task CreatePreviewAsyncTreatsLegacyManagedPayloadMatchWithoutClassMetadataAsAddAndRemoteDelete()
     {
         var repository = new InMemoryWorkspaceRepository();
         var service = new LocalSnapshotSyncDiffService(repository);
@@ -1869,11 +1867,12 @@ public sealed class LocalSnapshotSyncDiffServiceTests
             CancellationToken.None);
 
         plan.PlannedChanges.Should().ContainSingle(change =>
-            change.ChangeKind == SyncChangeKind.Updated
+            change.ChangeKind == SyncChangeKind.Added
+            && change.LocalStableId == SyncIdentity.CreateOccurrenceId(currentOccurrence));
+        plan.PlannedChanges.Should().ContainSingle(change =>
+            change.ChangeKind == SyncChangeKind.Deleted
             && change.ChangeSource == SyncChangeSource.RemoteManaged
-            && change.LocalStableId == SyncIdentity.CreateOccurrenceId(currentOccurrence)
             && change.RemoteEvent!.RemoteItemId == legacyRemoteEvent.RemoteItemId);
-        plan.PlannedChanges.Should().NotContain(change => change.ChangeKind == SyncChangeKind.Added);
     }
 
     [Fact]
