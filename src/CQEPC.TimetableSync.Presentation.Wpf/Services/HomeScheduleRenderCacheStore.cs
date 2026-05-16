@@ -1,4 +1,6 @@
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using CQEPC.TimetableSync.Domain.Enums;
 using CQEPC.TimetableSync.Infrastructure.Persistence.Local;
@@ -11,40 +13,80 @@ public interface IHomeScheduleRenderCacheStore
     Task<HomeScheduleRenderCache?> LoadAsync(CancellationToken cancellationToken);
 
     Task SaveAsync(HomeScheduleRenderCache cache, CancellationToken cancellationToken);
+
+    Task ClearAsync(CancellationToken cancellationToken);
 }
 
 public sealed class HomeScheduleRenderCacheStore : IHomeScheduleRenderCacheStore
 {
+    private const string ProtectedCacheFileName = "home-schedule-render-cache.bin";
+    private const string LegacyPlaintextCacheFileName = "home-schedule-render-cache.json";
+    private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("CQEPC.TimetableSync.HomeScheduleRenderCache.v1");
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
     };
 
     private readonly string cacheFilePath;
+    private readonly string legacyPlaintextCacheFilePath;
 
     public HomeScheduleRenderCacheStore(LocalStoragePaths storagePaths)
     {
         ArgumentNullException.ThrowIfNull(storagePaths);
-        cacheFilePath = Path.Combine(storagePaths.RootDirectory, "home-schedule-render-cache.json");
+        cacheFilePath = Path.Combine(storagePaths.RootDirectory, ProtectedCacheFileName);
+        legacyPlaintextCacheFilePath = Path.Combine(storagePaths.RootDirectory, LegacyPlaintextCacheFileName);
     }
 
     public async Task<HomeScheduleRenderCache?> LoadAsync(CancellationToken cancellationToken)
     {
+        DeleteLegacyPlaintextCache();
         if (!File.Exists(cacheFilePath))
         {
             return null;
         }
 
-        await using var stream = File.OpenRead(cacheFilePath);
-        return await JsonSerializer.DeserializeAsync<HomeScheduleRenderCache>(stream, SerializerOptions, cancellationToken);
+        try
+        {
+            var protectedBytes = await File.ReadAllBytesAsync(cacheFilePath, cancellationToken);
+            var bytes = ProtectedData.Unprotect(protectedBytes, Entropy, DataProtectionScope.CurrentUser);
+            return JsonSerializer.Deserialize<HomeScheduleRenderCache>(bytes, SerializerOptions);
+        }
+        catch (CryptographicException)
+        {
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     public async Task SaveAsync(HomeScheduleRenderCache cache, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(cache);
         Directory.CreateDirectory(Path.GetDirectoryName(cacheFilePath) ?? ".");
-        await using var stream = File.Create(cacheFilePath);
-        await JsonSerializer.SerializeAsync(stream, cache, SerializerOptions, cancellationToken);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(cache, SerializerOptions);
+        var protectedBytes = ProtectedData.Protect(bytes, Entropy, DataProtectionScope.CurrentUser);
+        await File.WriteAllBytesAsync(cacheFilePath, protectedBytes, cancellationToken);
+        DeleteLegacyPlaintextCache();
+    }
+
+    public Task ClearAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        DeleteIfExists(cacheFilePath);
+        DeleteLegacyPlaintextCache();
+        return Task.CompletedTask;
+    }
+
+    private void DeleteLegacyPlaintextCache() => DeleteIfExists(legacyPlaintextCacheFilePath);
+
+    private static void DeleteIfExists(string path)
+    {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
     }
 }
 
