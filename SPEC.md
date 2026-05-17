@@ -285,7 +285,7 @@ When the default provider is Google and Home preview import is enabled, Home als
 
 - same title + same time: show as already existing, do not generate a duplicate Add
 - same title + same time + different managed Google color: classify as an Update rather than an exact match, and repair that color on apply
-- same title + different time inside the semester window: show the remote item as a red delete candidate and the parsed timetable occurrence as the green add/update candidate
+- same title + different time inside the semester window: show the remote item as a red delete candidate only when it is app-managed; unmanaged Google events remain awareness-only and must not become delete actions
 - remote items outside the semester delete window: show in orange for awareness only, but do not create delete actions
 - the semester delete window comes from XLS first-week to last-week when available; otherwise it falls back to the parsed timetable occurrence range
 - remote timed events must be interpreted in the remote event's own time zone first, not by the local machine offset

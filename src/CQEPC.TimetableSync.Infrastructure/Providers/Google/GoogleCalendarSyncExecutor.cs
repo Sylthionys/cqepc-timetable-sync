@@ -203,18 +203,18 @@ internal sealed class GoogleCalendarSyncExecutor
     {
         var occurrence = change.After!;
         var preferredRemoteEvent = ResolvePreferredRemoteEvent(change.LocalStableId, change.RemoteEvent);
-        var targetCalendarId = ResolveTargetCalendarId(calendarDestinationId, mapping, change.RemoteEvent);
+        var targetCalendarId = ResolveTargetCalendarId(calendarDestinationId, mapping, preferredRemoteEvent);
 
         if (mapping is null)
         {
-            if (change.RemoteEvent is not null)
+            if (preferredRemoteEvent is not null)
             {
-                if (ShouldRecreateRecurringMemberAsSingle(change.RemoteEvent, occurrence))
+                if (ShouldRecreateRecurringMemberAsSingle(preferredRemoteEvent, occurrence))
                 {
                     await RecreateRemoteRecurringMemberAsSingleAsync(
                             occurrence,
-                            change.RemoteEvent.CalendarId,
-                            change.RemoteEvent.RemoteItemId,
+                            preferredRemoteEvent.CalendarId,
+                            preferredRemoteEvent.RemoteItemId,
                             change.LocalStableId,
                             mappings,
                             cancellationToken)
@@ -226,14 +226,14 @@ internal sealed class GoogleCalendarSyncExecutor
                 {
                     var updatedRemote = await client.UpdateAsync(
                             GooglePayloadBuilders.BuildSingleEvent(occurrence, preferredTimeZoneId, defaultCalendarColorId),
-                            change.RemoteEvent.CalendarId,
-                            change.RemoteEvent.RemoteItemId,
+                            preferredRemoteEvent.CalendarId,
+                            preferredRemoteEvent.RemoteItemId,
                             cancellationToken)
                         .ConfigureAwait(false);
 
                     mappings[change.LocalStableId] = CreateRemoteEventBackedMapping(
                         occurrence,
-                        change.RemoteEvent,
+                        preferredRemoteEvent,
                         updatedRemote.Id);
                     return;
                 }
@@ -368,7 +368,7 @@ internal sealed class GoogleCalendarSyncExecutor
         string? deletedRecurringMasterId = null;
         if (mapping is null)
         {
-            if (change.RemoteEvent is null)
+            if (preferredRemoteEvent is null)
             {
                 return;
             }
@@ -377,21 +377,21 @@ internal sealed class GoogleCalendarSyncExecutor
             {
                 var deleteRemoteItemId = ResolveDeleteRemoteItemId(
                     change,
-                    change.RemoteEvent.RemoteItemId,
-                    change.RemoteEvent.ParentRemoteItemId);
-                deletedRecurringMasterId = string.Equals(deleteRemoteItemId, change.RemoteEvent.ParentRemoteItemId, StringComparison.Ordinal)
-                    ? change.RemoteEvent.ParentRemoteItemId
+                    preferredRemoteEvent.RemoteItemId,
+                    preferredRemoteEvent.ParentRemoteItemId);
+                deletedRecurringMasterId = string.Equals(deleteRemoteItemId, preferredRemoteEvent.ParentRemoteItemId, StringComparison.Ordinal)
+                    ? preferredRemoteEvent.ParentRemoteItemId
                     : null;
                 await client.DeleteAsync(
-                        change.RemoteEvent.CalendarId,
+                        preferredRemoteEvent.CalendarId,
                         deleteRemoteItemId,
                         cancellationToken)
                     .ConfigureAwait(false);
 
                 await DeleteFallbackRecurringInstanceAsync(
-                        change.RemoteEvent.CalendarId,
+                        preferredRemoteEvent.CalendarId,
                         deleteRemoteItemId,
-                        change.RemoteEvent.RemoteItemId,
+                        preferredRemoteEvent.RemoteItemId,
                         cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -403,7 +403,7 @@ internal sealed class GoogleCalendarSyncExecutor
             return;
         }
 
-        var targetCalendarId = ResolveTargetCalendarId(calendarDestinationId, mapping, change.RemoteEvent);
+        var targetCalendarId = ResolveTargetCalendarId(calendarDestinationId, mapping, preferredRemoteEvent);
         try
         {
             if (preferredRemoteEvent is not null)
@@ -696,7 +696,8 @@ internal sealed class GoogleCalendarSyncExecutor
             return mapping.DestinationId;
         }
 
-        if (!string.IsNullOrWhiteSpace(remoteEvent?.CalendarId))
+        if (remoteEvent?.IsManagedByApp == true
+            && !string.IsNullOrWhiteSpace(remoteEvent.CalendarId))
         {
             return remoteEvent.CalendarId;
         }
@@ -713,8 +714,14 @@ internal sealed class GoogleCalendarSyncExecutor
             return null;
         }
 
+        if (!remoteEvent.IsManagedByApp)
+        {
+            return null;
+        }
+
         if (!string.IsNullOrWhiteSpace(remoteEvent.LocalSyncId)
-            && !string.Equals(remoteEvent.LocalSyncId, localStableId, StringComparison.Ordinal))
+            && !string.Equals(remoteEvent.LocalSyncId, localStableId, StringComparison.Ordinal)
+            && !string.Equals(remoteEvent.LocalStableId, localStableId, StringComparison.Ordinal))
         {
             return null;
         }

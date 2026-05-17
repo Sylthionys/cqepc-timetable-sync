@@ -267,6 +267,73 @@ public sealed class GoogleCalendarSyncExecutorTests
     }
 
     [Fact]
+    public async Task ApplyChangeAsyncSkipsUnmanagedRemoteDeleteWhenNoMappingExists()
+    {
+        var fakeClient = new FakeGoogleCalendarSyncClient();
+        var executor = new GoogleCalendarSyncExecutor(fakeClient);
+        var occurrence = CreateOccurrence(new DateOnly(2026, 3, 18), new TimeOnly(10, 0), new TimeOnly(11, 40), "Signals");
+        var remoteEvent = CreatePreviewRemoteEvent(
+            "unmanaged-remote-id",
+            occurrence,
+            "old-calendar",
+            isManagedByApp: false,
+            localSyncId: SyncIdentity.CreateOccurrenceId(occurrence));
+        var mappings = new Dictionary<string, SyncMapping>(StringComparer.Ordinal);
+
+        await executor.ApplyChangeAsync(
+            "new-calendar",
+            new PlannedSyncChange(
+                SyncChangeKind.Deleted,
+                SyncTargetKind.CalendarEvent,
+                remoteEvent.LocalStableId,
+                changeSource: SyncChangeSource.RemoteTitleConflict,
+                before: occurrence,
+                remoteEvent: remoteEvent),
+            mappings,
+            CancellationToken.None);
+
+        fakeClient.DeleteRequests.Should().BeEmpty();
+        mappings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ApplyChangeAsyncInsertsInsteadOfUpdatingUnmanagedRemoteWhenNoMappingExists()
+    {
+        var occurrence = CreateOccurrence(new DateOnly(2026, 3, 18), new TimeOnly(10, 0), new TimeOnly(11, 40), "Signals");
+        var fakeClient = new FakeGoogleCalendarSyncClient
+        {
+            InsertResultFactory = (_, calendarId) => CreateRemoteEvent("inserted-id", occurrence, calendarId),
+        };
+        var executor = new GoogleCalendarSyncExecutor(fakeClient);
+        var localSyncId = SyncIdentity.CreateOccurrenceId(occurrence);
+        var remoteEvent = CreatePreviewRemoteEvent(
+            "unmanaged-remote-id",
+            occurrence,
+            "old-calendar",
+            isManagedByApp: false,
+            localSyncId: localSyncId);
+        var mappings = new Dictionary<string, SyncMapping>(StringComparer.Ordinal);
+
+        await executor.ApplyChangeAsync(
+            "new-calendar",
+            new PlannedSyncChange(
+                SyncChangeKind.Updated,
+                SyncTargetKind.CalendarEvent,
+                localSyncId,
+                after: occurrence,
+                remoteEvent: remoteEvent),
+            mappings,
+            CancellationToken.None);
+
+        fakeClient.UpdateRequests.Should().BeEmpty();
+        fakeClient.DeleteRequests.Should().BeEmpty();
+        fakeClient.InsertRequests.Should().ContainSingle();
+        fakeClient.InsertRequests[0].CalendarId.Should().Be("new-calendar");
+        mappings[localSyncId].DestinationId.Should().Be("new-calendar");
+        mappings[localSyncId].RemoteItemId.Should().Be("inserted-id");
+    }
+
+    [Fact]
     public async Task ApplyChangeAsyncDeletesRecurringMasterForRemoteManagedDuplicateSeriesWithoutMapping()
     {
         var fakeClient = new FakeGoogleCalendarSyncClient();
@@ -692,7 +759,11 @@ public sealed class GoogleCalendarSyncExecutorTests
         ResolvedOccurrence occurrence,
         string calendarId = "old-calendar",
         string? parentRemoteItemId = null,
-        DateTimeOffset? originalStartUtc = null) =>
+        DateTimeOffset? originalStartUtc = null,
+        bool isManagedByApp = true,
+        string? localSyncId = null,
+        string? sourceFingerprintHash = null,
+        string? sourceKind = null) =>
         new(
             remoteItemId,
             calendarId,
@@ -700,11 +771,11 @@ public sealed class GoogleCalendarSyncExecutorTests
             occurrence.Start,
             occurrence.End,
             occurrence.Metadata.Location,
-            "managed",
-            isManagedByApp: true,
-            SyncIdentity.CreateOccurrenceId(occurrence),
-            occurrence.SourceFingerprint.Hash,
-            occurrence.SourceFingerprint.SourceKind,
+            isManagedByApp ? "managed" : "unmanaged",
+            isManagedByApp,
+            localSyncId ?? (isManagedByApp ? SyncIdentity.CreateOccurrenceId(occurrence) : null),
+            sourceFingerprintHash ?? (isManagedByApp ? occurrence.SourceFingerprint.Hash : null),
+            sourceKind ?? (isManagedByApp ? occurrence.SourceFingerprint.SourceKind : null),
             parentRemoteItemId,
             originalStartUtc);
 
