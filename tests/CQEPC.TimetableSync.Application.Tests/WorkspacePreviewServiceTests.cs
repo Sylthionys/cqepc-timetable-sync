@@ -10,6 +10,7 @@ using CQEPC.TimetableSync.Domain.Model;
 using CQEPC.TimetableSync.Domain.ValueObjects;
 using FluentAssertions;
 using System.Diagnostics;
+using System.Globalization;
 using Xunit;
 using static CQEPC.TimetableSync.Application.Tests.ApplicationChineseLiterals;
 
@@ -1662,6 +1663,10 @@ public sealed class WorkspacePreviewServiceTests
                         new TimeOnly(9, 40),
                         CourseScheduleRepeatKind.None,
                         "main-campus",
+                        courseType: L001,
+                        campus: "Main Campus",
+                        location: "Room 301",
+                        teacher: "Teacher A",
                         sourceOccurrenceDate: deletedDate,
                         retainsDeletedOccurrence: true),
                 ]));
@@ -1691,6 +1696,150 @@ public sealed class WorkspacePreviewServiceTests
 
         result.NormalizationResult.Should().NotBeNull();
         result.NormalizationResult!.Occurrences.Should().Contain(occurrence =>
+            occurrence.SourceFingerprint == deletedFingerprint
+            && occurrence.OccurrenceDate == deletedDate);
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsyncRetainedDeletedOverrideRemovesDeletePlanWhenSourceBindingIsMissing()
+    {
+        var deletedFingerprint = new SourceFingerprint("pdf", "deleted-signals-retained-plan");
+        var deletedDate = new DateOnly(2026, 3, 5);
+        var deletedOccurrence = CreateOccurrence(
+            "Class A",
+            "Signals",
+            deletedDate,
+            new TimeOnly(8, 0),
+            new TimeOnly(9, 40),
+            deletedFingerprint);
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithTimetableResolution(new TimetableResolutionSettings(
+                manualFirstWeekStartOverride: null,
+                autoDerivedFirstWeekStart: null,
+                defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
+                explicitDefaultTimeProfileId: null,
+                courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
+                courseScheduleOverrides:
+                [
+                    new CourseScheduleOverride(
+                        "Class A",
+                        deletedFingerprint,
+                        "Signals",
+                        deletedDate,
+                        deletedDate,
+                        new TimeOnly(8, 0),
+                        new TimeOnly(9, 40),
+                        CourseScheduleRepeatKind.None,
+                        "main-campus",
+                        courseType: L001,
+                        campus: "Main Campus",
+                        location: "Room 301",
+                        teacher: "Teacher A",
+                        sourceOccurrenceDate: deletedDate,
+                        retainsDeletedOccurrence: true),
+                ]));
+        var repository = new InMemoryWorkspaceRepository
+        {
+            Snapshot = new ImportedScheduleSnapshot(
+                DateTimeOffset.UtcNow,
+                "Class A",
+                [new ClassSchedule("Class A", [CreateCourseBlock("Class A", "Signals", deletedFingerprint)])],
+                Array.Empty<UnresolvedItem>(),
+                [new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8))],
+                [new TimeProfile("main-campus", "Main Campus", [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))])],
+                [deletedOccurrence],
+                [new ExportGroup(ExportGroupKind.SingleOccurrence, [deletedOccurrence])],
+                Array.Empty<RuleBasedTaskGenerationRule>()),
+        };
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule("Class A", []),
+                ]),
+            new FakeAcademicCalendarParser(
+                [
+                    new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8)),
+                ]),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))]),
+                ]),
+            new FakeNormalizer(occurrences: []),
+            new SnapshotDeleteDiffService(),
+            repository);
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        result.NormalizationResult.Should().NotBeNull();
+        result.NormalizationResult!.Occurrences.Should().Contain(occurrence =>
+            occurrence.SourceFingerprint == deletedFingerprint
+            && occurrence.OccurrenceDate == deletedDate);
+        result.SyncPlan.Should().NotBeNull();
+        result.SyncPlan!.PlannedChanges.Should().NotContain(change =>
+            change.ChangeKind == SyncChangeKind.Deleted
+            && change.Before != null
+            && change.Before.SourceFingerprint == deletedFingerprint
+            && change.Before.OccurrenceDate == deletedDate);
+        result.Status.Kind.Should().Be(WorkspacePreviewStatusKind.UpToDate);
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsyncDoesNotRetainWholeRuleOverrideWhenSourceBindingIsMissing()
+    {
+        var deletedFingerprint = new SourceFingerprint("pdf", "deleted-signals-retained-rule");
+        var deletedDate = new DateOnly(2026, 3, 5);
+        var preferences = WorkspacePreferenceDefaults.Create()
+            .WithTimetableResolution(new TimetableResolutionSettings(
+                manualFirstWeekStartOverride: null,
+                autoDerivedFirstWeekStart: null,
+                defaultTimeProfileMode: TimeProfileDefaultMode.Automatic,
+                explicitDefaultTimeProfileId: null,
+                courseTimeProfileOverrides: Array.Empty<CourseTimeProfileOverride>(),
+                courseScheduleOverrides:
+                [
+                    new CourseScheduleOverride(
+                        "Class A",
+                        deletedFingerprint,
+                        "Signals",
+                        deletedDate,
+                        deletedDate,
+                        new TimeOnly(8, 0),
+                        new TimeOnly(9, 40),
+                        CourseScheduleRepeatKind.None,
+                        "main-campus",
+                        retainsDeletedOccurrence: true),
+                ]));
+        var service = new WorkspacePreviewService(
+            new FakeTimetableParser(
+                [
+                    new ClassSchedule("Class A", []),
+                ]),
+            new FakeAcademicCalendarParser(
+                [
+                    new SchoolWeek(1, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 8)),
+                ]),
+            new FakePeriodTimeProfileParser(
+                [
+                    new TimeProfile(
+                        "main-campus",
+                        "Main Campus",
+                        [new TimeProfileEntry(new PeriodRange(1, 2), new TimeOnly(8, 0), new TimeOnly(9, 40))]),
+                ]),
+            new FakeNormalizer(occurrences: []),
+            new FakeDiffService(),
+            new InMemoryWorkspaceRepository());
+
+        var result = await service.BuildPreviewAsync(
+            new WorkspacePreviewRequest(CreateCatalogState(), preferences, SelectedClassName: "Class A"),
+            CancellationToken.None);
+
+        result.NormalizationResult.Should().NotBeNull();
+        result.NormalizationResult!.Occurrences.Should().NotContain(occurrence =>
             occurrence.SourceFingerprint == deletedFingerprint
             && occurrence.OccurrenceDate == deletedDate);
     }
@@ -3687,6 +3836,50 @@ public sealed class WorkspacePreviewServiceTests
                 remoteDisplayEvents,
                 deletionWindow);
         }
+    }
+
+    private sealed class SnapshotDeleteDiffService : ISyncDiffService
+    {
+        public Task<SyncPlan> CreatePreviewAsync(
+            ProviderKind provider,
+            IReadOnlyList<ResolvedOccurrence> occurrences,
+            IReadOnlyList<UnresolvedItem> unresolvedItems,
+            ImportedScheduleSnapshot? previousSnapshot,
+            IReadOnlyList<SyncMapping> existingMappings,
+            IReadOnlyList<ProviderRemoteCalendarEvent> remoteDisplayEvents,
+            string? calendarDestinationId,
+            PreviewDateWindow? deletionWindow,
+            CancellationToken cancellationToken)
+        {
+            var currentOccurrenceIds = occurrences
+                .Select(CreateSourceOccurrenceKey)
+                .ToHashSet(StringComparer.Ordinal);
+            var plannedChanges = (previousSnapshot?.Occurrences ?? Array.Empty<ResolvedOccurrence>())
+                .Where(occurrence => !currentOccurrenceIds.Contains(CreateSourceOccurrenceKey(occurrence)))
+                .Select(occurrence => new PlannedSyncChange(
+                    SyncChangeKind.Deleted,
+                    occurrence.TargetKind,
+                    SyncIdentity.CreateOccurrenceId(occurrence),
+                    before: occurrence))
+                .ToArray();
+
+            return Task.FromResult(new SyncPlan(
+                occurrences,
+                plannedChanges,
+                unresolvedItems,
+                remoteDisplayEvents,
+                deletionWindow));
+        }
+
+        private static string CreateSourceOccurrenceKey(ResolvedOccurrence occurrence) =>
+            string.Concat(
+                occurrence.ClassName,
+                "|",
+                occurrence.SourceFingerprint.SourceKind,
+                "|",
+                occurrence.SourceFingerprint.Hash,
+                "|",
+                occurrence.OccurrenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
     }
 
     private sealed class ExactMatchDiffService : ISyncDiffService
