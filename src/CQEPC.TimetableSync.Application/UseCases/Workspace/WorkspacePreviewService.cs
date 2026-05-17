@@ -1206,10 +1206,7 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
                 .Select(item => CreateCourseScheduleOverrideBindingKey(item.ClassName!, item.SourceFingerprint, null)))
             .ToHashSet(StringComparer.Ordinal);
         var activeScheduleOverrides = timetableResolution.CourseScheduleOverrides
-            .Where(scheduleOverride => activeOverrideBindings.Contains(CreateCourseScheduleOverrideBindingKey(
-                scheduleOverride.ClassName,
-                scheduleOverride.SourceFingerprint,
-                scheduleOverride.SourceOccurrenceDate)))
+            .Where(scheduleOverride => IsActiveCourseScheduleOverride(scheduleOverride, activeOverrideBindings))
             .ToArray();
         if (activeScheduleOverrides.Length == 0)
         {
@@ -1346,6 +1343,18 @@ public sealed class WorkspacePreviewService : IWorkspacePreviewService
             sourceFingerprint.Hash,
             "|",
             sourceOccurrenceDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty);
+
+    private static bool IsActiveCourseScheduleOverride(
+        CourseScheduleOverride scheduleOverride,
+        HashSet<string> activeOverrideBindings) =>
+        IsRetainedDeletedSingleOccurrenceOverride(scheduleOverride)
+        || activeOverrideBindings.Contains(CreateCourseScheduleOverrideBindingKey(
+            scheduleOverride.ClassName,
+            scheduleOverride.SourceFingerprint,
+            scheduleOverride.SourceOccurrenceDate));
+
+    private static bool IsRetainedDeletedSingleOccurrenceOverride(CourseScheduleOverride scheduleOverride) =>
+        scheduleOverride.RetainsDeletedOccurrence && scheduleOverride.SourceOccurrenceDate.HasValue;
 
     private NormalizationResult ApplyCoursePresentationOverrides(
         NormalizationResult normalizationResult,
