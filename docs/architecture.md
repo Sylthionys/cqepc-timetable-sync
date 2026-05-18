@@ -1,8 +1,8 @@
 # Architecture
 
-## 1. Overview
+This document is the repository contract for layer boundaries and runtime ownership. Long-form workflow notes belong in the GitHub Wiki.
 
-The repository is structured around four runtime layers plus tests:
+## 1. Solution shape
 
 ```text
 src/
@@ -15,430 +15,178 @@ tests/
   CQEPC.TimetableSync.Application.Tests/
   CQEPC.TimetableSync.Infrastructure.Tests/
   CQEPC.TimetableSync.Presentation.Wpf.Tests/
+  CQEPC.TimetableSync.Presentation.Wpf.UiTests/
 ```
 
-Dependency direction is one-way:
+Allowed dependency direction:
 
-`Presentation.Wpf -> Infrastructure -> Application -> Domain`
+```text
+Presentation.Wpf -> Application -> Domain
+Presentation.Wpf -> Infrastructure -> Application -> Domain
+Infrastructure -> Application -> Domain
+```
 
-`Presentation.Wpf -> Application -> Domain`
+`Domain` must not reference WPF, parser libraries, persistence, OAuth, HTTP, or provider SDKs.
 
-`Domain` must not depend on other project layers.
-
-## 2. Layer Responsibilities
+## 2. Layer responsibilities
 
 ### Domain
 
-`CQEPC.TimetableSync.Domain` owns the core concepts of the system:
+`CQEPC.TimetableSync.Domain` owns stable business concepts and invariant-enforcing value objects:
 
-- `CourseBlock` and `ClassSchedule` from the timetable PDF
-- `UnresolvedItem` values for ambiguous source data
-- `SchoolWeek` values from the XLS file
-- `TimeProfile` values from the DOCX file
-- `ResolvedOccurrence` values produced by normalization
-- `ExportGroup` values for lossless single-occurrence or recurring export payloads
-- `SyncPlan` and `SyncMapping` state
-- shared metadata/value objects such as `CourseMetadata`, `WeekExpression`, and `PeriodRange`
+- parsed timetable concepts such as `ClassSchedule`, `CourseBlock`, `CourseMetadata`, `WeekExpression`, and `PeriodRange`;
+- calendar concepts such as `SchoolWeek`, `TimeProfile`, and `ResolvedOccurrence`;
+- unresolved source data through `UnresolvedItem`;
+- export and sync concepts such as `ExportGroup`, `SyncPlan`, `PlannedSyncChange`, and `SyncMapping`;
+- provider-independent enums and value objects that are part of the product contract.
 
-Domain should contain only stable business concepts and small invariant-enforcing value objects. It should not know about WPF, persistence, HTTP, OAuth, or parser libraries.
+Domain should stay small and deterministic. It should not decide how to read PDFs, write JSON, authenticate providers, or render UI.
 
 ### Application
 
 `CQEPC.TimetableSync.Application` owns use-case boundaries and ports:
 
-- parser interfaces such as `ITimetableParser`, `IAcademicCalendarParser`, and `IPeriodTimeProfileParser`
-- normalization interfaces
-- local persistence interfaces
-- provider adapter abstractions
-- workspace preview orchestration and preview request/result models, including structured preview/apply status data
-- user-preference models and defaults, including nested timetable-resolution state plus persisted course-schedule overrides for manual confirmation/editing
-- shared parser result contracts such as `ParserResult<T>`, `ParseWarning`, and `ParseDiagnostic`
+- parser interfaces: `ITimetableParser`, `IAcademicCalendarParser`, and `IPeriodTimeProfileParser`;
+- normalization interface and result contracts;
+- persistence interfaces for source catalogs, preferences, snapshots, and mappings;
+- provider adapter abstractions such as `ISyncProviderAdapter`;
+- workspace preview orchestration models;
+- import command/query contracts;
+- user preference models, timetable-resolution settings, and course override models.
 
-Application orchestrates workflows later, but it should stay implementation-agnostic. It defines what the app needs to do, not how PDF parsing or remote sync is performed.
+Application defines what the app needs and how workflows compose. It should not know parser-library APIs, provider SDKs, file formats, WPF controls, or local storage implementation details.
 
 ### Infrastructure
 
-`CQEPC.TimetableSync.Infrastructure` owns external details:
-
-- PDF parser implementation
-- XLS parser implementation
-- DOCX parser implementation
-- normalization implementation
-- local preference persistence
-- local snapshot persistence
-- local snapshot diff classification
-- Google adapter implementation, including writable-calendar display color metadata from `CalendarListEntry.backgroundColor` or the `Colors.calendar` palette
-- Microsoft adapter implementation
+`CQEPC.TimetableSync.Infrastructure` fulfills Application ports and owns external details:
 
-Infrastructure references Application and Domain because it fulfills interfaces defined there.
+- PDF/XLS/DOCX parser implementations and parser lexicons;
+- timetable normalization implementation;
+- local snapshot diff classification;
+- JSON repositories for local source catalog, preferences, snapshots, and sync mappings;
+- DPAPI-backed protected stores;
+- Google Calendar / Google Tasks adapter implementation;
+- Microsoft provider scaffolding and planned adapter implementation;
+- provider payload builders, metadata mapping, recurrence conversion, and read-back repair helpers;
+- provider HTTP client/proxy integration.
 
-### Presentation
+Infrastructure may reference Application and Domain. It should not reference WPF presentation types.
 
-`CQEPC.TimetableSync.Presentation.Wpf` owns the desktop UI:
+### Presentation.Wpf
 
-- WPF app startup
-- shell window and future navigation
-- page views
-- view models
-- converters, UI-only helpers, and presentation-owned formatting for dynamic workspace/apply/diff/source-file text
-- localization resource dictionaries, culture resolution, and runtime language switching
+`CQEPC.TimetableSync.Presentation.Wpf` owns the desktop app:
 
-Presentation can depend on Application contracts and compose Infrastructure implementations, but business logic should not be implemented in XAML code-behind.
-The current Presentation layer also owns the lightweight course editor overlay used by both Home and Import, preference-backed course-presentation overrides for per-course time-zone and Google Calendar color values surfaced inline from Import course `i` actions, the hero-free Home month board with direct apply/sync actions, a fixed-ratio Home workspace that scales uniformly while giving the month board and agenda pane independent vertical scroll paths, a compressed Home header that keeps the month title and current-calendar context on one row with actions on the next row, a compact two-line colored-outline month-cell treatment that restores `time above / course below` while still preserving more visible lessons in small windows than the previous oversized mini-card rendering, week-grouped month rendering so each horizontal row measures against that week's busiest day instead of a month-wide fixed height, content-sized row growth backed by per-day minimum heights so the last visible lesson card is not clipped while the busiest day avoids a long empty tail, resize-debounced responsive layout updates with threshold hysteresis so 3/4/5 preview-count switching does not thrash near bucket edges, a narrow-window agenda template swap that replaces the old left-rail detail card with a stacked compact card so the area below the time block is reused by content, same-month preview-bucket changes now updating the existing 42 day cells in place with interpolated height transitions instead of clearing and rebuilding the whole month board, native normal-window aspect-ratio sizing through `WM_SIZING` so drag-resize does not flicker, plus the Import-only grouping surfaces that route same-name parsed and unresolved schedules into course headers while collapsing add/update/delete diffs into one expandable course-grouped `Changes` surface backed by the presentation selection state and persistence hooks in `WorkspaceSessionViewModel`.
-Presentation must preserve a strict split between Import's local-only apply path and Home's provider-write apply path so preview adoption and remote sync cannot fire twice for the same accepted additions.
-Google remote preview preserves the API's explicit `start.timeZone`, `end.timeZone`, and `originalStartTime.timeZone` fields separately from parsed instants, and also treats app-managed `timeZoneId` metadata as a declared zone when Google omits `start.timeZone`/`end.timeZone` on expanded recurring instances. The diff layer compares declared zone metadata, UTC instants, and course wall-clock date/time before classifying time changes, so a managed Google event whose declaration and effective lesson time already match is exact even with missing recurring-instance start/end zone fields. Genuinely missing Google time-zone declarations can still surface as metadata-only normalization instead of ordinary update work, while equivalent regional IANA differences such as `Asia/Shanghai` versus `Asia/Hong_Kong` are suppressed because they do not change the lesson time.
-Interactive startup shows the shell before workspace preview work finishes. `WorkspaceSessionViewModel` can restore an opt-in DPAPI-protected Home render cache as a temporary display hint, then runs local preview and Google remote preview work in parallel when the user enables startup cloud loading. The first completed preview is adopted immediately, and the later merged provider preview replaces it without forcing Home toggle clicks to rebuild the full preview. Home schedule rows are cached in memory by preview/selection/provider-display mode so switching between the current Google calendar view and local-only view reuses the prepared display model.
-Import diff selection is also presentation-owned: ready changes default to selected unless a fallback confirmation is still pending, the UI now projects raw Added/Updated/Deleted items into a derived `course -> repeat rule -> occurrence` grouping model without mutating the underlying apply identity, and course-group / rule-group selection continues to bind against those raw source items while unchanged occurrence rows can be added as non-selectable context without creating false partial-selection states or missed apply operations. When selectable change rules and unchanged context rules share one course group, the course-level checked/partial state is computed only from selectable rules, and an indeterminate click clears selectable items instead of leaving the selector stuck. Course-group / rule-group / occurrence-row selection chrome uses one shared round visual language, Import's local apply button locks after the current selection is adopted and only re-enables after another preview-driving settings change, explicit change kinds render with success/warning/danger emphasis, default Google time-zone values stay visually absent until a real override exists, first-level rule summaries now surface otherwise hidden drift such as Google color changes or metadata/source-only updates, editable unchanged-schedule/unresolved rows open directly from card clicks instead of a separate trailing action chip, and the course `i` action is available from both change-course headers and Unchanged Schedules headers as an inline right-detail settings surface. Updated occurrence cards split `Changed items` from `Shared details`, while metadata already embedded in the Google Calendar description, such as class, campus, teacher, teaching-class composition, and course type, stays in the notes payload instead of being duplicated as standalone before/after fields. Added/deleted occurrences now collapse to one populated `Detailed info` block so the detail panel never shows an empty comparison half and never renders a note diff without a comparable opposite side. Import left review cards hide unchanged and remote-source badges so the visible chips focus on actionable status, conflict, or changed-field evidence. Import header text now stays fully left-aligned through the grouped expander template, the selected dark-theme state uses stronger contrast, and presentation-owned note parsing now splits both newline-delimited and slash-delimited managed metadata back into stable teacher, teaching-class, and notes fields before diff rendering. That same note-parsing path must also preserve parser-produced slash-delimited note tails without an explicit `Notes:` tag so `After` details render the recovered class-size / assessment / hour-composition / credit payload instead of `No notes`.
-The Import page now also owns adaptive window-mode behavior through presentation converters and grouped templates: compact mode keeps the selected-occurrence detail card in the right column, hides the workflow step strip and statistics, trims the top summary card down to core controls only, and switches earlier on relatively small widths so the filter/action chrome does not dominate the viewport; medium mode restores the localized `Change preview` heading while preserving split review/details columns; expanded mode keeps the three-step workflow strip and full metrics row visible. The top provider strip now shows the provider/calendar target without the task-list destination or source/timeline/current-selection counters. The Unchanged Schedules area is the no-diff fallback and, when regular change groups exist, becomes a trailing unchanged-course section that excludes courses already represented by changed groups; it now lives in the same left review scroll flow as `Changes` so wheel scrolling cannot leave one section unreachable. Clicking an unchanged repeat-rule card selects that rule's aggregate detail and does not switch the left side into all-times occurrence selection, while selecting a concrete occurrence from the right-side rule detail intentionally flips the left unchanged surface to all-times mode, scrolls that existing left pane directly, and marks the matching occurrence active. The left review column is clipped to its own bounds, keeps a visible vertical scrollbar, and uses zero minimum heights through the nested grids so long compact-window lists cannot push the thumb or bottom content out of the review pane. The step strip itself is driven by a presentation-owned workflow stage model (`SelectChanges -> PreviewApplied -> SyncingToProvider -> Completed`) so local apply and provider sync can advance the UI without changing domain diff identities. The grouped Import header now exposes the same current-calendar sync action text as Home, `Select current page` mutates the visible diff selection instead of only mirroring it, grouped course/repeat-rule cards expand from the whole card surface without duplicate chevrons, and any remaining legacy course-presentation overlay backdrop uses a transparent template so hover state cannot blue-tint the full modal background.
+- WPF startup and shell composition;
+- Home, Import, Settings, overlays, controls, converters, and UI-only helpers;
+- view models and presentation formatting of structured Application data;
+- resource dictionaries, localization, runtime language switching, and theme resources;
+- UI test hooks, screenshot rendering, and automation IDs;
+- composition of Application contracts with Infrastructure implementations.
 
-Import metric counts are presentation-derived and intentionally use separate denominators where the labels describe different scopes. Added, Updated, and Deleted ratios are percentages of planned changes; Conflict is measured against planned changes plus pinned conflicts and unresolved items; Unchanged is counted from current parsed occurrences after removing only occurrence identities that participate in planned changes, then divided by that unchanged count plus planned changes so deleted-only plans cannot create a negative or above-100% unchanged percentage.
-Presentation also owns runtime appearance refresh for theme changes: workspace preferences remain the source of truth, `ThemeService` raises a pre-change notification so `ShellWindow` can prepare the transition before resources mutate, then reapplies palette resources in place; shared/page XAML resolves theme brushes through `DynamicResource` so live WPF visuals repaint without rebuilding the shell window; the native Windows title bar is recolored through DWM attributes; and the shell now renders Settings secondary navigation as its own sidebar-matched column beside the primary sidebar only while Settings is active. `ShellWindow` owns that column-width synchronization instead of relying on `ColumnDefinition` data triggers, because grid definitions do not participate reliably in the visual-tree data context; it also coalesces same-turn sidebar/settings column updates so entering Settings does not play competing width animations. `ShellViewModel` remembers whether the primary sidebar was expanded before entering Settings: entering Settings collapses it, while leaving Settings restores it only when it was expanded before, preserving a user-chosen collapsed shell. The Settings secondary rail uses short localized labels, visible selected-section styling, compact width buckets so English labels fit without clipping, and icon presentation owned by the shell: primary and secondary sidebar items render custom vector artwork instead of font glyphs, clicks animate tagged icon parts with eased scale, translate, opacity, or rotation feedback, and the Sync icon switches between colored Google and Microsoft marks from the current default provider. The primary sidebar also owns a bottom provider-data refresh affordance on non-Settings pages: it follows the default provider, reuses the same colored Google/Microsoft mark, stacks the mark and full session-scoped last provider-data refresh time in expanded mode, centers only the mark in collapsed mode, hides on Settings, and routes clicks through `ShellViewModel.RefreshProviderDataCommand` so connection failures can navigate to Settings > Sync with a reason tip before provider work starts. The Settings page itself starts directly with the selected section content and owns adaptive section layout plus section-enter transitions that are explicitly replayed on every selected-section change, including stacked provider destinations, Program Settings cards, course override editors, and a compact default time-profile mode selector beside the explicit profile selector when width allows. Program Settings renders inline as separate display/time-zone/network and behavior cards, uses centered combo-box values, long switch controls for startup sync and notifications, a numeric status-tip duration field, and centered Theme/About actions below the cards. Its regional time-zone control is a custom popup rather than a stock ComboBox: list, popup, search box, selected rows, and empty states bind to theme resources so dark mode remains readable, the placeholder is rendered as a low-emphasis overlay rather than real input text, and the popup explicitly focuses the search box so IME composition targets the input. Category browsing remains scoped to the selected region, but entering a search query searches the full catalog and de-duplicates common/regional copies; search terms include localized names, English names, IANA ids, country/region codes, and UTC/GMT offset forms. The network proxy control defaults to .NET `HttpClient.DefaultProxy`, can switch provider HTTP traffic to explicit direct mode, and accepts a custom HTTP proxy URI with optional credentials, `Bypass local`, and a bypass list whose defaults keep `localhost`, `127.0.0.1`, and `::1` off the proxy for OAuth loopback callbacks. The custom proxy password is stored outside JSON through DPAPI, the displayed status is redacted, and the setting is consumed only by Google/Microsoft remote provider clients, not by local parsers or local storage. The default-provider combo options include connected account summaries, so a connected Google account appears in the provider option text instead of as a separate Google connection summary line. The theme button uses vector sun/moon artwork with animated opacity, scale, rotation, slide, and a compact internal glow; `ShellWindow` keeps its theme-transition overlay transparent so dark/light switching repaints the app without page-level sun, horizon, or color-wash effects. About presentation is shell-owned and opens from Program Settings as an overlay, and its copy reflects the current product status: Google Calendar is available today while Microsoft integration remains planned.
-Program Settings input chrome is shared across plain text inputs, password inputs, and date text boxes so dark mode does not fall back to system-white editor surfaces. Placeholder overlays are presentation-only text blocks offset from the content host instead of seeded input values; this keeps an empty focused text box's caret before the hint and preserves IME/text entry behavior. The custom proxy panel uses the same themed input chrome, and its bypass editor pairs a one-entry-per-line helper with a sample placeholder so list semantics remain visible before the user types.
-Import grouped diff visuals also suppress visible expander/combo arrow glyphs, keep the course `i` action at the trailing edge, preserve a persistent selected-occurrence outline after pointer exit, and render repeat-rule plus occurrence rows with add/update/delete/conflict theme color surfaces.
-Course-group and repeat-rule expander hit targets use transparent click templates; their hover/selection highlight is applied by the rounded card border itself, matching occurrence-row selected colors and avoiding square default WPF hover overlays. Import summary badges are derived from structured `ChangedFields` rather than summary text parsing, so contextual pending-location strings do not create false location-change badges. The same presentation normalization path labels legacy CQEPC note tails such as assessment mode, theory hours, and trailing credit values before note comparison and rendering.
-The Import detail panel now has a presentation-owned selection mode rather than being tied only to a single occurrence. Expanding a first-level course group selects course-level detail and rebuilds its repeat-rule list directly from the current uploaded timetable parse (`WorkspaceSessionViewModel.CurrentOccurrences`) for that course. This course-level list is independent of Google remote preview state, saved local snapshot state, and the left-side diff projection; it intentionally lists only parsed repeat rules, not every concrete date, and it does not surface Added / Updated / Deleted / Unchanged labels. Expanding a second-level repeat-rule group selects aggregate repeat-rule detail and leaves the left list responsible for every concrete occurrence in that rule; unchanged concrete rows are visible and can be selected for detail review, but they do not expose apply checkboxes. Selecting an occurrence still shows occurrence-level before/after/shared detail. Pinned unresolved regular-course rows select an unresolved-confirmation detail mode and open the same inline course editor on the right with defaults seeded from parsed metadata, resolved weeks, and matching time-profile entries; the initial Save is enabled even without field edits because it represents manual confirmation. Pinned local schedule-conflict rows open the occurrence editor in the same detail surface. Pressing the first-level `i` action selects inline course settings in the right detail panel instead of opening a modal, even if another course/rule/occurrence was selected previously. Inline settings bind directly to workspace preference persistence for per-course time zone and Google Calendar color; Save and Reset are command-state driven and hidden when they are not meaningful. The WPF application cancels deferred interactive startup on main-window close and avoids waiting indefinitely for startup refresh work, so closing the visible shell releases the Debug output binaries promptly. The detail state also exposes an empty write-options collection reserved for future per-field final Google Calendar payload overrides.
-Course editing and course-presentation overrides now defer Import page rebuilds until the refreshed local preview is available, so a save/reset produces a single visible refresh instead of first rebuilding against the stale preview and then rebuilding again. Preference-triggered preview rebuilds are also cancelable and latest-operation-wins: when a user saves and then immediately resets before the old preview completes, the older rebuild is canceled and the task center shows the current local-preview refresh task. Reset-all closes any open inline course editor before clearing stored overrides, preventing the right-side detail editor from retaining a saved override after the left schedule has returned to parsed defaults. The same reset flow also disables provider task-generation rules back to their default state and locally accepts only resettable non-Added local-snapshot drift such as stale test/update/delete rows; normal Added rows from the current parse remain reviewable. Import course time fields use a time-specific WPF input control backed by `CourseEditorViewModel.TryParseTimeText`, accepting both `HH:mm` and compact numeric forms such as `830`/`0830` while saving normalized `TimeOnly` values; the WPF `TimeTextBox` also keeps the `HH:mm` colon as a non-deletable mask separator and lets Enter move from hours to minutes before completing the field. Course edit requests resolve missing calendar time zones through the current Google default time-zone preference before falling back to `Asia/Shanghai`, so imported parsed occurrences without an explicit provider zone cannot seed the editor with the first zone-list entry (`UTC-12`). Home and Import course-editor time-zone dropdowns render `GoogleTimeZoneOptionViewModel.LocalizedDisplayName` through the shared custom time-zone picker, aligning their hover, selected, popup, Common ordering, and left-aligned long-label treatment with the Program Settings regional time-zone selector while keeping the existing save bindings unchanged. The picker treats the right-side result highlight as separate from the persisted `SelectedItem`, so changing the left-side region category cannot clear an already selected time zone; if the selector source exposes only regional options, Common is rebuilt from the same recent-selection plus popular-zone order used by Program Settings rather than showing every region. Saved course-level and occurrence-level time-zone choices promote their IANA id into the shared recent list without changing the default Google Calendar time zone, so subsequent Common lists are ordered consistently across Settings, Home, and Import. The same picker computes popup width from the editor surface and window bounds, shrinking from the Program Settings-sized selector to a compact 360px layout with a narrower region column when it is hosted in Import detail side panels or small Home editor windows. A concrete occurrence edit persists with `SourceOccurrenceDate` only while the repeat kind remains one-time; if the user changes that editor to any recurring rule, `WorkspaceSessionViewModel` promotes the save to a rule-level `CourseScheduleOverride` and removes the original single-occurrence binding so preview can rebuild the larger recurrence. Preview activates ordinary saved course-schedule overrides only when their class/source/date binding is present in the current normalized timetable, so stale overrides from old source files or other selected classes cannot be regenerated into sync occurrences. Cancel Delete is the exception: its retained single-occurrence override may survive a missing source row when `SourceOccurrenceDate` is present, which lets the rebuilt preview suppress the pending delete before provider apply. The repeat editor stores explicit interval/unit/weekdays plus a monthly pattern, hides weekday toggles outside weekly rules, and rebuilds preview dates for day/week/month/year before export grouping. Rule-level editor seeding treats sparse same-weekday intervals as weekly or biweekly when the gaps are multiples of 7 or 14 days. Time-profile fallback confirmations and unresolved regular-course items are rendered as pinned Import review sections above normal course change groups so profile decisions and unresolved blocks stay visible before apply. DatePicker calendar buttons are templated with app theme brushes, and `DatePickerThemeAssist` reapplies foreground, background, border, navigation-button, inactive-selection, and arrow brushes into the Popup visual tree when the calendar opens so month arrows, weekday labels, and date text keep usable contrast in both light and dark themes. The shared scroll bar templates keep a larger minimum thumb and inner visual height so very long Settings or Import panels do not make the rounded thumb look sliced off.
-Occurrence note comparison now builds a full Google Calendar description text for each side and renders a single-column line-based red/green diff in the detail panel. The older structured note extraction remains available for badges and metadata fallback, but the primary note-difference display is the full provider description text so managed metadata and final write payload context stay visible. Very large legacy descriptions keep bounded UI work by preserving a few unchanged context lines and summarizing the changed middle block instead of allocating an unbounded LCS matrix. Editable `Notes:` payload rows are edited inline inside this diff, while deleted rows and app-managed metadata stay read-only. If notes are the only changed payload, the grouped detail reports a notes update rather than promoting every parsed note segment to a separate changed field. Unchanged occurrence details bypass the diff renderer and expose the existing notes through the normal editable notes field, letting the user create a targeted override without presenting identical before/after text as a change.
-When added or deleted occurrence rows are part of a repeat rule that still exists in the current parsed timetable and still has other retained occurrences, the derived repeat-rule group renders as an orange `Updated` group while the child occurrence keeps its raw green `Added` or red `Deleted` identity. If the previous repeat rule had only one occurrence and that occurrence is deleted, the rule remains a red `Deleted` group. This keeps review semantics aligned with the eventual provider write without hiding whole-rule deletion as an update.
-Presentation derives an effective planned-change set before Import and Home consume a preview. Deletes shadowed by pinned unresolved regular-course blocks are removed from that effective set when the unresolved item carries the same source fingerprint or the same class plus raw schedule shape (course title, weekday, period range, and week expression). Google calendar update/delete/metadata-only rows backed only by an unmanaged remote event are also removed here, so stale or title-conflict remote context cannot re-enter apply through selection state or direct accepted-ID calls. That keeps unresolved confirmation work pinned separately and unmanaged Google rows context-only instead of showing destructive checkboxes for either case. Home preview still builds from the previous snapshot baseline when any raw planned change was filtered out, so a hidden placeholder delete does not remove the pending course from the calendar board.
-Presentation UI text must be resource-backed: user-visible Import labels, fallback strings, filter options, and XAML headings go through `UiText` and the `Strings.en-US.xaml` / `Strings.zh-CN.xaml` dictionaries. Source-format tokens used for parsing or managed-note metadata can remain in parser lexicons/comparison helpers, but they are not UI copy and should be kept escaped or centralized so mojibake does not leak into presentation text. Import filter, grouping, and sort decisions are keyed from stable selected indexes, with localized strings used only for display.
-For the default Google Calendar color selector, Presentation keeps a selected `GoogleCalendarColorOptionViewModel` for the WPF control while persisting only the stable `colorId`. This matters because the `Preset color` option intentionally persists `null`; binding the combo box directly to a nullable selected value can leave the closed selector blank or stale. The preset option's swatch is computed from the currently selected Google calendar descriptor, preferring `BackgroundColorHex`, then Google Calendar-list `CalendarColorId`, then a fallback color.
-Google writable-calendar refresh is part of the provider adapter boundary. `GoogleSyncProviderAdapter` explicitly requests calendar-list fields for `backgroundColor` and `colorId`, pages through all writable calendars, and resolves missing background colors through the Google Calendar `Colors.calendar` palette. `WorkspaceSessionViewModel` treats missing selected-calendar color metadata as a reason to refresh calendars only through the existing `ensureCalendarsLoaded` startup/Home sync path, avoiding a second independent startup refresh while still repairing old local caches whose calendar descriptors were saved before color metadata existed.
-For course-schedule and remote-preview rendering, Presentation must treat `DateTimeOffset.DateTime` as the canonical wall-clock value of a resolved occurrence or preview item. Presentation must not reproject those values through `LocalDateTime` before diff rendering, editor seeding, or rule classification, otherwise per-course time-zone overrides can drift into different dates/times when reopened and saved.
-Workspace preview also re-aligns managed recurring Google instances to saved local mappings before diffing. That alignment step is only allowed to rewrite local identity fields such as `LocalSyncId` and source fingerprint binding; provider payload fields like Google Calendar color id must be preserved so downstream diff logic compares the actual remote event instead of a partially reconstructed copy.
-For Google, that mapping alignment is now destination-scoped: preview/apply only operate on the currently selected calendar's calendar-event mappings, then merge the refreshed scoped result back into `google-sync-mappings.json` without discarding other calendars' bindings. That prevents a switch to calendar `B` from reusing calendar `A`'s mapping as a false orange update when the user switches back.
-Presentation also owns the transient bottom-right task center used during startup and provider work. `WorkspaceSessionViewModel` reports tracked tasks such as remembered-source loading, source-file-triggered local preview refreshes, preview generation, provider connection checks, and Google existing-event sync; `ShellViewModel` projects them into a compact collapsed count chip plus an expandable detail list. The same program-behavior preference family now stores the status-tip duration in seconds so shell connection tips can use a user-configurable timeout while defaulting to three seconds.
-`WorkspaceSessionViewModel` also keeps the shell's provider refresh indicator state. The displayed timestamp is intentionally session-scoped provider-data refresh state, not yet a persisted sync-summary record: Google marks it after the existing calendar-list or calendar-preview refresh succeeds, Microsoft marks it after destination refresh succeeds, and changing the default provider recomputes the displayed timestamp without merging the providers' state. The shell treats both explicit provider refreshes and startup Google preview sync as provider-data work, so the primary sidebar bottom affordance can hide its timestamp and show a centered Google-colored spinner around the selected provider mark until the operation finishes. Provider connection/configuration failures are raised back to `ShellViewModel`, which routes the user to Settings > Sync and shows a dismissible reason tip.
-During interactive startup, `WorkspaceSessionViewModel` can restore the last persisted Home render cache as an immediate display hint only when the user has opted into both render caching and startup restore. The persisted cache is protected with user-local DPAPI, and the cache store removes older plaintext `home-schedule-render-cache.json` files instead of restoring them. Startup then builds a local-only Home preview and a Google-merged Home preview concurrently when startup cloud loading is enabled. If the Google-merged preview finishes first, Home adopts it directly; otherwise Home adopts the local preview first and replaces it with the merged provider preview later. A cloud-preview failure is reported as provider status instead of blocking the local preview. Home schedule display models are also cached in memory by preview, selected Import changes, and provider-display mode, so switching between the current Google calendar view and local-only view reuses already prepared rows instead of rebuilding the whole Home board.
-Presentation now also revalidates Google connection state against the DPAPI-backed token store before startup finishes and before Home sync/apply or calendar refresh runs. A stale saved account summary or selected calendar in workspace preferences is treated as cache data only; if the token store is empty, Presentation clears that stale Google state and routes the user back to Settings instead of letting Home appear to apply changes while provider work is already disconnected.
-
-## 3. Parser Pipeline
-
-The parser pipeline is intentionally split by source responsibility.
-
-### PDF timetable parser
-
-CQEPC Chinese labels and marker tokens used by the PDF parser live in `TimetablePdfLexicon` so parsing logic can stay ASCII-safe and encoding-stable.
-
-Input: timetable PDF
-
-Output:
-
-- parsed `ClassSchedule` values containing `CourseBlock` items
-- unresolved ambiguous timetable blocks that cannot be parsed into regular course metadata
-- parse warnings and diagnostics
-
-The PDF parser is represented by `ITimetableParser` and is the source of truth for regular class blocks only.
-The current `TimetablePdfParser` implementation is CQEPC-layout-specific and uses `PdfPig` positioned letters plus drawn page paths to:
-
-- split the PDF into ordered class sections by `璇捐〃` headers
-- analyze the CQEPC page template from weekday headers, column rectangles, left-side grid bands, and footer markers
-- recover seven weekday columns from page rectangles, with weekday-header fallback
-- derive timetable-body row bands from the left-side grid geometry and rebuild lines inside those layout-scoped bands
-- extend the effective body-bottom when the header-page footer strip still contains a weekday-cell title fragment, so cross-page metadata carryover is not dropped before parsing
-- assign band-local lines back to weekday columns so same-baseline text from adjacent columns does not merge
-- parse `(n-m鑺?` metadata leads, raw week expressions, tagged campus/location/teacher/class-composition fields, and remaining labeled notes
-- canonicalize tagged metadata aliases before structured assignment, including treating `/鏁欏鐝?` as the same teaching-class field as `/鏁欏鐝粍鎴?`
-- emit unresolved items instead of guessing when ambiguous blocks cannot be normalized safely, while ignoring footer practical-summary notes entirely so only regular timetable cells participate in parsing output
-- silently consume successful carryover metadata tails instead of surfacing user-visible `PDF111` noise
-- emit cell-level diagnostics for skipped blocks such as missing period leads, missing week expressions, merged-cell ambiguity, metadata-tag failures, and empty/non-course cells
-
-### XLS teaching progress parser
-
-CQEPC Chinese worksheet labels used by the XLS parser live in `TeachingProgressXlsLexicon` so matching logic is centralized and easier to maintain.
-
-Input: teaching progress XLS
-
-Output:
-
-- `SchoolWeek` values
-- optional warnings and diagnostics when the mapping is incomplete
-
-The XLS parser is represented by `IAcademicCalendarParser` and must not define regular timetable events.
-The current implementation scans all visible worksheets, extracts the month/day/week grid only, ignores trailing arrangement semantics, emits diagnostics for malformed or conflicting grids, and falls back to a manual first-week override when workbook dates cannot be trusted.
-
-Workspace preview stores the parsed week-1 date separately as an auto-derived timetable-resolution value so Settings can show whether the current effective date is manual or XLS-derived.
-
-### DOCX class-time parser
+Presentation may compose Infrastructure through dependency registration, but business rules must stay in Application/Infrastructure/Domain services rather than XAML code-behind.
 
-CQEPC Chinese DOCX labels and row-keyword tokens used by the DOCX parser live in `ClassTimeDocxLexicon` so the parser stays ASCII-safe and encoding-stable.
+## 3. Runtime ownership
 
-Input: class-time DOCX
-
-Output:
-
-- `TimeProfile` values
-- optional warnings and diagnostics when profile mapping is incomplete
+### Startup
 
-The DOCX parser is represented by `IPeriodTimeProfileParser` and must not infer week semantics or calendar events.
-The current implementation reads the DOCX package directly via Open XML ZIP/XML parsing, maps range-based slots such as `1-2` and `3-4`, infers structured course-type tags from row labels, and preserves the `5-6` noon-window note as structured profile metadata.
-Those profiles now feed a resolution model that supports automatic matching, an explicit default profile, and class-scoped per-course overrides.
-
-## 3.5 Local Source Onboarding
-
-Before real parsing runs, the app owns a local onboarding layer for user-selected source files.
-
-Responsibilities:
-
-- accept source files via drag-and-drop or manual file picker
-- validate supported file extensions for PDF, XLS, and DOCX
-- persist user-local source references and the last used folder
-- persist machine-readable onboarding state such as `SourceAttentionReason` and ordered `CatalogActivityEntry` values
-- surface import status and parser-availability state
-- route dropped or browsed files into the correct PDF/XLS/DOCX slot automatically
-- execute timetable PDF parsing after selection so Settings can show parsed classes, warnings, and diagnostics
-- allow per-file replace and remove actions without redoing unrelated settings
-- rebuild workspace preview state after any source-file browse, replace, remove, or drop so parsed classes, time profiles, Home, and Import stay in sync with the latest catalog
-- keep startup safe when remembered files or folders no longer exist
+Presentation owns shell startup, theme/language initialization, and task-status display. It may show the shell before preview work completes. It must adopt completed local/provider preview results through `WorkspaceSessionViewModel` instead of duplicating parser or provider logic.
 
-The current Settings flow presents one unified source-files panel that owns drag-and-drop, bulk browse, overall status, and per-slot browse/remove actions. The browse action for an already selected slot is a replace operation in the onboarding layer, and every catalog mutation is followed by a preview rebuild rather than waiting for restart or navigation.
-The active workspace preview now parses PDF, XLS, and DOCX together when the required files are ready, while still exposing partial Settings feedback when only some sources are present.
-
-The current storage strategy is reference-first:
-
-- source files are selected by the user and may live anywhere on the local machine
-- the app stores source metadata in `%LocalAppData%\CQEPC Timetable Sync\user-settings.json`
-- workspace preferences in `%LocalAppData%\CQEPC Timetable Sync\workspace-preferences.json`
-- the latest accepted snapshot in `%LocalAppData%\CQEPC Timetable Sync\latest-snapshot.json`
-- Google sync mappings in `%LocalAppData%\CQEPC Timetable Sync\google-sync-mappings.json`
-- Google OAuth tokens in `%LocalAppData%\CQEPC Timetable Sync\tokens\google\` with DPAPI-protected payloads
-- Microsoft sync mappings in `%LocalAppData%\CQEPC Timetable Sync\microsoft-sync-mappings.json`
-- Microsoft auth state and tokens in `%LocalAppData%\CQEPC Timetable Sync\tokens\microsoft\` with DPAPI-protected payloads
-- `SourceStorageMode.ReferencePath` is the only active onboarding mode in the current phase
-- `%LocalAppData%\CQEPC Timetable Sync\sources\` is reserved for a future app-managed copy mode
-- no production logic should assume source files live inside the repo
-- persisted JSON/text artifacts use UTF-8, and direct text I/O must not rely on the system-default encoding
-- preference writes are coalesced during interactive editing, and `App` flushes pending workspace-preference persistence before shutdown completes
-
-For UI regression and smoke testing, Presentation.Wpf also owns a small app-internal test harness:
-
-- `--ui-test` / `--ui-screenshot` seeds deterministic sample data, navigates to a requested page, and exports the requested page root with WPF-native PNG rendering
-- screenshot mode prefers an internal render-only path that does not call `Show()` on the shell window; when a page still needs a live presentation source, the app automatically falls back to an off-screen `ShowActivated=false` no-activate tool window so the export stays local and does not rely on foreground desktop capture
-- `--ui-automation` is reserved for FlaUI runs and launches the shell in the same off-screen background mode, keeping the app out of the taskbar and reducing focus disruption while UIA still drives the tree; this remains a live window, not a headless mode
-- the shell window is explicitly constrained in background mode to a fixed off-screen size with `ShowActivated=false`, `ShowInTaskbar=false`, `WS_EX_NOACTIVATE`, and `WS_EX_TOOLWINDOW` so the handle stays automation-visible without surfacing to the user's foreground workflow
-- FlaUI interaction is semantic-first and should prefer UIA patterns such as `Invoke`, `SelectionItem`, `Toggle`, and `Value` instead of physical mouse input or foreground activation
-- smoke coverage should keep validating direct-click affordances on presentation-owned controls such as full-surface combo boxes and compact theme toggles, not only semantic expand/select helpers; it also checks that provider destination labels such as the task-list destination title localize after live language changes
-- smoke coverage also captures the inline Program Settings section in both light and dark themes so theme repaint regressions are visible in automation artifacts
-- smoke coverage checks opened Settings DatePicker calendar contrast through the automation bridge so popup text and option colors do not regress against the active background
-- smoke coverage now also captures the Import page after a real dark-theme toggle so selector contrast and grouped diff readability regressions remain visible in app-rendered artifacts
-- the automation bridge also exports grouped Import change state, selected-occurrence detail counts, and stable per-course / per-rule / per-occurrence automation ids so background-safe FlaUI smoke tests can verify selection and responsive Import layouts without relying on foreground mouse capture
-- real-storage manual UI coverage can call into the in-app automation bridge to open the first selected-day Home course editor and specific date-picker dropdowns without relying on fragile background card clicks
-- automation screenshot diagnostics prefer app-side WPF rendering over desktop capture: the running app hosts a local automation-only bridge that receives screenshot requests from the FlaUI test process and calls `UiScreenshotExporter` against the current page root or a named automation element such as the shell window; FlaUI window capture remains only as a fallback diagnostic path
-- automation startup/shutdown coverage verifies that closing the main shell window cancels deferred startup work, performs only bounded persistence flushing, and exits the process so subsequent builds/tests do not inherit locked Debug binaries
-- FlaUI is kept as a separate smoke layer for shell launch, navigation, page-root discovery, sidebar collapse, primary-action/About entry-point checks, and background-safe automation screenshot verification
-
-## 3.6 Presentation Localization
-
-Localization ownership now sits in `CQEPC.TimetableSync.Presentation.Wpf`.
-
-Key responsibilities:
-
-- load the persisted preferred culture before the shell is shown
-- support `Follow System` as a `null` preference value plus explicit `zh-CN` and `en-US`
-- resolve effective culture by exact match, parent/language match, then `en-US`
-- merge UTF-8 WPF resource dictionaries from `Resources/Localization/Strings.en-US.xaml` and `Resources/Localization/Strings.zh-CN.xaml`
-- replace the active merged dictionaries on every runtime language switch so `DynamicResource` labels and computed view-model text re-evaluate against the new culture
-- bind the program-settings language selector by a stable culture key instead of transient option-object identity so a runtime rebuild cannot leave stale selected items or duplicate entries in the WPF combo box
-- keep XAML-owned text on `DynamicResource` keys
-- refresh computed view-model text through `LanguageChanged` notifications and presentation formatting helpers
-- keep touched Home/Import labels in those dedicated dictionaries instead of scattering hardcoded Chinese strings through page XAML
-
-The localization boundary is explicit:
-
-- Application and Domain may carry stable parser codes and fallback text
-- Presentation localizes parser warnings, diagnostics, and unresolved-item summaries/reasons by code first
-- if no resource key exists, Presentation falls back to the stored parser message or unresolved text
-- `RawSourceText` is preserved exactly as parsed and is never localized
-- `.editorconfig` requires UTF-8 for the text assets involved in this flow
-
-## 4. Normalization Pipeline
-
-CQEPC Chinese week-expression, odd/even, and sports-venue matching tokens used during normalization are centralized in `TimetableNormalizationLexicon`, while shared course-type labels live in `CourseTypeLexicon`.
-
-The normalization pipeline converts parsed source data into export-ready schedule data.
-
-Required order:
-
-1. accept parsed PDF blocks, parser unresolved items, semester week ranges, and period-time profiles
-2. select a class when multiple classes are present
-3. resolve raw week expressions into exact week numbers
-4. select the applicable period-time profile
-5. convert each valid timetable block into concrete dated occurrences
-6. keep unresolved items separate from valid occurrences
-7. derive recurring export groups only when the merge is lossless
-
-Important constraints:
-
-- no silent week dropping
-- no silent time guessing
-- no merging across meaningful metadata differences
-- all occurrence generation must preserve source fingerprints and structured metadata
-- sync identity generation, logical diff keys, and week parsing use `CultureInfo.InvariantCulture`
-- PDF source fingerprints are block-scoped, not file-scoped: the parser hashes normalized block text plus its class/page/anchor position so a revised timetable PDF only changes fingerprints for the blocks whose own CQEPC content actually changed
-- occurrence local-sync identity and snapshot diff matching are intentionally more stable than source fingerprints: the local snapshot diff deduplicates only previous occurrences that share the same comparable schedule shape and source identity, then pairs old/new occurrences by exact identity or by same class/date plus source, title, time/period, location, teacher, and profile evidence. This reconciles source-fingerprint drift and small metadata edits as exact/update work instead of recreating every unchanged lesson, while still leaving true removals and same-shape rows from different source fingerprints as independent deletes.
-- exact-campus profile matching is conservative in v1; when no explicit profile override exists, resolution first checks class-scoped per-course overrides, then an explicit default profile, then auto-selection narrows by campus and mapped course type, falls back to another same-campus profile only when that fallback defines the exact requested periods, and unresolveds anything still ambiguous
-- parser-originated practical summaries remain unresolved; normalization-originated failures are emitted as unresolved regular course blocks with concrete reasons
-- normalization-originated unresolved regular course blocks now carry stable codes so Presentation can localize them without changing the underlying fallback reason text
-- before diff creation, Application applies any persisted course-schedule overrides to replace the matching source-fingerprint occurrences or unresolved items with user-confirmed concrete occurrences; single-occurrence overrides replace only the dated source occurrence, while promoted weekly/biweekly edits use the whole source fingerprint so the recurrence can be regenerated; retained deleted single-occurrence overrides are applied even when the current parse no longer exposes that source/date, so Cancel Delete removes the pending deletion from the preview before apply; when a whole-rule override and a single-occurrence override share the same source fingerprint, the generated whole-rule occurrence for that dated source slot is suppressed so the single item remains authoritative; generated override occurrences are de-duplicated against existing same-course/same-local-time/same-location slots before export groups are rebuilt
-
-The current `TimetableNormalizer` implementation lives in Infrastructure and is covered with fixture-driven tests for odd/even expansion, sparse weeks, cadence-based group splitting, location-sensitive grouping, conservative profile selection, same-campus time-profile fallback confirmations, and unresolved fallbacks.
-The current class selection state is kept in memory inside the WPF view models. Separate persistence of the parsed class choice is deferred.
-
-## 5. Sync Pipeline
-
-The sync pipeline is a preview-first workflow, not a fire-and-forget export.
-
-Required order:
-
-1. load the latest local snapshot
-2. build the newly normalized occurrence set
-3. derive optional task candidates from explicit rules
-4. compare new local data against the previous local snapshot
-5. later compare app-managed remote items for the selected provider
-6. classify Added, Updated, Deleted, fallback-confirmation, and Unresolved items
-7. show the diff in the UI as primary change groups with a persistent left-change/right-detail split; the first course expansion lists repeat rules only, the second repeat-rule expansion lists all concrete occurrences on the left with unchanged rows as non-selectable context, the right panel switches among course, repeat-rule, occurrence, and inline course-settings modes, and Unchanged Schedules serves both as the no-diff fallback and as the trailing unchanged-course section when changes exist. A concrete unchanged occurrence selected from the right rule detail synchronizes the left fallback surface into all-times mode with that occurrence active.
-8. apply only user-approved changes
-9. persist new local snapshot and provider mapping state
-
-The current implementation completes steps 1, 2, 4, 6, 7, and 8 locally by diffing against the saved snapshot baseline.
-Provider-specific remote execution is implemented through dedicated Infrastructure adapters:
-
-- Google desktop OAuth loopback auth using a user-selected installed-app JSON
-- writable-calendar discovery for the connected Google account
-- Google Calendar create/update/delete for app-managed timed events
-- recurring-series creation plus recurring-instance update/delete by matching `originalStartTime`
-- Google Tasks create/update/delete on the default `@default` list for explicit rule-based tasks
-- provider-safe event metadata in `extendedProperties.private`; ordinary Google Calendar descriptions are display payloads and cannot establish app-managed ownership or destructive sync identity
-- local Google sync mappings for remote IDs, fingerprints, recurring-master IDs, and original-start timestamps
-- Microsoft desktop auth using MSAL with WAM preferred and browser fallback for local interactive sign-in
-- writable Outlook calendar discovery plus owned Microsoft To Do list discovery for the connected Microsoft account
-- Outlook Calendar create/update/delete for app-managed timed events, including recurring-series creation and recurring-member maintenance with immutable IDs
-- Microsoft To Do create/update/delete for explicit rule-based tasks, plus linked-resource creation when a paired Outlook event exists
-- provider-safe Microsoft metadata in Graph open extensions
-- local Microsoft sync mappings for remote IDs, fingerprints, recurring-master IDs, and original-start timestamps
-
-Preview generation remains local-first, but startup can overlap local parsing/rendering with a provider-backed Google preview when the user enables startup cloud loading:
-
-- local preview: build from source files only, so parsing/normalization can finish and render without waiting on Google
-- Google-merged preview: read remote Google events and merge them into the Home board in parallel with local preview work
-- adoption rule: whichever preview finishes first may render first; the provider-merged preview replaces the local board when it completes, while provider failures leave the local board visible
-
-- a Home display window that can import the selected Google calendar into the Home board when the user enables the Google preview toggle
-- a semester-scoped deletion window that limits destructive Google delete candidates to the timetable term span
-
-Within that flow, exact same-title same-time Google events suppress duplicate Adds only when the remote item is already the exact same managed event identity, while same-title different-time Google events become red delete candidates only when they are app-managed and fall inside the deletion window. Unmanaged Google events remain neutral current-calendar context and never become selectable provider delete/update work.
-The Google apply path now also treats the preview-resolved remote event as authoritative when a stored mapping has drifted to a stale remote item id, so update/delete repairs can rebind the local mapping to the managed event that preview actually matched.
-Preview-side Google reconciliation also no longer treats the accepted local snapshot as proof that a remote write succeeded: if an occurrence has neither a saved mapping nor a matching managed remote event, diff generation emits a fresh `RemoteManaged` add so Home can repair the missing Google write on the next apply.
-Preview-side Google reconciliation now also attaches a matched managed remote event back onto local-snapshot delete rows before apply. That prevents a class switch from consuming the managed remote event during diff generation and then quietly deleting only the local baseline while leaving the real Google event behind.
-When a managed Google event matches payload but its app-managed identity metadata has drifted, reconciliation now emits a `RemoteManaged` update instead of an exact match so apply refreshes `LocalSyncId` / source-fingerprint metadata and keeps later previews controllable.
-When a stored Google mapping points at a missing remote id but another preview-visible managed event already matches the same class plus the same payload, reconciliation now reuses that visible managed event before falling back to recreate logic. This prevents Home from keeping an orange/green duplicate add for a lesson Google already has under a drifted identity.
-For older managed Google events created before the app persisted `Class` metadata, reconciliation now has one legacy fallback: a class-less managed remote event that matches the full timed payload can be rebound as the current occurrence, surfaced as exact or update work instead of a duplicate Add, and then repaired on apply so the missing class metadata is written back to Google.
-Google apply now executes accepted calendar changes in deterministic delete -> update -> add order, runs calendar writes serially, preserves preview-resolved managed duplicate recurring-instance deletes as separate instance writes, caches recurring-instance lookups per series for mapped repairs, and keeps managed duplicate remote items beyond the expected exact-match count visible as delete candidates so switching the selected class clears stale copies instead of hiding them as extra exact matches. Deleting a recurring master also removes every saved local mapping bound to that master so stale child mappings cannot survive the provider write. For recurring adds, the Google payload builder now emits exact weekly recurrence shapes using `UNTIL` plus `EXDATE` for skipped occurrences, and the executor rolls back any series that does not materialize every expected instance before falling back to exact single-event inserts. For recurring-instance updates whose timed range already drifted away from the local occurrence, the executor no longer relies on Google exception semantics; it deletes the wrong recurring member and recreates one exact managed single event instead.
-Presentation-side post-apply Google convergence now also scans the refreshed preview for represented app-managed duplicate groups whose same-class title/time count is higher than the current normalized timetable count. Location text is intentionally excluded from this cleanup key because stale Google duplicates can differ only by parsed/defaulted location metadata. When such a group exists, `WorkspaceSessionViewModel` automatically applies the represented remote-managed instance delete rows for the extra duplicates and immediately re-reads Google preview so identical double-booked managed lessons are reduced back to the expected count without a second manual apply pass.
-Google remote read-back now explicitly requests `start/end/originalStartTime` time-zone fields plus `colorId`, resolves timed instances against the event's own zone before handing them to Home or diff generation, and compares the managed remote `colorId` against the effective local Google event color during reconciliation. This closes the previous gaps where Google events could be written correctly but read back through the machine offset, or where color-only drift could be missed until a later manual edit.
-Workspace apply now backfills local Google mappings and accepted local snapshot occurrences for already-exact managed matches, rather than only persisting provider results for rows that required a write. Workspace preview also persists the same exact-match mapping repair when it can confidently bind a managed Google event or recurring instance back to the local occurrence. This keeps class-switch applies and later preview-only sessions from ending in a visually correct remote calendar that the local snapshot/mapping store still cannot fully manage on the next preview.
-Workspace preview now also normalizes saved Google mapping collisions before diffing and again after exact-match backfill. If multiple local sync ids point at the same managed remote event or recurring instance, the preview layer keeps the current occurrence binding, drops the stale duplicate mapping, and prevents Home from staying orange with repeated `RemoteManaged` updates after apply.
-`LocalSnapshotSyncDiffService` now enforces the same calendar scoping defensively by filtering Google mappings and remote preview events by `calendarDestinationId` before reconciliation. That keeps tests and future callers from accidentally reintroducing cross-calendar drift by passing the full provider mapping file into one selected-calendar preview.
-The Google provider path now reads two preference-backed time-zone values from the current connection context on every preview/apply/edit request: a preferred write time zone and a remote read fallback time zone. Program Settings exposes that as one regional IANA time-zone selector, defaults it to `Asia/Shanghai`, writes the selected zone explicitly into Google Calendar payloads, and uses the same value as the fallback when Google omits a remote event time zone. Workspace preview projects that preferred IANA zone onto parsed Google calendar occurrences that do not already carry a course-level or single-occurrence override, so Home rendering, Import diffing, recurrence grouping, and provider apply work from the same effective zone. Remote Google preview events retain their event time-zone id after read-back, and the local diff payload fingerprint includes the IANA id so a zone-id change is still an update when the current UTC offset is unchanged. Noda Time TZDB resolves UTC offsets, DST, and historical rule changes; fixed UTC offsets are displayed only as confirmation hints. `WorkspaceTimeZoneCatalog` supplies the full regional/UTC candidate set plus a deliberately short popular-region list for the `Common` category, and carries TZDB country names/codes into search descriptors. `WorkspaceSessionViewModel` merges that popular list with `GoogleProviderSettings.RecentCalendarTimeZoneIds`, promotes the newly selected zone to the front, persists at most six recent selections, builds active-language display/search text from presentation resources and localized country names, searches the whole catalog when query text is present, and keeps `GoogleTimeZoneOptionViewModel.DisplayName` as the stable IANA/offset text shared by course editors.
-The same persisted program-behavior settings now also decide whether startup should perform the automatic Google preview sync pass at all, whether cloud calendar loading may run in parallel during startup, whether Home schedule rendering is cached for fast view-mode toggles, whether the last Home render is restored on next startup, which proxy mode provider network requests should use, whether the bottom-right running-task status notification chip is visible while tracked background work is active, and the numeric duration used for transient connection tips. Persistent Home render caching and startup restore default off; if enabled, the disk cache is a DPAPI-protected hint and disabling the cache clears both the protected file and any legacy plaintext cache file.
-Presentation now renders the Home selected-day agenda with a provider-color dot instead of the previous course-type chip. Update rows that only differ in non-layout provider-managed fields such as Google Calendar color are collapsed into one orange agenda card so Home does not show duplicate-looking before/after entries for the same lesson. Remote Google events that are not app-managed are projected as neutral external context rather than orange pending work, and any residual unmanaged Google calendar update/delete/metadata-only rows are removed from the effective planned-change set before Import selection, Home display, or apply receives accepted IDs. The final Home agenda projection also deduplicates same-slot same-title same-location cards after diff/source normalization so a separate managed-remote cleanup row cannot bring the same visible lesson back as a second agenda card. When the selected day has no agenda items, Presentation keeps the agenda list empty and updates only the summary strip to `No schedule | Week`, avoiding an additional empty placeholder card inside the agenda scroll region.
-Accepted snapshot persistence is likewise class-scoped during apply so replacing one selected class does not reintroduce delete noise from another class slice in the next preview.
-
-## 6. Local Persistence Responsibilities
-
-Local persistence belongs in Infrastructure behind an Application port.
-
-It is responsible for storing:
-
-- imported source file references and their onboarding status
-- the remembered last-used local folder
-- a future app-local copy location when copy mode is implemented
-- workspace preferences such as week start, first-week override, provider defaults, and course-type appearance rules
-- the latest parsed and normalized snapshot
-- export groups derived from normalized occurrences
-- unresolved items
-- a future persisted selected class
-- the selected period-time profile preference
-- task-generation rules
-- provider item mappings
-- last sync summary
-- provider auth settings and connection summaries
-- encrypted provider token payloads
-
-Persistence should be local, inspectable during development, and stable enough to support diffs and regression tests.
-Parser and regression tests should rely on sanitized fixtures rather than private raw timetable exports.
-Tracked private timetable exports should not live in the repository; repo-local developer materials, if used, must stay in gitignored folders.
-The timetable PDF parser is covered with synthetic PDF fixtures that mimic CQEPC same-template segmented grid geometry, wrapped metadata, multi-class sections, continuation pages, and footer summaries without requiring private source documents.
-Google sync acceptance is also covered with focused cloned-storage UI tests that exercise live Google add, update, and delete behavior, including switching from the previous selected class to a different parsed class and reading remote events back for proof.
-The teaching-progress parser is covered with in-memory worksheet fixtures rather than checked-in private school exports.
-The DOCX parser is covered with synthetic Open XML fixtures that mimic the CQEPC table shape without requiring private source documents.
-
-## 7. Provider Adapter Placement
-
-Provider adapters will live in Infrastructure:
-
-- `src/CQEPC.TimetableSync.Infrastructure/Providers/Google/`
-- `src/CQEPC.TimetableSync.Infrastructure/Providers/Microsoft/`
-
-Rules for those adapters:
-
-- Google and Microsoft stay separate
-- event logic and task logic stay separate inside each provider family
-- each adapter only manages objects created by this app
-- provider metadata storage stays provider-safe
-- destructive operations are driven by the preview diff, never by blind overwrite
-
-The Google adapter is implemented in `src/CQEPC.TimetableSync.Infrastructure/Providers/Google/` and currently includes:
-
-- `GoogleSyncProviderAdapter` for auth, calendar discovery, and preview-first apply execution
-- `GooglePayloadBuilders` plus a Google-specific text formatter for event descriptions and task notes
-- `GoogleTimeZoneResolver` for Google write-zone normalization and remote-event time-zone resolution, including future preference-driven extension points
-- `ProtectedFileDataStore` for DPAPI-backed OAuth token persistence
-- use of `extendedProperties.private` for app-managed Google event metadata
-- explicit stream-based loading of the installed-app OAuth JSON so client configuration parsing is UTF-8-safe
-
-The Microsoft adapter is implemented in `src/CQEPC.TimetableSync.Infrastructure/Providers/Microsoft/` and currently includes:
-
-- `MicrosoftSyncProviderAdapter` for auth, destination discovery, and preview-first apply execution
-- `MicrosoftAuthService` plus `MicrosoftTokenCacheStore` for MSAL public-client auth and DPAPI-backed token caching
-- `MicrosoftGraphClient` for thin Graph REST access
-- `MicrosoftPayloadBuilders` plus a Microsoft-specific text formatter for event descriptions and task notes
-- Graph open extensions for app-managed Microsoft metadata and immutable-ID-based recurring-member tracking
-
-## 8. What Must Never Live in Code-Behind
-
-The following should never live in WPF code-behind:
-
-- parser logic
-- week-expression parsing
-- normalization and occurrence generation
-- diff classification
-- provider payload creation
-- persistence rules
-- destructive sync decisions
-- class-selection business rules
-- unresolved-item export decisions
-
-Code-behind may handle only UI composition concerns such as:
-
-- calling `InitializeComponent`
-- view-only focus management
-- transient visual state that is purely presentational
-
-## 9. Project-by-Project Intent
-
-### `CQEPC.TimetableSync.Domain`
-
-Keep the domain model small, explicit, and stable. Prefer immutable records and value objects where possible.
-
-### `CQEPC.TimetableSync.Application`
-
-Define use-case inputs, outputs, and ports first. Delay orchestration complexity until parser behavior and normalization rules are proven with fixtures.
-
-### `CQEPC.TimetableSync.Infrastructure`
-
-Implement integrations incrementally: parsers first, persistence second, providers last. Avoid introducing abstractions before a real integration requires them.
-
-### `CQEPC.TimetableSync.Presentation.Wpf`
-
-Start with a minimal shell and page-level view models. Build the Home preview and Import / Diff surface on top of concrete occurrences, not raw parser output.
+Optional Home render-cache restore is display-only. A real local/provider preview still refreshes and replaces stale cached content.
+
+### Source onboarding
+
+Application models the source catalog and attention state. Infrastructure validates local files and parses them. Presentation owns drag/drop, file-picking UI, status wording, and localized detail text.
+
+Local source references are user-local. Missing files are represented as attention-needed state, not startup failures.
+
+### Workspace preview
+
+Workspace preview is an Application workflow backed by Infrastructure parser, normalization, diff, snapshot, and provider implementations. It produces structured results for Home and Import.
+
+The preview workflow owns:
+
+- source parsing;
+- class selection readiness;
+- effective first-week and time-profile resolution;
+- saved override application;
+- normalized occurrences and export groups;
+- parser diagnostics/unresolved items;
+- local snapshot diff state;
+- optional provider preview state.
+
+Presentation owns how these results are grouped, filtered, localized, animated, and selected.
+
+### Import review
+
+Import is a local review/adoption surface. Its course/repeat/occurrence grouping is a presentation projection over raw change identities. Import may save local overrides and accept the selected local baseline, but it must not write remote provider events.
+
+Pinned fallback confirmations, schedule conflicts, and unresolved items are part of the preview/review contract. They must remain visible before ordinary change groups.
+
+### Home provider apply
+
+Home owns the provider-write action surface. Provider writes go through `ISyncProviderAdapter.ApplyAcceptedChangesAsync` with selected effective changes, current occurrences, export groups, existing mappings, provider defaults, and selected destination context.
+
+Home apply must not trust Import grouping state as write identity; it must use raw accepted change IDs and provider-scoped mappings.
+
+## 4. Parser placement
+
+Parser interfaces live in Application. Parser implementations and CQEPC source-token lexicons live in Infrastructure:
+
+- `Infrastructure/Parsing/Pdf/` for timetable PDFs;
+- `Infrastructure/Parsing/Spreadsheet/` for teaching-progress XLS files;
+- `Infrastructure/Parsing/Word/` for class-time DOCX files.
+
+Parser docs live in `docs/parsers/`. Chinese source tokens may appear there only as exact CQEPC examples; parser behavior should otherwise be documented in English.
+
+## 5. Persistence placement
+
+Application owns persistence ports. Infrastructure owns repository implementations and storage format details.
+
+Persistence responsibilities:
+
+- user preferences and program settings;
+- local source catalog state;
+- accepted local schedule snapshots;
+- provider sync mappings scoped by provider and destination;
+- protected token/cache/password stores where applicable.
+
+Presentation must not read or write repository files directly. It should request state changes through Application workflows or view-model services.
+
+## 6. Provider adapter placement
+
+Application defines provider adapter contracts. Infrastructure implements provider-specific adapters.
+
+Provider adapter implementations own:
+
+- authentication and token access;
+- destination discovery;
+- provider read-back and preview event mapping;
+- create/update/delete payload construction;
+- provider-safe private metadata;
+- mapping repair and apply result mapping;
+- provider-specific recurrence, time-zone, color, and task behavior.
+
+Google Calendar is the supported timed-event provider. Microsoft provider types stay separate and must not borrow Google-only metadata names or mapping stores.
+
+## 7. Code-behind boundary
+
+WPF code-behind may contain only UI glue such as view initialization, attached event forwarding, focus/scroll coordination, and automation bridge plumbing.
+
+Code-behind must not own:
+
+- parser decisions;
+- normalization rules;
+- diff classification;
+- provider ownership checks;
+- provider payload construction;
+- persistence file formats;
+- localization fallback policy beyond resource lookup wiring.
+
+## 8. Test ownership
+
+- Domain tests cover value-object invariants and provider-independent model behavior.
+- Application tests cover contracts, preferences, preview orchestration, and use-case behavior.
+- Infrastructure tests cover parsers, normalization, diffing, persistence, provider payloads, and provider adapter behavior.
+- Presentation tests cover view models, formatting, localization/theme services, screenshot/export hooks, and UI smoke automation.
+
+Parser and provider regression tests should use sanitized fixtures or generated fixtures. Private school exports and personal provider data must not be required for normal test runs.
