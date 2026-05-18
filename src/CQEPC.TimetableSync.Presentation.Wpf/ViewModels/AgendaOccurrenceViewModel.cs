@@ -80,7 +80,6 @@ public sealed class AgendaOccurrenceViewModel
         VisualStyle == HomeCalendarVisualStyle.Updated ? "#D48C1F" :
         VisualStyle == HomeCalendarVisualStyle.Added ? "#2E8B57" :
         VisualStyle == HomeCalendarVisualStyle.Synced ? "#7FB38F" :
-        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#D48C1F" :
         "#D7DEE7";
 
     public string BackgroundHex =>
@@ -88,7 +87,6 @@ public sealed class AgendaOccurrenceViewModel
         VisualStyle == HomeCalendarVisualStyle.Updated ? "#FEF3DD" :
         VisualStyle == HomeCalendarVisualStyle.Added ? "#E5F5EC" :
         VisualStyle == HomeCalendarVisualStyle.Synced ? "#EDF8F0" :
-        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#FEF3DD" :
         "#F7F9FC";
 
     public string SurfaceBackgroundHex =>
@@ -96,7 +94,6 @@ public sealed class AgendaOccurrenceViewModel
         VisualStyle == HomeCalendarVisualStyle.Updated ? "#FFF8EA" :
         VisualStyle == HomeCalendarVisualStyle.Added ? "#F1FBF5" :
         VisualStyle == HomeCalendarVisualStyle.Synced ? "#F8FCF9" :
-        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#FFF8EA" :
         "#FFFFFF";
 
     public string SurfaceBorderBrushHex =>
@@ -104,7 +101,6 @@ public sealed class AgendaOccurrenceViewModel
         VisualStyle == HomeCalendarVisualStyle.Updated ? "#EAC98B" :
         VisualStyle == HomeCalendarVisualStyle.Added ? "#A9D7BB" :
         VisualStyle == HomeCalendarVisualStyle.Synced ? "#C8E0D0" :
-        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#EAC98B" :
         "#D6DFEB";
 
     public IRelayCommand OpenEditorCommand { get; }

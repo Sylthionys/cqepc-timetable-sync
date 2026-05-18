@@ -386,12 +386,11 @@ public sealed class ManualGoogleWorkflowTests
         var currentCalendarCountsByKey = preview.SyncPlan.Occurrences
             .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
             .GroupBy(
-                static occurrence => string.Join(
-                    "|",
+                static occurrence => CreateDuplicateKey(
+                    occurrence.ClassName,
                     occurrence.Metadata.CourseTitle,
-                    occurrence.Start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-                    occurrence.End.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-                    occurrence.Metadata.Location ?? string.Empty),
+                    occurrence.Start,
+                    occurrence.End),
                 StringComparer.Ordinal)
             .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
 
@@ -399,12 +398,11 @@ public sealed class ManualGoogleWorkflowTests
             .Where(static remoteEvent => remoteEvent.IsManagedByApp)
             .Where(remoteEvent => deletionWindow is null || Overlaps(deletionWindow, remoteEvent.Start, remoteEvent.End))
             .GroupBy(
-                static remoteEvent => string.Join(
-                    "|",
+                static remoteEvent => CreateDuplicateKey(
+                    remoteEvent.ClassName,
                     remoteEvent.Title,
-                    remoteEvent.Start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-                    remoteEvent.End.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-                    remoteEvent.Location ?? string.Empty),
+                    remoteEvent.Start,
+                    remoteEvent.End),
                 StringComparer.Ordinal)
             .Where(static group => group.Count() > 1)
             .ToArray();
@@ -572,11 +570,11 @@ public sealed class ManualGoogleWorkflowTests
 
         var currentCalendarCountsByKey = preview.SyncPlan!.Occurrences
             .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
-            .GroupBy(static occurrence => CreatePayloadKey(
+            .GroupBy(static occurrence => CreateDuplicateKey(
+                occurrence.ClassName,
                 occurrence.Metadata.CourseTitle,
                 occurrence.Start,
-                occurrence.End,
-                occurrence.Metadata.Location))
+                occurrence.End))
             .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
         var deletionWindow = preview.SyncPlan.DeletionWindow;
         var deleteChanges = preview.SyncPlan.PlannedChanges
@@ -588,11 +586,11 @@ public sealed class ManualGoogleWorkflowTests
         var duplicateGroup = preview.RemotePreviewEvents
             .Where(static remoteEvent => remoteEvent.IsManagedByApp)
             .Where(remoteEvent => deletionWindow is null || Overlaps(deletionWindow, remoteEvent.Start, remoteEvent.End))
-            .GroupBy(static remoteEvent => CreatePayloadKey(
+            .GroupBy(static remoteEvent => CreateDuplicateKey(
+                remoteEvent.ClassName,
                 remoteEvent.Title,
                 remoteEvent.Start,
-                remoteEvent.End,
-                remoteEvent.Location))
+                remoteEvent.End))
             .Select(group => new
             {
                 Key = group.Key,
@@ -629,16 +627,46 @@ public sealed class ManualGoogleWorkflowTests
             CancellationToken.None);
         applyResult.Status.Kind.Should().NotBe(WorkspaceApplyStatusKind.NoSuccess);
 
-        var refreshedPreview = (await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None)).Preview;
-        var refreshedRemoteIds = refreshedPreview.RemotePreviewEvents
-            .Where(remoteEvent => string.Equals(
-                CreatePayloadKey(remoteEvent.Title, remoteEvent.Start, remoteEvent.End, remoteEvent.Location),
-                duplicateGroup.Key,
-                StringComparison.Ordinal))
-            .Select(static remoteEvent => remoteEvent.RemoteItemId)
+        var deletedRemoteIds = duplicateGroup.DeleteChanges
+            .Select(static change => change.RemoteEvent!.RemoteItemId)
             .ToHashSet(StringComparer.Ordinal);
+        ProviderRemoteCalendarEvent[] refreshedRemoteEvents = [];
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        do
+        {
+            var refreshedPreview = (await BuildLiveGooglePreviewContextAsync(storagePaths, preferences, CancellationToken.None)).Preview;
+            refreshedRemoteEvents = refreshedPreview.RemotePreviewEvents
+                .Where(remoteEvent => string.Equals(
+                    CreateDuplicateKey(remoteEvent.ClassName, remoteEvent.Title, remoteEvent.Start, remoteEvent.End),
+                    duplicateGroup.Key,
+                    StringComparison.Ordinal))
+                .ToArray();
 
-        refreshedRemoteIds.Should().NotContain(duplicateGroup.DeleteChanges.Select(change => change.RemoteEvent!.RemoteItemId));
+            if (refreshedRemoteEvents.All(remoteEvent => !deletedRemoteIds.Contains(remoteEvent.RemoteItemId)))
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(2));
+        }
+        while (DateTime.UtcNow < deadline);
+
+        var applyResults = string.Create(
+            CultureInfo.InvariantCulture,
+            $"status={applyResult.Status.Kind};successful={applyResult.SuccessfulChangeCount};failed={applyResult.FailedChangeCount};detail={applyResult.Status.Detail ?? "<no-detail>"}");
+        var deleteDetails = string.Join(
+            ";",
+            duplicateGroup.DeleteChanges.Select(static change =>
+                $"{change.LocalStableId},{change.RemoteEvent!.RemoteItemId},{change.RemoteEvent.ParentRemoteItemId ?? "<no-parent>"},{change.RemoteEvent.LocalSyncId ?? "<no-local-sync-id>"}"));
+        var refreshedDetails = string.Join(
+            ";",
+            refreshedRemoteEvents.Select(static remoteEvent =>
+                $"{remoteEvent.RemoteItemId},{remoteEvent.ParentRemoteItemId ?? "<no-parent>"},{remoteEvent.LocalSyncId ?? "<no-local-sync-id>"},{remoteEvent.IsManagedByApp}"));
+
+        refreshedRemoteEvents
+            .Select(static remoteEvent => remoteEvent.RemoteItemId)
+            .Should()
+            .NotContain(deletedRemoteIds, $"applyResults={applyResults}; deleteDetails={deleteDetails}; refreshed={refreshedDetails}");
     }
 
     [ManualUiFact]
@@ -3704,6 +3732,18 @@ public sealed class ManualGoogleWorkflowTests
             start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
             end.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
             location ?? string.Empty);
+
+    private static string CreateDuplicateKey(
+        string? className,
+        string title,
+        DateTimeOffset start,
+        DateTimeOffset end) =>
+        string.Join(
+            "|",
+            className ?? string.Empty,
+            title,
+            start.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            end.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
 
     private static RepeatOverrideCandidate SelectRepeatOverrideCandidate(
         IReadOnlyList<ResolvedOccurrence> occurrences,

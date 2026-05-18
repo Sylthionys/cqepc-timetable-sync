@@ -60,7 +60,6 @@ public sealed class HomeCalendarEntryViewModel
         VisualStyle == HomeCalendarVisualStyle.Updated ? "#D48C1F" :
         VisualStyle == HomeCalendarVisualStyle.Added ? "#2E8B57" :
         VisualStyle == HomeCalendarVisualStyle.Synced ? "#7FB38F" :
-        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#D48C1F" :
         "#D7DEE7";
 
     public string BackgroundHex =>
@@ -68,7 +67,6 @@ public sealed class HomeCalendarEntryViewModel
         VisualStyle == HomeCalendarVisualStyle.Updated ? "#FEF3DD" :
         VisualStyle == HomeCalendarVisualStyle.Added ? "#E5F5EC" :
         VisualStyle == HomeCalendarVisualStyle.Synced ? "#EDF8F0" :
-        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#FEF3DD" :
         "#F7F9FC";
 
     public string SurfaceBackgroundHex =>
@@ -76,7 +74,6 @@ public sealed class HomeCalendarEntryViewModel
         VisualStyle == HomeCalendarVisualStyle.Updated ? "#FFF8EA" :
         VisualStyle == HomeCalendarVisualStyle.Added ? "#F1FBF5" :
         VisualStyle == HomeCalendarVisualStyle.Synced ? "#F8FCF9" :
-        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#FFF8EA" :
         "#FFFFFF";
 
     public string SurfaceBorderBrushHex =>
@@ -84,7 +81,6 @@ public sealed class HomeCalendarEntryViewModel
         VisualStyle == HomeCalendarVisualStyle.Updated ? "#EAC98B" :
         VisualStyle == HomeCalendarVisualStyle.Added ? "#A9D7BB" :
         VisualStyle == HomeCalendarVisualStyle.Synced ? "#C8E0D0" :
-        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#EAC98B" :
         "#D6DFEB";
 
     public string CompactAccentHex =>
@@ -92,7 +88,6 @@ public sealed class HomeCalendarEntryViewModel
         VisualStyle == HomeCalendarVisualStyle.Updated ? "#E0A641" :
         VisualStyle == HomeCalendarVisualStyle.Added ? "#4DA86E" :
         VisualStyle == HomeCalendarVisualStyle.Synced ? "#83C095" :
-        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#D9A43A" :
         "#7EA8FF";
 
     public string CalendarCellBorderBrushHex =>
@@ -100,7 +95,6 @@ public sealed class HomeCalendarEntryViewModel
         VisualStyle == HomeCalendarVisualStyle.Updated ? "#D48C1F" :
         VisualStyle == HomeCalendarVisualStyle.Added ? "#2E8B57" :
         VisualStyle == HomeCalendarVisualStyle.Synced ? "#6D9CFF" :
-        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#D48C1F" :
         "#7EA8FF";
 
     public string CalendarCellBackgroundHex =>
@@ -108,6 +102,5 @@ public sealed class HomeCalendarEntryViewModel
         VisualStyle == HomeCalendarVisualStyle.Updated ? "#16D48C1F" :
         VisualStyle == HomeCalendarVisualStyle.Added ? "#162E8B57" :
         VisualStyle == HomeCalendarVisualStyle.Synced ? "#166D9CFF" :
-        VisualStyle == HomeCalendarVisualStyle.RemoteExternal ? "#16D48C1F" :
         "#107EA8FF";
 }

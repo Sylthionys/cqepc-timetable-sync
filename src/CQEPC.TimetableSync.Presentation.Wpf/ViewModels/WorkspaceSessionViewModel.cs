@@ -2256,6 +2256,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var safeAcceptedChangeIds = NormalizeAcceptedImportChangeIds(acceptedChangeIds);
         if (DefaultProvider == ProviderKind.Google && googleProviderAdapter is not null)
         {
             await RefreshGoogleConnectionStateAsync(clearOnDisconnect: true, cancellationToken: CancellationToken.None);
@@ -2282,7 +2283,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             }
         }
 
-        var acceptedGoogleCalendarDeleteIds = GetAcceptedGoogleCalendarDeleteIds(CurrentPreviewResult, acceptedChangeIds);
+        var acceptedGoogleCalendarDeleteIds = GetAcceptedGoogleCalendarDeleteIds(CurrentPreviewResult, safeAcceptedChangeIds);
         CurrentImportWorkflowStage = ImportWorkflowStage.SyncingToProvider;
 
         await RunTrackedTaskAsync(
@@ -2295,7 +2296,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
                     task.Update(UiText.TaskApplyGoogleCalendarSavingDetail);
                     var result = await previewService.ApplyAcceptedChangesAsync(
                         CurrentPreviewResult,
-                        acceptedChangeIds,
+                        safeAcceptedChangeIds,
                         CancellationToken.None);
 
                     await RefreshPreviewCoreAsync(task, UiText.TaskApplyGoogleCalendarRefreshingDetail, cancellationToken: CancellationToken.None);
@@ -2337,16 +2338,17 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var safeAcceptedChangeIds = NormalizeAcceptedImportChangeIds(acceptedChangeIds);
         try
         {
             isApplyingImportSelection = true;
             var result = await previewService.ApplyAcceptedChangesLocallyAsync(
                 CurrentPreviewResult,
-                acceptedChangeIds,
+                safeAcceptedChangeIds,
                 CancellationToken.None);
 
             await RefreshPreviewCoreAsync();
-            lastAppliedImportSelectionSignature = CreateImportSelectionSignature(acceptedChangeIds);
+            lastAppliedImportSelectionSignature = CreateImportSelectionSignature(safeAcceptedChangeIds);
             WorkspaceStatus = string.Concat(
                 UiFormatter.FormatWorkspaceApplyStatus(result),
                 " ",
@@ -3419,7 +3421,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         ParserDiagnosticCount = preview.ParserDiagnostics.Count;
         UnresolvedItemCount = preview.SyncPlan?.UnresolvedItems.Count ?? preview.ParserUnresolvedItems.Count;
         OccurrenceCount = preview.NormalizationResult?.Occurrences.Count ?? 0;
-        PlannedChangeCount = GetEffectivePlannedChanges(preview).Count;
+        PlannedChangeCount = GetEffectivePlannedChanges(preview).Length;
         ParserWarningSummary = preview.ParserWarnings.Count == 0
             ? UiText.WorkspaceNoParserWarnings
             : BuildIssueSummary(UiText.WorkspaceWarningsTitle, preview.ParserWarnings.Select(UiFormatter.FormatParseIssueMessage));
@@ -5163,6 +5165,20 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         ImportSelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    private string[] NormalizeAcceptedImportChangeIds(IReadOnlyCollection<string> acceptedChangeIds)
+    {
+        ArgumentNullException.ThrowIfNull(acceptedChangeIds);
+
+        var selectableIds = CurrentEffectivePlannedChanges
+            .Select(static change => change.LocalStableId)
+            .ToHashSet(StringComparer.Ordinal);
+        return acceptedChangeIds
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Where(selectableIds.Contains)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
     internal bool IsImportChangeSelected(string localStableId) =>
         !string.IsNullOrWhiteSpace(localStableId)
         && selectedImportChangeIds?.Contains(localStableId) == true;
@@ -6264,25 +6280,37 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         change.After is not null
         && pendingFallbackFingerprints.Contains(change.After.SourceFingerprint);
 
-    private static IReadOnlyList<PlannedSyncChange> GetEffectivePlannedChanges(WorkspacePreviewResult? preview)
+    private static PlannedSyncChange[] GetEffectivePlannedChanges(WorkspacePreviewResult? preview)
     {
         if (preview?.SyncPlan is not { } syncPlan)
         {
             return Array.Empty<PlannedSyncChange>();
         }
 
+        var safePlannedChanges = syncPlan.PlannedChanges
+            .Where(change => !IsUnsafeUnmanagedGoogleCalendarWrite(preview, change))
+            .ToArray();
+
         var unresolvedItems = syncPlan.UnresolvedItems.Count > 0
             ? syncPlan.UnresolvedItems
             : preview.NormalizationResult?.UnresolvedItems ?? Array.Empty<UnresolvedItem>();
         if (unresolvedItems.Count == 0)
         {
-            return syncPlan.PlannedChanges;
+            return safePlannedChanges;
         }
 
-        return syncPlan.PlannedChanges
+        return safePlannedChanges
             .Where(change => !IsDeleteShadowedByUnresolvedItem(change, unresolvedItems))
             .ToArray();
     }
+
+    private static bool IsUnsafeUnmanagedGoogleCalendarWrite(
+        WorkspacePreviewResult preview,
+        PlannedSyncChange change) =>
+        preview.Preferences.DefaultProvider == ProviderKind.Google
+        && change.TargetKind == SyncTargetKind.CalendarEvent
+        && change.RemoteEvent is { IsManagedByApp: false }
+        && change.ChangeKind is SyncChangeKind.Updated or SyncChangeKind.MetadataOnly or SyncChangeKind.Deleted;
 
     private static bool IsDeleteShadowedByUnresolvedItem(
         PlannedSyncChange change,
@@ -6380,12 +6408,12 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
 
     private static HashSet<string> GetAcceptedGoogleCalendarDeleteIds(
         WorkspacePreviewResult preview,
-        IReadOnlyCollection<string> acceptedChangeIds)
+        string[] acceptedChangeIds)
     {
         ArgumentNullException.ThrowIfNull(preview);
         ArgumentNullException.ThrowIfNull(acceptedChangeIds);
 
-        if (preview.SyncPlan is null || acceptedChangeIds.Count == 0)
+        if (preview.SyncPlan is null || acceptedChangeIds.Length == 0)
         {
             return new HashSet<string>(StringComparer.Ordinal);
         }
@@ -6467,10 +6495,10 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             .Where(static occurrence => occurrence.TargetKind == SyncTargetKind.CalendarEvent)
             .GroupBy(
                 static occurrence => CreateGoogleDuplicatePayloadKey(
+                    occurrence.ClassName,
                     occurrence.Metadata.CourseTitle,
                     occurrence.Start,
-                    occurrence.End,
-                    occurrence.Metadata.Location),
+                    occurrence.End),
                 StringComparer.Ordinal)
             .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
         var deletionWindow = syncPlan.DeletionWindow;
@@ -6490,10 +6518,10 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
             .Where(remoteEvent => deletionWindow is null || OverlapsGoogleDuplicateWindow(deletionWindow, remoteEvent.Start, remoteEvent.End))
             .GroupBy(
                 static remoteEvent => CreateGoogleDuplicatePayloadKey(
+                    remoteEvent.ClassName,
                     remoteEvent.Title,
                     remoteEvent.Start,
-                    remoteEvent.End,
-                    remoteEvent.Location),
+                    remoteEvent.End),
                 StringComparer.Ordinal)
             .Select(
                 group => new
@@ -6515,16 +6543,16 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
     }
 
     private static string CreateGoogleDuplicatePayloadKey(
+        string? className,
         string title,
         DateTimeOffset start,
-        DateTimeOffset end,
-        string? location) =>
+        DateTimeOffset end) =>
         string.Join(
             "|",
+            className ?? string.Empty,
             title,
             start.ToUniversalTime().ToString("O"),
-            end.ToUniversalTime().ToString("O"),
-            location ?? string.Empty);
+            end.ToUniversalTime().ToString("O"));
 
     private static bool OverlapsGoogleDuplicateWindow(PreviewDateWindow window, DateTimeOffset start, DateTimeOffset end)
     {
@@ -6571,7 +6599,7 @@ public sealed class WorkspaceSessionViewModel : ObservableObject, IDisposable
         }
 
         var effectivePlannedChanges = GetEffectivePlannedChanges(preview);
-        if (effectivePlannedChanges.Count == 0 && preview.SyncPlan.PlannedChanges.Count == 0)
+        if (effectivePlannedChanges.Length == 0 && preview.SyncPlan.PlannedChanges.Count == 0)
         {
             return preview.SyncPlan.Occurrences;
         }

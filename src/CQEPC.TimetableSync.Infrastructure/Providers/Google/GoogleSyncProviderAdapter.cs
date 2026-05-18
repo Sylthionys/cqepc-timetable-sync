@@ -772,6 +772,11 @@ public sealed class GoogleSyncProviderAdapter : ISyncProviderAdapter
     {
         if (change.ChangeSource == SyncChangeSource.RemoteManaged)
         {
+            if (!string.IsNullOrWhiteSpace(change.RemoteEvent?.RemoteItemId))
+            {
+                return change.RemoteEvent.RemoteItemId;
+            }
+
             if (!string.IsNullOrWhiteSpace(change.RemoteEvent?.ParentRemoteItemId))
             {
                 return change.RemoteEvent.ParentRemoteItemId!;

@@ -334,7 +334,7 @@ public sealed class GoogleCalendarSyncExecutorTests
     }
 
     [Fact]
-    public async Task ApplyChangeAsyncDeletesRecurringMasterForRemoteManagedDuplicateSeriesWithoutMapping()
+    public async Task ApplyChangeAsyncDeletesRemoteManagedDuplicateInstanceWithoutMapping()
     {
         var fakeClient = new FakeGoogleCalendarSyncClient();
         var executor = new GoogleCalendarSyncExecutor(fakeClient);
@@ -357,11 +357,37 @@ public sealed class GoogleCalendarSyncExecutorTests
             new Dictionary<string, SyncMapping>(StringComparer.Ordinal),
             CancellationToken.None);
 
-        fakeClient.DeleteRequests.Should().HaveCount(2);
+        fakeClient.DeleteRequests.Should().ContainSingle();
         fakeClient.DeleteRequests[0].CalendarId.Should().Be("old-calendar");
-        fakeClient.DeleteRequests[0].RemoteItemId.Should().Be("duplicate-series-id");
-        fakeClient.DeleteRequests[1].CalendarId.Should().Be("old-calendar");
-        fakeClient.DeleteRequests[1].RemoteItemId.Should().Be("preview-remote-id");
+        fakeClient.DeleteRequests[0].RemoteItemId.Should().Be("preview-remote-id");
+    }
+
+    [Fact]
+    public async Task ApplyChangeAsyncDeletesRemoteManagedDuplicateEvenWhenLocalSyncIdBelongsToAnotherOccurrence()
+    {
+        var fakeClient = new FakeGoogleCalendarSyncClient();
+        var executor = new GoogleCalendarSyncExecutor(fakeClient);
+        var occurrence = CreateOccurrence(new DateOnly(2026, 5, 21), new TimeOnly(8, 30), new TimeOnly(10, 0), "Signals");
+
+        await executor.ApplyChangeAsync(
+            "new-calendar",
+            new PlannedSyncChange(
+                SyncChangeKind.Deleted,
+                SyncTargetKind.CalendarEvent,
+                "remote|old-calendar|duplicate-instance|2026-05-21T00:30:00.0000000+00:00",
+                changeSource: SyncChangeSource.RemoteManaged,
+                before: occurrence,
+                remoteEvent: CreatePreviewRemoteEvent(
+                    "duplicate-instance",
+                    occurrence,
+                    "old-calendar",
+                    localSyncId: "stale-local-sync-id")),
+            new Dictionary<string, SyncMapping>(StringComparer.Ordinal),
+            CancellationToken.None);
+
+        fakeClient.DeleteRequests.Should().ContainSingle();
+        fakeClient.DeleteRequests[0].CalendarId.Should().Be("old-calendar");
+        fakeClient.DeleteRequests[0].RemoteItemId.Should().Be("duplicate-instance");
     }
 
     [Fact]

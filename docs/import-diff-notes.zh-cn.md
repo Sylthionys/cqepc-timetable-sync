@@ -139,14 +139,19 @@
 - 导入页顶部操作栏（Compact / Medium / Expanded 三个响应式断点）移除 `[同步当前日历]` 按钮及其绑定的 `SyncCurrentCalendarCommand`，该命令已从 ViewModel 中完全删除。
 - 同步操作仅通过首页的"应用到 Google 日历"按钮完成，导入页不再承载一键全量同步入口，避免在差异审阅界面中途执行非针对性的全量同步。
 
+### Google 未托管远端项只作为背景上下文
+
+- Google Calendar 远端事件只有带有本应用托管身份时，才可以成为可选的更新、删除或仅元数据修复项。普通远端事件即使与课表标题相同、时间不同，也只在首页"当前日历"视图中作为中性的外部日历上下文显示，不进入导入页可选变更，也不会被传入首页应用写入路径。
+- 导入页和首页共享 `WorkspaceSessionViewModel` 的有效变更集合：该集合会过滤掉未托管 Google Calendar 远端事件支撑的更新、删除和仅元数据行，并在接收外部 accepted id 时再次只保留当前有效变更 id，避免隐藏的远端上下文通过选择状态重新进入 apply。
+
 ### 无变更日程全部时间选中后自动滚动
 
 - 在无变更日程区域的重复规则视图中点击某项具体发生项时，左侧自动切换到"全部时间"视图并高亮当前发生项。之前右侧详情虽然能跳转并选中对应行，但左侧滚动容器没有自动下滑到选中位置。
 - 修复方式：`ImportDiffPageViewModel` 新增 `ParsedOccurrenceScrollRequested` 事件，`SelectParsedOccurrence` 在设置选中状态后触发该事件；`ImportDiffPage.xaml.cs` 订阅事件并使用 `Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle)` 等待模式切换后的左侧列表完成重建，再刷新 `ParsedCourseGroupsControl` 与 `ReviewScrollViewer` 布局、重新计算滚动范围，并将目标行滚动到同一个左侧滚动区域内。
 - `ImportDiffPage.xaml` 中无变更日程的 `ItemsControl` 添加 `x:Name="ParsedCourseGroupsControl"` 以支持代码端定位。
-- 小窗/紧凑布局下，左侧 `ReviewScrollViewer` 的垂直滚动条本身不得通过外边距推离控件边界，否则 WPF 会在滚动条模板边界处裁剪滑块；滚动内容本身保留较小右边距即可，避免内容卡片贴到滚动条区域。
+- 小窗/紧凑布局下，左侧 `ReviewScrollViewer` 的垂直滚动条保持可见，并且不得通过外边距推离控件边界，否则 WPF 会在滚动条模板边界处裁剪滑块；滚动内容本身保留较小右边距即可，避免内容卡片贴到滚动条区域。
 - 左侧 `ReviewScrollViewer` 使用导入页局部滚动条模板，Thumb 不再继承全局模板的内部上下 margin；滑块主体直接按窄条居中绘制并使用半径收尾，避免小窗模式下短滑块下端被裁成平边。
-- 小窗/紧凑布局下，左侧滚动内容切换或重建后必须重新刷新 `ReviewScrollViewer` 的滚动范围，并保留底部滚动余量；隐藏的底部说明区不得继续占用 `Grid.Row=3` 高度，否则“全部时间”长列表末尾会在小窗中被截断。
+- 小窗/紧凑布局下，左侧滚动内容切换或重建后必须重新刷新 `ReviewScrollViewer` 的滚动范围，并保留底部滚动余量；承载左侧列表的嵌套 Grid 必须允许 `MinHeight=0` 并裁剪到自身边界，隐藏的底部说明区不得继续占用 `Grid.Row=3` 高度，否则“全部时间”长列表末尾会在小窗中被截断。
 
 ### CRLF/LF 行尾规范
 

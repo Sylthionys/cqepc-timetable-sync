@@ -707,12 +707,13 @@ public sealed class ShellViewModelTests
             occurrence.Metadata.CourseTitle,
             occurrence.Start,
             occurrence.End,
-            occurrence.Metadata.Location,
+            "Gym",
             "managed",
             isManagedByApp: true,
             localSyncId: "remote|duplicate",
             sourceFingerprintHash: occurrence.SourceFingerprint.Hash,
-            sourceKind: occurrence.SourceFingerprint.SourceKind);
+            sourceKind: occurrence.SourceFingerprint.SourceKind,
+            className: occurrence.ClassName);
         var appliedIdBatches = new List<string[]>();
         var buildIndex = 0;
         var previewService = new FakeWorkspacePreviewService(
@@ -766,7 +767,8 @@ public sealed class ShellViewModelTests
                                     isManagedByApp: true,
                                     localSyncId: SyncIdentity.CreateOccurrenceId(occurrence),
                                     sourceFingerprintHash: occurrence.SourceFingerprint.Hash,
-                                    sourceKind: occurrence.SourceFingerprint.SourceKind),
+                                    sourceKind: occurrence.SourceFingerprint.SourceKind,
+                                    className: occurrence.ClassName),
                                 duplicateRemote,
                             ],
                             deletionWindow: new PreviewDateWindow(
