@@ -135,7 +135,7 @@ public sealed class GoogleSyncProviderAdapterTests
     }
 
     [Fact]
-    public void NormalizeAcceptedChangesForApplyDeduplicatesRemoteManagedRecurringSeriesDeletes()
+    public void NormalizeAcceptedChangesForApplyKeepsRemoteManagedRecurringInstanceDeletesSeparate()
     {
         var firstOccurrence = CreateOccurrence(new DateOnly(2026, 3, 16), "series-a");
         var secondOccurrence = CreateOccurrence(new DateOnly(2026, 3, 23), "series-b");
@@ -190,13 +190,13 @@ public sealed class GoogleSyncProviderAdapterTests
 
         var normalized = GoogleSyncProviderAdapter.NormalizeAcceptedChangesForApply(request);
 
-        normalized.Should().ContainSingle();
-        normalized[0].ChangeKind.Should().Be(SyncChangeKind.Deleted);
-        normalized[0].RemoteEvent!.ParentRemoteItemId.Should().Be("series-id");
+        normalized.Should().HaveCount(2);
+        normalized.Should().OnlyContain(static change => change.ChangeKind == SyncChangeKind.Deleted);
+        normalized.Select(static change => change.RemoteEvent!.RemoteItemId).Should().Equal("instance-1", "instance-2");
     }
 
     [Fact]
-    public void ExpandDeletedChangeResultsForAcceptedChangesMarksEveryDeduplicatedSeriesMemberSuccessful()
+    public void ExpandDeletedChangeResultsForAcceptedChangesKeepsSeparateRemoteManagedInstanceDeletes()
     {
         var firstOccurrence = CreateOccurrence(new DateOnly(2026, 3, 16), "series-a");
         var secondOccurrence = CreateOccurrence(new DateOnly(2026, 3, 23), "series-b");
@@ -255,7 +255,10 @@ public sealed class GoogleSyncProviderAdapterTests
         var expanded = GoogleSyncProviderAdapter.ExpandDeletedChangeResultsForAcceptedChanges(
             request,
             normalized.Where(static change => change.ChangeKind == SyncChangeKind.Deleted).ToArray(),
-            [new ProviderAppliedChangeResult(normalized[0].LocalStableId, true)]);
+            [
+                new ProviderAppliedChangeResult(normalized[0].LocalStableId, true),
+                new ProviderAppliedChangeResult(normalized[1].LocalStableId, true),
+            ]);
 
         expanded.Should().HaveCount(2);
         expanded.Should().OnlyContain(static result => result.Succeeded);

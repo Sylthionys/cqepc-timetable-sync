@@ -1447,6 +1447,10 @@ public sealed class WorkspaceSessionResolutionTests
 
         await session.InitializeAsync();
 
+        session.CurrentEffectivePlannedChanges.Should().ContainSingle(change =>
+            change.LocalStableId == "chg-added");
+        session.CurrentEffectivePlannedChanges.Should().NotContain(change =>
+            change.LocalStableId == "chg-delete-remote");
         session.HomeScheduleItems.Should().Contain(item =>
             item.Title == "Signals"
             && item.Status == HomeScheduleEntryStatus.Unchanged
@@ -1460,14 +1464,35 @@ public sealed class WorkspaceSessionResolutionTests
             && item.BackgroundHex == "#E5F5EC");
         session.HomeScheduleItems.Should().Contain(item =>
             item.Title == "Signals"
-            && item.Status == HomeScheduleEntryStatus.Deleted
-            && item.Origin == HomeScheduleEntryOrigin.RemotePendingDeletion);
+            && item.TimeRange == "13:00-14:40"
+            && item.Status == HomeScheduleEntryStatus.Unchanged
+            && item.Origin == HomeScheduleEntryOrigin.RemoteCalendarOnly
+            && item.VisualStyle == HomeCalendarVisualStyle.RemoteExternal
+            && item.BackgroundHex == "#F7F9FC"
+            && item.BorderBrushHex == "#D7DEE7");
         session.HomeScheduleItems.Should().Contain(item =>
             item.Title == "Holiday"
             && item.Status == HomeScheduleEntryStatus.Unchanged
             && item.Origin == HomeScheduleEntryOrigin.RemoteCalendarOnly
             && item.VisualStyle == HomeCalendarVisualStyle.RemoteExternal
-            && item.BackgroundHex == "#FEF3DD");
+            && item.BackgroundHex == "#F7F9FC"
+            && item.BorderBrushHex == "#D7DEE7");
+    }
+
+    [Fact]
+    public async Task WorkspaceSessionApplyAcceptedChangesDropsUnsafeUnmanagedGoogleRemoteIds()
+    {
+        var previewService = new DynamicWorkspacePreviewService(CreatePreviewWithGoogleHomeMix);
+        var session = CreateSession(
+            CreateReadyCatalogState(),
+            new RecordingUserPreferencesRepository(WorkspacePreferenceDefaults.Create()),
+            previewService);
+
+        await session.InitializeAsync();
+
+        await session.ApplyAcceptedChangesAsync(["chg-delete-remote", "chg-added"]);
+
+        previewService.LastAcceptedChangeIds.Should().Equal("chg-added");
     }
 
     [Fact]
@@ -2269,6 +2294,8 @@ public sealed class WorkspaceSessionResolutionTests
 
         public int ApplyAcceptedChangesCallCount { get; private set; }
 
+        public IReadOnlyCollection<string>? LastAcceptedChangeIds { get; private set; }
+
         public List<WorkspacePreviewRequest> PreviewRequests => previewRequests;
 
         public void BlockNextBuild(TaskCompletionSource previewStarted, TaskCompletionSource previewRelease)
@@ -2370,6 +2397,7 @@ public sealed class WorkspaceSessionResolutionTests
             CancellationToken cancellationToken)
         {
             ApplyAcceptedChangesCallCount++;
+            LastAcceptedChangeIds = acceptedChangeIds.ToArray();
             if (applyException is not null)
             {
                 return Task.FromException<WorkspaceApplyResult>(applyException);
@@ -2387,6 +2415,7 @@ public sealed class WorkspaceSessionResolutionTests
             IReadOnlyCollection<string> acceptedChangeIds,
             CancellationToken cancellationToken)
         {
+            LastAcceptedChangeIds = acceptedChangeIds.ToArray();
             if (applyException is not null)
             {
                 return Task.FromException<WorkspaceApplyResult>(applyException);

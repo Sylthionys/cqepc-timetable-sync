@@ -202,7 +202,7 @@ internal sealed class GoogleCalendarSyncExecutor
         CancellationToken cancellationToken)
     {
         var occurrence = change.After!;
-        var preferredRemoteEvent = ResolvePreferredRemoteEvent(change.LocalStableId, change.RemoteEvent);
+        var preferredRemoteEvent = ResolvePreferredRemoteEvent(change);
         var targetCalendarId = ResolveTargetCalendarId(calendarDestinationId, mapping, preferredRemoteEvent);
 
         if (mapping is null)
@@ -364,7 +364,7 @@ internal sealed class GoogleCalendarSyncExecutor
         IDictionary<string, SyncMapping> mappings,
         CancellationToken cancellationToken)
     {
-        var preferredRemoteEvent = ResolvePreferredRemoteEvent(change.LocalStableId, change.RemoteEvent);
+        var preferredRemoteEvent = ResolvePreferredRemoteEvent(change);
         string? deletedRecurringMasterId = null;
         if (mapping is null)
         {
@@ -705,10 +705,9 @@ internal sealed class GoogleCalendarSyncExecutor
         return calendarDestinationId;
     }
 
-    private static ProviderRemoteCalendarEvent? ResolvePreferredRemoteEvent(
-        string localStableId,
-        ProviderRemoteCalendarEvent? remoteEvent)
+    private static ProviderRemoteCalendarEvent? ResolvePreferredRemoteEvent(PlannedSyncChange change)
     {
+        var remoteEvent = change.RemoteEvent;
         if (remoteEvent is null)
         {
             return null;
@@ -719,9 +718,15 @@ internal sealed class GoogleCalendarSyncExecutor
             return null;
         }
 
+        if (change.ChangeKind == SyncChangeKind.Deleted
+            && change.ChangeSource == SyncChangeSource.RemoteManaged)
+        {
+            return remoteEvent;
+        }
+
         if (!string.IsNullOrWhiteSpace(remoteEvent.LocalSyncId)
-            && !string.Equals(remoteEvent.LocalSyncId, localStableId, StringComparison.Ordinal)
-            && !string.Equals(remoteEvent.LocalStableId, localStableId, StringComparison.Ordinal))
+            && !string.Equals(remoteEvent.LocalSyncId, change.LocalStableId, StringComparison.Ordinal)
+            && !string.Equals(remoteEvent.LocalStableId, change.LocalStableId, StringComparison.Ordinal))
         {
             return null;
         }
@@ -739,6 +744,7 @@ internal sealed class GoogleCalendarSyncExecutor
 
     private static bool ShouldDeleteRecurringSeries(PlannedSyncChange change, string? parentRemoteItemId) =>
         change.ChangeSource == SyncChangeSource.RemoteManaged
+        && change.RemoteEvent is null
         && !string.IsNullOrWhiteSpace(parentRemoteItemId);
 
     private static SyncMapping CreateSingleEventMapping(ResolvedOccurrence occurrence, string calendarId, string remoteItemId) =>
