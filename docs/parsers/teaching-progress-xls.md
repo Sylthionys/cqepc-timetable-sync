@@ -1,61 +1,66 @@
 # Teaching Progress XLS Parser
 
-## Supported CQEPC Shape
+This document is the contract for the CQEPC teaching-progress workbook parser. Runtime source tokens live in `CQEPC.TimetableSync.Infrastructure/Parsing/Spreadsheet/TeachingProgressXlsLexicon.cs`.
 
-The parser targets the real CQEPC teaching-progress workbook layout used for semester planning sheets:
+## Supported CQEPC shape
 
-- a visible worksheet title containing academic-year and semester metadata such as `2025/2026学年第二学期`
-- a header band with `月`, `日`, and `周`
-- a class column labeled `班级`
-- contiguous semester week columns between the class column and the trailing arrangement columns
+The parser targets CQEPC semester planning workbooks with:
 
-The parser reads every visible worksheet and expects them to agree on the semester grid.
+- visible worksheet titles containing academic-year and semester metadata such as `2025/2026学年第二学期`;
+- header rows containing `月`, `日`, and `周`;
+- a class column labeled `班级`;
+- contiguous semester week columns between the class column and trailing arrangement columns.
 
-Chinese worksheet tokens used by the parser are centralized in `CQEPC.TimetableSync.Infrastructure/Parsing/Spreadsheet/TeachingProgressXlsLexicon.cs`. Keep the workbook parser implementation ASCII-safe and add or update CQEPC Chinese labels in that lexicon file instead of scattering literals through parsing logic or tests.
+The parser reads every visible worksheet that participates in the workbook shape and expects the semester grid to agree across worksheets.
 
-## Extracted Data
+## Source-of-truth role
 
-The parser extracts only:
+The teaching-progress XLS is used only for semester week-to-date mapping. It is not the source of truth for regular weekly course events, practical-course semantics, locations, teachers, or period times.
 
-- semester week numbers
-- week start dates
-- week end dates
+## Extracted data
 
-It does not treat row symbols such as `R`, `V`, `/`, `:`, or `E` as week-date truth.
-It also ignores trailing columns such as `理论周数`, `设计名称`, and `实习、实训名称` except when identifying where the week grid ends.
+The parser extracts:
 
-## Date Resolution Rules
+- semester week number;
+- week start date;
+- week end date.
 
-- The month row is forward-filled across merged or visually merged headers.
-- Day cells are parsed as `start/end`, including cross-month shapes such as `30/5` and `27/3`.
+It does not treat row symbols such as `R`, `V`, `/`, `:`, or `E` as week-date truth. It ignores trailing arrangement columns such as `理论周数`, `设计名称`, and `实习、实训名称` except when identifying where the week grid ends.
+
+## Date resolution rules
+
+- Month rows are forward-filled across merged or visually merged headers.
+- Day cells are parsed as start/end pairs, including cross-month shapes such as `30/5` and `27/3`.
 - Academic year and semester are resolved from workbook metadata.
-- Week dates must be monotonic and aligned to 7-day ranges.
+- Week dates must be monotonic and aligned to seven-day ranges.
 
-If workbook dates are complete and consistent, the spreadsheet wins.
+If workbook dates are complete and consistent, the workbook mapping wins.
 
-## Fallback Behavior
+## Fallback behavior
 
-If the workbook contains usable week numbers but its date mapping is incomplete or ambiguous, the parser can use `firstWeekStartOverride`:
+If the workbook has usable week numbers but incomplete or ambiguous dates, the parser may use `firstWeekStartOverride`:
 
-- week 1 starts on the override date
-- each later week starts 7 days later
-- each week ends 6 days after its start
+- week 1 starts on the override date;
+- each later week starts seven days later;
+- each week ends six days after its start.
 
-When fallback is applied, the parser emits both a warning and a diagnostic so the UI can surface that the workbook dates were not trusted.
+When fallback is applied, the parser emits a warning and diagnostic so the UI can explain that workbook dates were not trusted.
 
-Outside the parser, workspace preview stores the parsed week-1 date as an auto-derived timetable-resolution value. That lets Settings show the effective first-week start even before PDF or DOCX parsing is complete, while still keeping manual override separate and user-controlled.
+Outside the parser, workspace preview stores a parsed week-1 date as an auto-derived timetable-resolution value. That value can populate Settings without becoming a manual override.
 
 ## Diagnostics
 
-The parser emits diagnostics and warnings for:
+Diagnostics should cover:
 
-- malformed or non-sequential week rows
-- missing or malformed date cells
-- missing academic-year or semester metadata
-- conflicting visible worksheets
-- ignored trailing arrangement columns
-- manual override fallback being applied
+- missing or malformed week rows;
+- missing or malformed date cells;
+- missing academic-year or semester metadata;
+- conflicting visible worksheets;
+- ignored trailing arrangement columns;
+- manual override fallback.
 
-The current implementation uses stable codes such as `XLS001`-`XLS004` for grid parsing and `XLS100`-`XLS104` for workbook-level failures or fallback conditions. WPF localizes those messages in Presentation by code first and falls back to the stored parser text if a localization key is missing.
+Presentation localizes diagnostic codes and falls back to parser text when a localization key is missing.
 
-Tests for this parser use in-memory worksheet fixtures and do not depend on private raw school exports.
+## Regression expectations
+
+Tests should use generated or sanitized workbook fixtures. They should cover consistent grids, cross-month ranges, invalid date cells, conflicting worksheets, and manual first-week fallback.

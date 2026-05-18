@@ -1,142 +1,113 @@
 # Timetable PDF Parser
 
-Readable Chinese token examples referenced below live in [timetable-pdf.zh-cn.md](./timetable-pdf.zh-cn.md). Runtime parser tokens still live in `CQEPC.TimetableSync.Infrastructure/Parsing/Pdf/TimetablePdfLexicon.cs`.
+This document is the contract for the CQEPC timetable PDF parser. Human-readable source-token examples live in [timetable-pdf-source-tokens.md](./timetable-pdf-source-tokens.md). Runtime token matching lives in `CQEPC.TimetableSync.Infrastructure/Parsing/Pdf/TimetablePdfLexicon.cs`.
 
-## Supported CQEPC Shape
+## Supported CQEPC shape
 
 The parser targets text-based CQEPC timetable PDFs with the current school-export layout:
 
-- a class header line ending with the timetable suffix token
-- seven weekday columns for Monday through Sunday
-- regular timetable blocks placed inside the weekday grid
-- footer legend and print-time rows beneath the grid
-- optional practical-course summary blocks at the bottom
+- class header lines ending with the timetable suffix token;
+- seven weekday columns from Monday through Sunday;
+- regular timetable blocks inside the weekday grid;
+- period-range lead text inside regular blocks;
+- labeled metadata segments for campus, venue, teacher, teaching class, assessment, hours, credits, and related note payload;
+- footer legend and print-time rows beneath the grid;
+- optional practical-course summary/footer material below the regular timetable grid.
 
-Scanned or image-only PDFs are not supported in v1.
+Scanned or image-only PDFs are not supported.
 
-## Parsing Strategy
+## Source-of-truth role
 
-The parser is implemented in `CQEPC.TimetableSync.Infrastructure/Parsing/Pdf/TimetablePdfParser.cs` and uses `PdfPig`.
+The timetable PDF is the source of truth for regular weekly course blocks. It is not the source of truth for semester dates or period-time profiles.
 
-Chinese timetable labels and markers used by the parser are centralized in `CQEPC.TimetableSync.Infrastructure/Parsing/Pdf/TimetablePdfLexicon.cs`. Keep the main parser implementation ASCII-safe and add or update CQEPC tokens in that lexicon file instead of scattering literals through parsing logic or tests.
+Practical summary/footer material must not be exported automatically. Course-like practical summary text that can be isolated should be preserved as unresolved source data with raw text and class context; pure footer legends, print timestamps, and template decoration remain layout-only.
 
-Per page, it:
+## Parsing strategy
 
-1. reads positioned letters and drawn page paths
-2. groups pages into class sections by detecting class-header lines
-3. analyzes the CQEPC page template from weekday headers, column rectangles, left-side grid bands, and footer markers
-4. derives weekday column bounds, timetable-body top/bottom, and row-band regions from that layout
-5. rebuilds wrapped lines inside layout-scoped row bands before assigning each line back to a weekday column
-6. keeps extraction cell-local enough to avoid same-baseline text bleed across adjacent weekdays
-7. repairs same-column split blocks before unresolved classification when title-only or metadata-only orphan fragments can be merged losslessly
-8. carries bottom-of-page title fragments into the next page and can continue through an additional top-of-page title fragment before parsing the final metadata lead
-9. silently consumes successful top-of-page metadata carryover tails instead of surfacing user-visible noise diagnostics
-10. refuses cross-page carryover stitching when the next top-of-page block is already a standalone course cell, so one page's residue does not swallow the next page's new course
-11. splits a merged top-of-page block when metadata carryover residue and the next standalone course were extracted into one column block
-12. also defers bottom-of-page blocks whose tagged metadata is visibly truncated and completes them from the next page's metadata-only tail when the stitch is lossless
-13. when the source PDF clips only the trailing tagged-note tail and no continuation page exists, can conservatively recover the missing teaching-count/assessment/hour/credit fields from an exactly matching peer block with the same title, campus, teacher, and teaching-class composition
-14. parses each block as wrapped title lines followed by a metadata lead starting with the period-range token
+The implementation uses `PdfPig` and should remain layout-aware:
 
-## Extracted Fields
+1. read positioned text and drawn page paths;
+2. detect class sections;
+3. infer page template regions from weekday headers, column rectangles, row bands, and footer markers;
+4. rebuild wrapped lines within row-band and weekday-column bounds;
+5. parse title lines followed by a metadata lead;
+6. assign structured metadata fields from labeled segments;
+7. generate parser warnings/diagnostics for skipped or malformed source shapes;
+8. produce `ClassSchedule` values with `CourseBlock` children and block-local `SourceFingerprint` values.
 
-Pages that begin with metadata continuation from the previous timetable cell are treated as carryover: metadata-only fragments are consumed internally when they can be attached to the previous parsed block, mixed carryover-plus-title blocks are trimmed back to the new course title before metadata parsing, merged top-of-page metadata-prefix-plus-course blocks are split before carryover resolution, and title continuations split across a page break are reassembled before metadata parsing when the weekday-column neighbor chain is unambiguous.
-Standalone top-of-page course cells are not treated as continuation targets, even when the previous page ended with a title fragment in the same weekday column.
-Bottom-of-page blocks that already contain the period lead but stop mid-tagged-metadata are also treated as carryover candidates; if the next page starts with the missing metadata tail in the same weekday column, the parser upgrades the block instead of emitting a truncated unresolved item.
-If the CQEPC header page pushes a title-only fragment into the footer strip below the last normal grid band, that footer-strip title still has to stay inside the weekday-column extraction window so the next page's metadata-only continuation can resolve into the intended course instead of disappearing.
-If a CQEPC export visibly clips only the trailing note-style metadata and there is no continuation page, the parser may still recover that tail from another fully parsed block only when the structured identity already matches exactly enough to make the fill lossless in practice: same course title, same campus, same teacher, and same teaching-class composition. It does not borrow week expressions, weekdays, periods, locations, or class headers.
+The extraction window must stay cell-local enough to avoid same-baseline bleed between adjacent weekday columns.
+
+## Carryover and repair rules
+
+Conservative repair is allowed for CQEPC exports that split a regular course block across a page boundary:
+
+- metadata-only top-of-page tails may attach to the previous weekday cell when the target is unambiguous;
+- title fragments in a previous page's footer strip may participate in carryover matching with a next-page metadata tail;
+- a top-of-page block that is already a standalone course must not be swallowed by the previous page's residue;
+- if extraction merges a metadata tail and the next standalone course into one top-of-page block, the parser must split the merged block before carryover resolution;
+- trailing tagged metadata may be recovered from an exactly matching peer block only when the structured identity is already safe: same title, campus, teacher, and teaching-class composition.
+
+Repair must not borrow week expressions, weekdays, periods, locations, class headers, or unrelated metadata.
+
+## Extracted fields
 
 For each regular timetable block, the parser extracts:
 
-- `CourseTitle`
-- `CourseType` from the CQEPC title marker when present
-- `Weekday`
-- `PeriodRange`
-- `WeekExpression.RawText`
-- `Campus`
-- `Location`
-- `Teacher`
-- `TeachingClassComposition`
-- `Notes` for remaining labeled metadata such as class size, assessment mode, hour composition, or credits
-- `SourceFingerprint`
+- `CourseTitle`;
+- `CourseType` when a CQEPC title marker is present;
+- `Weekday`;
+- `PeriodRange`;
+- `WeekExpression.RawText`;
+- `Campus`;
+- `Location`;
+- `Teacher`;
+- `TeachingClassComposition`;
+- `Notes` for remaining labeled metadata;
+- `SourceFingerprint`.
 
-The parser preserves the raw week-expression text exactly as extracted between the period-range lead and the first tagged metadata field.
-For regular timetable blocks, `SourceFingerprint` is intentionally block-local. It hashes the normalized block text together with the class/page anchor used during parsing, not the whole PDF file hash. This keeps unchanged lessons stable across renamed or lightly revised timetable exports while still letting genuinely changed blocks receive a new fingerprint.
+The raw week-expression text is preserved exactly as extracted between the period-range lead and the first recognized tagged metadata field.
 
-## Tagged Metadata Rules
+`SourceFingerprint` is block-local. It hashes normalized block content plus parsing anchor information instead of the whole PDF file hash, so unchanged lessons stay stable across renamed or lightly revised exports.
 
-Tagged metadata is extracted from label markers inside the block payload. See the companion token file for the exact Chinese labels.
-Known label aliases must be canonicalized before structured-field assignment. In particular, the shorter `/教学班:` form must be treated the same as `/教学班组成:` so teacher values do not accidentally absorb the teaching-class payload.
+## Tagged metadata rules
 
-Unknown trailing labeled metadata is preserved in `Notes` instead of being guessed into new structured fields.
+Known tagged metadata labels are canonicalized before structured assignment. The short teaching-class alias must be treated as the same field as the longer teaching-class composition label so teacher values do not absorb teaching-class payload.
 
-When the parser keeps that trailing metadata only as slash-delimited tagged note segments, downstream Import diff rendering must preserve the recovered tail as `After` notes even when there is no explicit `Notes:` label in the payload.
+Unknown trailing labeled metadata is preserved in `Notes` instead of guessed into new structured fields.
 
-The parser also tolerates short metadata-tail fragments such as split credit/hour suffixes when they can be attached losslessly to the immediately preceding block in the same weekday column or the previous page carryover target.
+When the parser keeps trailing metadata only as slash-delimited tagged note segments, downstream Import rendering must preserve those segments in the resulting notes payload.
 
-If a regular block still contains visibly truncated tagged metadata after carryover repair, such as half a label (`/教学班人`, `/考核`, `/课程学`) or a fixed-format tail that stops before later required tags, the parser keeps the raw block as unresolved instead of exporting a partially parsed course.
+If a regular block still contains visibly truncated tagged metadata after carryover repair, the parser must keep the raw block unresolved instead of exporting a partially parsed course.
 
-## Unresolved Items
+## Unresolved and diagnostic behavior
 
-The parser emits `UnresolvedItem` values for one course-block case:
+The parser emits diagnostics for malformed grid regions, skipped cells, truncated tagged metadata, and parsing failures. Stable diagnostic codes should be kept so Presentation can localize messages by code and fall back to parser text.
 
-- `AmbiguousItem`
-  - generated when a block contains text but cannot be parsed into a valid title plus period-range metadata payload
-  - also generated when the source PDF itself truncates fixed-format tagged metadata and the parser can no longer recover a lossless structured block
-  - currently emitted with stable codes such as `PDF106`, `PDF107`, `PDF108`, or `PDF109` depending on the failure
-  - carries the raw truncated source text so the UI can show exactly what the PDF still contains
+A regular block that contains course-like text but cannot be parsed into a valid title plus metadata payload should become an unresolved item carrying the raw source text and class context.
 
-Footer practical-summary notes are treated as layout/footer markers only. They are not parsed into timetable output and do not produce unresolved items.
+Practical-summary rows that describe ambiguous course work should produce unresolved review items rather than auto-exportable occurrences. Pure footer legend or print-time rows are layout-only.
 
-## Model Shape
+## Model shape
 
-The parser keeps the cross-layer output shape unchanged:
+The parser keeps the cross-layer output shape:
 
-- `ClassSchedule(ClassName, CourseBlocks[])`
-- `CourseBlock(ClassName, Weekday, CourseMetadata, SourceFingerprint, CourseType?)`
-- `CourseMetadata(CourseTitle, WeekExpression, PeriodRange, Notes, Campus, Location, Teacher, TeachingClassComposition)`
-- `UnresolvedItem(AmbiguousItem, ClassName, Summary, RawSourceText, Reason, SourceFingerprint)`
+- `ClassSchedule(ClassName, CourseBlocks[])`;
+- `CourseBlock(ClassName, Weekday, CourseMetadata, SourceFingerprint, CourseType?)`;
+- `CourseMetadata(CourseTitle, WeekExpression, PeriodRange, Notes, Campus, Location, Teacher, TeachingClassComposition)`;
+- `UnresolvedItem` for regular source blocks that remain ambiguous.
 
-## Diagnostics and Warnings
+## Regression expectations
 
-The parser can emit diagnostics or warnings for:
+Parser tests should cover:
 
-- missing PDF files
-- unreadable PDFs
-- pages without extractable text
-- pages where weekday columns cannot be resolved
-- pages that appear before any class header is found
-- ambiguous timetable blocks that are kept unresolved instead of dropped
-- skipped regular blocks with specific reasons such as missing period leads, missing week expressions, likely merged text, metadata-tag failures, and empty/non-course cells
+- single-class and multi-class PDFs;
+- weekday column isolation;
+- wrapped line reconstruction;
+- cross-page carryover and refusal cases;
+- practical-summary/footer unresolved handling;
+- tagged metadata aliases;
+- block-local fingerprint stability;
+- unresolved malformed blocks;
+- UTF-8-safe Chinese source-token handling.
 
-Those diagnostic and unresolved codes are stable parser output. WPF localizes them in Presentation by code first and falls back to the stored parser message or unresolved reason when a localization key is missing.
-
-## Regression Coverage
-
-Synthetic PDF fixtures cover:
-
-- multi-class PDFs
-- same-template segmented CQEPC grid geometry for both header pages and continuation pages
-- same-baseline blocks in adjacent weekday columns
-- shared teaching groups
-- wrapped metadata inside one timetable cell
-- wrapped title-only fragments followed by metadata-only fragments in the same column
-- cross-page title continuation followed by a later metadata lead
-- rejection of false carryover merges when the next page already starts with a standalone course block
-- top-of-page metadata tails that are consumed without user-visible carryover diagnostics
-- top-of-page metadata tails that accidentally merged into the next standalone course block
-- sparse or odd/even week expressions
-- practical-course summary footer blocks as excluded footer content, ensuring the parser still uses them to find the grid boundary without surfacing them as parsed or unresolved timetable items
-- malformed regular timetable blocks
-- source-truncated metadata payloads that must stay unresolved instead of being half-parsed
-
-Fixtures are generated in code and do not depend on private school exports.
-
-## Known Limitations
-
-- v1 supports text-based PDFs only; there is no OCR fallback
-- the parser is intentionally CQEPC-layout-specific and depends on the current CQEPC same-template header, weekday-column layout, left-side grid bands, footer legend, and practical-summary footer format
-- raw punctuation may vary between fullwidth and ASCII forms depending on how the source PDF encodes glyphs; parser matching is tolerant, while raw extracted text is preserved as returned by the PDF text layer
-- same-column orphan recovery is intentionally conservative; if a neighbor merge is not clearly local and lossless, the block stays unresolved
-- practical-course summaries at the page footer are ignored by design; if the school only provides a course in that footer note and not in the timetable grid, the parser will not emit it
-- some school-exported PDFs visibly clip metadata near the page edge or page bottom; those blocks are now treated as unresolved source truncation rather than silently exported with partial metadata
-- source fingerprints are designed to survive whole-file churn, not semester-spanning identity reuse; later layers still need occurrence-level sync identity plus snapshot/provider state to decide whether two exports describe the same concrete lessons
+Tests should use generated or sanitized fixtures, not private raw school exports.
